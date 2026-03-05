@@ -8,7 +8,9 @@
     "distribute": "tsx distribute-onchain.ts",
     "reassemble": "tsx reassemble.ts",
     "test": "tsx integration-test.ts",
-    "test:readonly": "tsx integration-test.ts --skip-broadcast"
+    "test:readonly": "tsx integration-test.ts --skip-broadcast",
+    "test:restricted": "tsx restricted-env-test.ts",
+    "test:restricted:readonly": "tsx restricted-env-test.ts --skip-broadcast"
   },
   "dependencies": {
     "dotenv": "^17.3.1",
