@@ -1,0 +1,21 @@
+{
+  "endpoints": [
+    "https://proxy1.example.com/rpc",
+    "https://proxy2.example.com/rpc"
+  ],
+  "expires": "2026-06-01T00:00:00Z",
+  "subscribers": [
+    "haa-testuser1",
+    "haa-testuser2"
+  ],
+  "groups": {
+    "group-a": {
+      "endpoints": [
+        "https://proxy-a1.example.com/rpc"
+      ],
+      "subscribers": [
+        "haa-testuser1"
+      ]
+    }
+  }
+}
