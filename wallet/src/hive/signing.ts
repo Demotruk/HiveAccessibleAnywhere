@@ -29,7 +29,7 @@ export async function signAndBroadcast(
   // addOperation is async — it fetches dynamic global properties
   // on the first call to set up the reference block
   for (const [opName, opBody] of operations) {
-    await tx.addOperation(opName, opBody);
+    await tx.addOperation(opName as any, opBody as any);
   }
 
   // Sign locally — private key never leaves the device

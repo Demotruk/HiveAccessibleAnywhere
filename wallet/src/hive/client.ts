@@ -80,8 +80,8 @@ export class HiveClient {
     ];
     this.transport = transport ?? new DirectTransport();
 
-    // Also configure hive-tx's internal node for any direct hive-tx calls
-    hiveTxConfig.node = this.endpoints[0];
+    // Also configure hive-tx's internal nodes for any direct hive-tx calls
+    hiveTxConfig.nodes = [this.endpoints[0]];
   }
 
   /** Get the currently active endpoint */
@@ -94,7 +94,7 @@ export class HiveClient {
     if (endpoints.length === 0) throw new Error('At least one endpoint required');
     this.endpoints = endpoints;
     this.currentIndex = 0;
-    hiveTxConfig.node = endpoints[0];
+    hiveTxConfig.nodes = [endpoints[0]];
   }
 
   /** Set the transport (e.g. swap in obfuscated transport) */
@@ -125,7 +125,7 @@ export class HiveClient {
 
         // Success — update current index to this working endpoint
         this.currentIndex = (this.currentIndex + attempt) % this.endpoints.length;
-        hiveTxConfig.node = this.endpoints[this.currentIndex];
+        hiveTxConfig.nodes = [this.endpoints[this.currentIndex]];
         return response.result as T;
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));

@@ -1,6 +1,7 @@
 import type { AppState, App } from '../app';
 import { getClient } from '../../hive/client';
 import { parseAsset } from '../../hive/keys';
+import { getRpcManager } from '../../discovery/rpc-manager';
 
 export async function BalanceScreen(c: HTMLElement, state: AppState, _app: App) {
   c.innerHTML = `<div class="card"><p class="bl">Account</p>
@@ -25,7 +26,7 @@ export async function BalanceScreen(c: HTMLElement, state: AppState, _app: App) 
 <div><p class="bl">HBD Savings</p><p class="ba gc">${sd.amount.toFixed(3)}</p></div></div>
 ${sd.amount > 0 ? `<div class="info mt2"><p class="sm mt">Est. interest (~20% APR): <strong class="gc">~${(sd.amount*.2).toFixed(3)} HBD/yr</strong></p></div>` : ''}
 ${a.savings_withdraw_requests > 0 ? `<p class="wrn mt1">${a.savings_withdraw_requests} pending withdrawal(s)</p>` : ''}
-<p class="xs mt mt2">RPC: ${cl.currentEndpoint}</p>`;
+<p class="xs mt mt2">RPC: ${cl.currentEndpoint}${(() => { const m = getRpcManager(); const ep = m.allEndpoints.find(e => e.url === cl.currentEndpoint); return ep ? ` (${ep.source})` : ''; })()}</p>`;
     } catch (e) { bel.innerHTML = `<p class="err">${e instanceof Error ? e.message : e}</p>`; }
     finally { rbtn.disabled = false; }
   }

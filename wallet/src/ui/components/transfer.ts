@@ -15,9 +15,9 @@ export async function TransferScreen(c: HTMLElement, state: AppState, _app: App)
 
   const to = c.querySelector('#to') as HTMLInputElement, am = c.querySelector('#am') as HTMLInputElement;
   const cu = c.querySelector('#cu') as HTMLSelectElement, me = c.querySelector('#me') as HTMLInputElement;
-  const sb = c.querySelector('#s') as HTMLButtonElement, cb = c.querySelector('#cb')!;
-  const ct = c.querySelector('#ct')!, yb = c.querySelector('#y') as HTMLButtonElement;
-  const nb = c.querySelector('#n')!, er = c.querySelector('#e')!, ok = c.querySelector('#o')!;
+  const sb = c.querySelector('#s') as HTMLButtonElement, cb = c.querySelector('#cb') as HTMLElement;
+  const ct = c.querySelector('#ct') as HTMLElement, yb = c.querySelector('#y') as HTMLButtonElement;
+  const nb = c.querySelector('#n') as HTMLElement, er = c.querySelector('#e') as HTMLElement, ok = c.querySelector('#o') as HTMLElement;
 
   const show = (el: HTMLElement, msg: string) => { el.textContent = msg; el.classList.remove('hidden'); };
   const hide = (...els: HTMLElement[]) => els.forEach(e => e.classList.add('hidden'));

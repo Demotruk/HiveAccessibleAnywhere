@@ -42,7 +42,7 @@ export async function LoginScreen(c: HTMLElement, state: AppState, app: App) {
       }
       state.account = account; state.activeKeyWif = activeWif;
       state.memoKeyWif = memoWif; state.persistKeys = pi.checked;
-      app.saveState(); app.navigate('balance');
+      app.saveState(); app.startDiscovery(); app.navigate('balance');
     } catch (e) {
       show(er, e instanceof Error ? e.message : String(e)); hide(st); btn.disabled = false;
     }

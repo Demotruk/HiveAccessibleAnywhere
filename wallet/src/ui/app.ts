@@ -8,6 +8,7 @@ import { BalanceScreen } from './components/balance';
 import { TransferScreen } from './components/transfer';
 import { SavingsScreen } from './components/savings';
 import { SettingsScreen } from './components/settings';
+import { getRpcManager } from '../discovery/rpc-manager';
 
 export interface AppState {
   /** Logged-in account name */
@@ -67,6 +68,9 @@ export class App {
     // Listen for hash changes
     window.addEventListener('hashchange', () => this.route());
     this.route();
+
+    // Start endpoint discovery if already logged in with memo key
+    this.startDiscovery();
   }
 
   private loadState(): AppState {
@@ -113,8 +117,17 @@ export class App {
     }
   }
 
+  /** Start endpoint discovery if memo key is available */
+  startDiscovery(): void {
+    if (this.state.account && this.state.memoKeyWif) {
+      const mgr = getRpcManager();
+      mgr.startPeriodicChecks(this.state.account, this.state.memoKeyWif);
+    }
+  }
+
   /** Clear all stored keys and log out */
   logout(): void {
+    getRpcManager().stopPeriodicChecks();
     this.state.account = null;
     this.state.activeKeyWif = null;
     this.state.memoKeyWif = null;
