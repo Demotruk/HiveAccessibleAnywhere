@@ -9,6 +9,7 @@ import { TransferScreen } from './components/transfer';
 import { SavingsScreen } from './components/savings';
 import { SettingsScreen } from './components/settings';
 import { getRpcManager } from '../discovery/rpc-manager';
+import { applyObfuscation } from '../obfuscation/manager';
 
 export interface AppState {
   /** Logged-in account name */
@@ -47,6 +48,9 @@ export class App {
   constructor(container: HTMLElement) {
     this.container = container;
     this.state = this.loadState();
+
+    // Apply obfuscation mode (default: ON)
+    applyObfuscation();
 
     // Build shell
     this.container.innerHTML = '';
