@@ -20,7 +20,9 @@ export function decryptMemo(
     return encryptedMemo;
   }
 
-  return Memo.decode(privateKeyWif, encryptedMemo);
+  const decoded = Memo.decode(privateKeyWif, encryptedMemo);
+  // Memo.decode() returns the original plaintext with the '#' prefix intact — strip it
+  return decoded.startsWith('#') ? decoded.slice(1) : decoded;
 }
 
 /**

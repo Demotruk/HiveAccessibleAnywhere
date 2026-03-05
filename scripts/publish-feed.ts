@@ -1,3 +1,5 @@
+import 'dotenv/config';
+
 /**
  * Endpoint Feed Publisher
  *

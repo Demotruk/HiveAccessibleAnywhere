@@ -6,14 +6,17 @@
   "scripts": {
     "publish-feed": "tsx publish-feed.ts",
     "distribute": "tsx distribute-onchain.ts",
-    "reassemble": "tsx reassemble.ts"
+    "reassemble": "tsx reassemble.ts",
+    "test": "tsx integration-test.ts",
+    "test:readonly": "tsx integration-test.ts --skip-broadcast"
   },
   "dependencies": {
+    "dotenv": "^17.3.1",
     "hive-tx": "^7.0.1"
   },
   "devDependencies": {
-    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0",
     "tsx": "^4.19.0",
-    "@types/node": "^22.0.0"
+    "typescript": "^5.7.0"
   }
 }

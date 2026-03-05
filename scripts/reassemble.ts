@@ -1,3 +1,5 @@
+import 'dotenv/config';
+
 /**
  * Reassemble wallet HTML from on-chain Hive posts.
  *
