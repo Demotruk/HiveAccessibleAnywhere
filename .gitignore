@@ -1,0 +1,14 @@
+node_modules/
+dist/
+*.env
+*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo

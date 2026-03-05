@@ -1,0 +1,37 @@
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#1a1a2e;--sf:#16213e;--in:#0f3460;--tx:#e8e8e8;--tm:#a0a0b0;--ac:#e94560;--ah:#ff6b81;--ok:#4ecca3;--wn:#f0c040;--er:#e94560;--bd:#2a2a4a;--r:8px}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--tx);min-height:100vh;line-height:1.5}
+.ct{max-width:480px;margin:0 auto;padding:24px 16px}
+h1{font-size:1.5rem;margin-bottom:8px}
+h2{font-size:1.2rem;margin-bottom:12px}
+p{margin-bottom:8px}
+button{background:var(--ac);color:var(--tx);border:none;padding:10px 20px;border-radius:var(--r);cursor:pointer;font-size:1rem;width:100%;margin-bottom:8px}
+button:hover{background:var(--ah)}
+button:disabled{opacity:.5;cursor:not-allowed}
+.btn-s{background:var(--sf);border:1px solid var(--bd)}
+.btn-ok{background:var(--ok)}
+.btn-er{background:var(--er)}
+input,textarea,select{background:var(--in);color:var(--tx);border:1px solid var(--bd);padding:10px 12px;border-radius:var(--r);font-size:1rem;width:100%;margin-bottom:12px}
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--ac)}
+label{display:block;font-size:.85rem;color:var(--tm);margin-bottom:4px}
+.card{background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);padding:16px;margin-bottom:12px}
+.ba{font-size:1.8rem;font-weight:bold}
+.bl{font-size:.85rem;color:var(--tm)}
+.sm{font-size:.85rem}
+.xs{font-size:.75rem}
+.err{color:var(--er);font-size:.85rem}
+.ok{color:var(--ok);font-size:.85rem}
+.wrn{color:var(--wn);font-size:.85rem}
+.mt{color:var(--tm)}
+.gc{color:var(--ok)}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.mb{margin-bottom:12px}
+.mt1{margin-top:8px}
+.mt2{margin-top:12px}
+.info{padding:8px;background:var(--in);border-radius:var(--r)}
+.fx{display:flex;gap:8px}
+nav{display:flex;gap:4px;margin-bottom:16px;overflow-x:auto}
+nav a{color:var(--tm);text-decoration:none;padding:8px 12px;border-radius:var(--r);font-size:.85rem;white-space:nowrap}
+nav a.active{background:var(--sf);color:var(--tx)}
+nav a:hover{color:var(--tx)}
+.hidden{display:none}

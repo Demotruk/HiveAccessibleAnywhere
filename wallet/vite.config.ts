@@ -1,0 +1,17 @@
+import { defineConfig } from 'vite';
+import { viteSingleFile } from 'vite-plugin-singlefile';
+
+export default defineConfig({
+  plugins: [viteSingleFile()],
+  build: {
+    target: 'es2022',
+    outDir: 'dist',
+    minify: 'esbuild',
+    reportCompressedSize: true,
+  },
+  resolve: {
+    alias: {
+      // Ensure we use browser-compatible builds
+    },
+  },
+});
