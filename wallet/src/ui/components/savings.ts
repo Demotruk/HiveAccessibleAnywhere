@@ -45,7 +45,7 @@ ${sd.amount > 0 ? `<p class="sm gc mt1">~${(sd.amount*.2).toFixed(3)} HBD/yr (~2
         pl.querySelector('#cb')!.addEventListener('click', async function(this: HTMLButtonElement) {
           this.disabled = true;
           try { const r = await signAndBroadcast([cancelTransferFromSavings(state.account!, 0)], importKey(state.activeKeyWif!));
-            showO(`Cancelled. Block: ${r.block_num}`); await load();
+            showO(`Cancelled. (${r.status})`); await load();
           } catch(e) { showE(e instanceof Error ? e.message : String(e)); } finally { this.disabled = false; }
         });
       } else pw.classList.add('hidden');
@@ -64,7 +64,7 @@ ${sd.amount > 0 ? `<p class="sm gc mt1">~${(sd.amount*.2).toFixed(3)} HBD/yr (~2
         ? transferToSavings(state.account!, state.account!, formatAsset(amt, cur))
         : transferFromSavings(state.account!, Math.floor(Date.now()/1000)%2147483647, state.account!, formatAsset(amt, cur));
       const r = await signAndBroadcast([o], kp);
-      showO(`${isSave ? 'Deposited' : 'Withdrawal initiated'}. Block: ${r.block_num}`);
+      showO(`${isSave ? 'Deposited' : 'Withdrawal initiated'}. (${r.status})`);
       inp.value = ''; await load();
     } catch(e) { showE(e instanceof Error ? e.message : String(e)); }
     finally { btn.disabled = false; btn.textContent = isSave ? 'Deposit to Savings' : 'Withdraw from Savings'; }

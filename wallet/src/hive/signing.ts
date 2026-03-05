@@ -5,41 +5,37 @@
  */
 
 import { Transaction } from 'hive-tx';
-import { getClient, type BroadcastResult } from './client';
 import type { HiveOperation } from './operations';
 import type { KeyPair } from './keys';
 
 /**
  * Build, sign, and broadcast a transaction containing the given operations.
  *
- * Steps:
- * 1. Fetch dynamic global properties for the reference block
- * 2. Build the transaction with correct ref_block_num, ref_block_prefix, expiration
- * 3. Sign locally with the provided private key
- * 4. Broadcast the signed transaction
+ * Uses hive-tx's Transaction class which handles:
+ * - Fetching dynamic global properties for the reference block
+ * - Setting expiration
+ * - Serialization and signing
+ * - Broadcasting
+ *
+ * Note: hive-tx uses its internal config.node for RPC calls, which we keep
+ * in sync via the HiveClient singleton (see client.ts).
  */
 export async function signAndBroadcast(
   operations: HiveOperation[],
   key: KeyPair,
-): Promise<BroadcastResult> {
-  const client = getClient();
-
-  // 1. Get reference block info
-  const props = await client.getDynamicGlobalProperties();
-
-  // 2. Create and sign the transaction using hive-tx's Transaction class
+): Promise<{ tx_id: string; status: string }> {
   const tx = new Transaction();
-  tx.create(operations);
 
-  // hive-tx Transaction.create uses the global config node for ref block,
-  // which we keep in sync via the client. But we need to make sure
-  // the transaction has the correct expiration.
+  // addOperation is async — it fetches dynamic global properties
+  // on the first call to set up the reference block
+  for (const [opName, opBody] of operations) {
+    await tx.addOperation(opName, opBody);
+  }
 
-  // Sign the transaction
-  const signedTx = tx.sign(key.private);
+  // Sign locally — private key never leaves the device
+  tx.sign(key.private);
 
-  // 3. Broadcast
-  // The signedTx from hive-tx is the full transaction object
-  const result = await client.broadcastTransaction(signedTx);
+  // Broadcast and wait for confirmation
+  const result = await tx.broadcast(true);
   return result;
 }

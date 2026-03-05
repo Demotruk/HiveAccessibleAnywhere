@@ -143,6 +143,29 @@ A network of proxy nodes that relay RPC requests to actual Hive API nodes.
 - Proxy operators cannot steal funds or forge transactions (they never see private keys)
 - Each proxy endpoint is assigned to a small group of users to enable leak tracing
 
+### 2.6 Modified Hive Keychain
+
+A modified version of the Hive Keychain browser extension that integrates the same RPC endpoint discovery and traffic obfuscation capabilities as the self-contained wallet tool.
+
+**Purpose:** Existing Hive users who already use Hive Keychain can install this modified version *before* traveling to a region with restricted internet access, giving them continued access to Hive through a familiar interface.
+
+**Requirements:**
+- Integrates per-user encrypted memo endpoint discovery (same mechanism as the wallet tool, section 2.2)
+- Supports the same traffic obfuscation protocol (section 2.3) for RPC communication
+- Falls back to discovered proxy endpoints automatically when direct RPC access fails
+- Retains all standard Keychain functionality — signing, account management, dApp integration
+- Users can configure their service account (the account that sends endpoint memos) within the extension settings
+
+**Limitations:**
+- This is **not a solution for users inside restricted regions who lack prior access.** Browser extension stores (Chrome Web Store, Firefox Add-ons) may themselves be blocked or restricted. The modified Keychain cannot be installed from within a restricted environment.
+- It is intended for users who **already have Hive accounts and Keychain installed**, and who want to maintain access when traveling to or residing in restricted areas.
+- Distribution of this extension is through conventional channels (extension stores, sideloading from a trusted source). It does not need on-chain distribution — users install it while they still have unrestricted access.
+
+**Relationship to the wallet tool:**
+- The wallet tool (section 2.1) is for users who cannot install extensions — it works as a standalone HTML file with no installation
+- The modified Keychain is for users who *can* install extensions ahead of time and prefer the richer Keychain experience
+- Both share the same endpoint discovery protocol and obfuscation layer, ensuring compatibility with the same proxy infrastructure
+
 ---
 
 ## Security Considerations

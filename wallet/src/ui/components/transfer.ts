@@ -41,7 +41,7 @@ export async function TransferScreen(c: HTMLElement, state: AppState, _app: App)
       const kp = importKey(state.activeKeyWif!);
       const res = await signAndBroadcast([transfer(state.account!, r, formatAsset(a, cur), me.value)], kp);
       cb.classList.add('hidden'); sb.classList.remove('hidden');
-      show(ok, `Sent! Block: ${res.block_num}`);
+      show(ok, `Sent! TX: ${res.tx_id?.slice(0,12)}... (${res.status})`);
       to.value = ''; am.value = ''; me.value = '';
     } catch (e) {
       show(er, e instanceof Error ? e.message : String(e));
