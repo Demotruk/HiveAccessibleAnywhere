@@ -136,7 +136,6 @@ async function main() {
   const discussion = await rpcCall('bridge.get_discussion', {
     author: account,
     permlink: rootPermlink,
-    limit: 100,
   });
 
   if (!discussion) {

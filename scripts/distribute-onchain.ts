@@ -130,7 +130,7 @@ async function publishLocale(locale: string): Promise<void> {
 
   // Build manifest
   const manifest: ManifestEntry[] = chunks.map((chunk, i) => ({
-    permlink: `part-${padNum(i + 1)}`,
+    permlink: `${locale}-part-${padNum(i + 1)}`,
     hash: sha256(chunk),
   }));
 
@@ -345,7 +345,7 @@ async function fetchFromChain(){
   progress(5,"Fetching manifest...");
 
   // Use bridge.get_discussion to get root + all comments in one call
-  const discussion=await rpc("bridge.get_discussion",{author:ACCOUNT,permlink:PERMLINK,limit:100});
+  const discussion=await rpc("bridge.get_discussion",{author:ACCOUNT,permlink:PERMLINK});
   if(!discussion)throw new Error("Post not found");
 
   // Filter to only comments by the publisher account
