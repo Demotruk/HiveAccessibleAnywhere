@@ -10,7 +10,7 @@ import { isPhase2 } from '../phase';
 
 export type ObfuscationMode = 'obfuscated' | 'direct';
 
-const KEY = 'haa_obfuscation';
+const KEY = 'propolis_obfuscation';
 const origFetch = globalThis.fetch;
 let active = false;
 
