@@ -10,15 +10,19 @@
     "reassemble": "tsx reassemble.ts",
     "test": "tsx integration-test.ts",
     "test:readonly": "tsx integration-test.ts --skip-broadcast",
+    "deploy-pages": "tsx deploy-pages.ts",
+    "generate-qr": "tsx generate-qr.ts",
     "test:restricted": "tsx restricted-env-test.ts",
     "test:restricted:readonly": "tsx restricted-env-test.ts --skip-broadcast"
   },
   "dependencies": {
     "dotenv": "^17.3.1",
-    "hive-tx": "^7.0.1"
+    "hive-tx": "^7.0.1",
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/qrcode": "^1.5.6",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   }

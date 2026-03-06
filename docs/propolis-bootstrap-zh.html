@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Propolis Wallet</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:1rem}
+.c{max-width:420px;width:100%;text-align:center}
+h1{font-size:1.3rem;margin-bottom:1rem}
+.s{font-size:.85rem;color:#aaa;margin-bottom:.5rem}
+.p{background:#222;border-radius:8px;height:6px;overflow:hidden;margin:1rem 0}
+.p div{height:100%;background:#4a9;transition:width .3s}
+.e{color:#e55;margin-top:1rem;font-size:.85rem}
+button{background:#4a9;color:#fff;border:none;padding:.6rem 1.5rem;border-radius:4px;cursor:pointer;font-size:.9rem;margin-top:1rem}
+button:hover{background:#3a8}
+</style>
+</head>
+<body>
+<div class="c">
+<h1>Propolis Wallet</h1>
+<p class="s" id="st">Initializing...</p>
+<div class="p"><div id="pb" style="width:0%"></div></div>
+<p class="e hidden" id="er"></p>
+</div>
+<script>
+(async()=>{
+"use strict";
+const ACCOUNT="propolis-publish";
+const PERMLINK="propolis-wallet-v1-zh";
+const VERSION_HASH="647daebf51b9af3fff454bb46f66cc30f243c851ed6c91a8eb40295c801ba945";
+const MANIFEST=[{"permlink":"zh-part-01","hash":"b420133b8736c9fff6ed5139fe79deb0d3d4abd7d52c7de7b42bfe0ce1867d23"},{"permlink":"zh-part-02","hash":"038bd85078104ea72b81029d90624762b50d2cf4999613e68303085c8ad3ed67"}];
+const NODES=["https://api.hive.blog","https://api.deathwing.me","https://hive-api.arcange.eu"];
+const DB_NAME="propolis";
+const DB_STORE="cache";
+const DB_KEY="wallet-zh";
+
+const st=document.getElementById("st");
+const pb=document.getElementById("pb");
+const er=document.getElementById("er");
+const progress=(p,msg)=>{pb.style.width=p+"%";if(msg)st.textContent=msg;};
+const fail=(msg)=>{er.textContent=msg;er.classList.remove("hidden");st.textContent="Failed";};
+
+// IndexedDB helpers
+function openDB(){
+  return new Promise((res,rej)=>{
+    try{
+      const r=indexedDB.open(DB_NAME,1);
+      r.onupgradeneeded=()=>r.result.createObjectStore(DB_STORE);
+      r.onsuccess=()=>res(r.result);
+      r.onerror=()=>rej(r.error);
+    }catch(e){rej(e);}
+  });
+}
+async function cacheGet(db){
+  return new Promise((res)=>{
+    try{
+      const tx=db.transaction(DB_STORE,"readonly");
+      const r=tx.objectStore(DB_STORE).get(DB_KEY);
+      r.onsuccess=()=>res(r.result||null);
+      r.onerror=()=>res(null);
+    }catch(e){res(null);}
+  });
+}
+async function cacheSet(db,val){
+  try{
+    const tx=db.transaction(DB_STORE,"readwrite");
+    tx.objectStore(DB_STORE).put(val,DB_KEY);
+  }catch(e){/* ignore cache write failures */}
+}
+
+// SHA-256 via crypto.subtle
+async function sha256(text){
+  const buf=new TextEncoder().encode(text);
+  const hash=await crypto.subtle.digest("SHA-256",buf);
+  return Array.from(new Uint8Array(hash)).map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+
+// RPC with failover
+async function rpc(method,params){
+  for(const node of NODES){
+    try{
+      const r=await fetch(node,{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({jsonrpc:"2.0",method,params,id:1})});
+      const d=await r.json();
+      if(d.error)continue;
+      return d.result;
+    }catch(e){continue;}
+  }
+  throw new Error("All RPC nodes failed");
+}
+
+// Load cached wallet if hash matches
+async function tryCache(){
+  try{
+    const db=await openDB();
+    const cached=await cacheGet(db);
+    if(cached&&cached.hash===VERSION_HASH){
+      progress(100,"Loading from cache...");
+      return{html:cached.html,db};
+    }
+    return{html:null,db};
+  }catch(e){
+    return{html:null,db:null};
+  }
+}
+
+// Fetch and verify from chain
+async function fetchFromChain(){
+  progress(5,"Fetching manifest...");
+
+  // Use bridge.get_discussion to get root + all comments in one call
+  const discussion=await rpc("bridge.get_discussion",{author:ACCOUNT,permlink:PERMLINK,limit:100});
+  if(!discussion)throw new Error("Post not found");
+
+  // Filter to only comments by the publisher account
+  const comments={};
+  for(const key of Object.keys(discussion)){
+    const post=discussion[key];
+    if(post.author===ACCOUNT&&post.parent_author===ACCOUNT){
+      comments[post.permlink]=post.body;
+    }
+  }
+
+  progress(20,"Verifying chunks...");
+
+  // Walk manifest, extract chunks, verify hashes
+  const chunks=[];
+  for(let i=0;i<MANIFEST.length;i++){
+    const entry=MANIFEST[i];
+    const body=comments[entry.permlink];
+    if(!body)throw new Error("Missing chunk: "+entry.permlink);
+
+    // Strip code fences
+    const m=body.match(/```\n([\s\S]*?)\n```/);
+    const content=m?m[1]:body.replace(/^```\n?/,"").replace(/\n?```$/,"");
+
+    // Verify chunk hash
+    const h=await sha256(content);
+    if(h!==entry.hash)throw new Error("Hash mismatch for "+entry.permlink);
+
+    chunks.push(content);
+    progress(20+Math.round((i+1)/MANIFEST.length*60),"Verifying chunk "+(i+1)+"/"+MANIFEST.length+"...");
+  }
+
+  // Assemble and verify whole-file hash
+  progress(85,"Verifying assembly...");
+  const assembled=chunks.join("");
+  const fullHash=await sha256(assembled);
+  if(fullHash!==VERSION_HASH)throw new Error("Full hash mismatch");
+
+  progress(95,"Verified!");
+  return assembled;
+}
+
+// Execute: replace page with wallet
+function loadWallet(html){
+  document.open();
+  document.write(html);
+  document.close();
+}
+
+// Main
+try{
+  const{html:cached,db}=await tryCache();
+  if(cached){
+    loadWallet(cached);
+    return;
+  }
+
+  const html=await fetchFromChain();
+
+  // Cache for next time
+  if(db){
+    await cacheSet(db,{hash:VERSION_HASH,html});
+  }
+
+  progress(100,"Loading wallet...");
+  await new Promise(r=>setTimeout(r,200));
+  loadWallet(html);
+}catch(e){
+  // Try to fall back to cache even if stale
+  try{
+    const db=await openDB();
+    const cached=await cacheGet(db);
+    if(cached&&cached.html){
+      fail("Fetch failed, loading cached version (may be outdated)");
+      await new Promise(r=>setTimeout(r,2000));
+      loadWallet(cached.html);
+      return;
+    }
+  }catch(e2){/* no cache available */}
+  fail(e.message||"Unknown error");
+}
+})();
+</script>
+</body>
+</html>

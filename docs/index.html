@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Propolis Wallet</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #111; color: #eee;
+      min-height: 100vh;
+      display: flex; justify-content: center; align-items: center;
+    }
+    .container {
+      max-width: 640px; width: 100%;
+      padding: 2rem 1.5rem; text-align: center;
+    }
+    h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+    .subtitle {
+      color: #aaa; font-size: 1rem; margin-bottom: 2rem;
+      line-height: 1.5;
+    }
+    .cards {
+      display: flex; gap: 1.5rem;
+      justify-content: center; flex-wrap: wrap;
+      margin-bottom: 2rem;
+    }
+    .card {
+      background: #1a1a1a; border: 1px solid #333;
+      border-radius: 12px; padding: 1.5rem 2rem;
+      text-decoration: none; color: #eee;
+      transition: border-color 0.2s, transform 0.2s;
+      flex: 1; min-width: 220px; max-width: 280px;
+    }
+    .card:hover { border-color: #4a9; transform: translateY(-2px); }
+    .card h2 { font-size: 1.4rem; margin-bottom: 1rem; color: #4a9; }
+    .card img {
+      width: 180px; height: 180px;
+      background: #fff; border-radius: 8px; padding: 8px;
+      display: block; margin: 0 auto 1rem;
+    }
+    .card p { color: #aaa; font-size: 0.9rem; }
+    footer {
+      color: #666; font-size: 0.8rem; line-height: 1.6;
+      border-top: 1px solid #222; padding-top: 1.5rem;
+    }
+    footer a { color: #4a9; text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+    .note { margin-bottom: 0.5rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Propolis Wallet</h1>
+    <p class="subtitle">
+      A self-bootstrapping Hive blockchain wallet. No installation required.<br>
+      Hive区块链自引导钱包，无需安装。
+    </p>
+
+    <div class="cards">
+      <a href="propolis-bootstrap-en.html" class="card">
+        <h2>English</h2>
+        <img src="qr/propolis-en.svg" alt="QR code for English wallet">
+        <p>Scan or click to launch</p>
+      </a>
+      <a href="propolis-bootstrap-zh.html" class="card">
+        <h2>中文</h2>
+        <img src="qr/propolis-zh.svg" alt="QR code for Chinese wallet">
+        <p>扫码或点击启动</p>
+      </a>
+    </div>
+
+    <footer>
+      <p class="note">The wallet loads from the Hive blockchain and runs entirely in your browser. Your keys never leave your device.</p>
+      <p class="note">钱包从Hive区块链加载，完全在您的浏览器中运行。您的密钥永远不会离开您的设备。</p>
+      <p><a href="https://github.com/Demotruk/HiveAccessibleAnywhere">Source Code</a> &middot; MIT License</p>
+    </footer>
+  </div>
+</body>
+</html>

@@ -7,6 +7,7 @@
     "build:wallet": "cd wallet && npm run build",
     "dev:wallet": "cd wallet && npm run dev",
     "dev:proxy": "cd proxy && npm run dev",
-    "build": "npm run build:wallet"
+    "build": "npm run build:wallet",
+    "deploy:pages": "cd scripts && npm run deploy-pages && npm run generate-qr"
   }
 }
