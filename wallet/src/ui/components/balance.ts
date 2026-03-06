@@ -3,6 +3,7 @@ import { getClient } from '../../hive/client';
 import { parseAsset } from '../../hive/keys';
 import { getRpcManager } from '../../discovery/rpc-manager';
 import { isObfuscationEnabled } from '../../obfuscation/manager';
+import { isPhase2 } from '../../phase';
 import { t, fmt } from '../locale';
 
 export async function BalanceScreen(c: HTMLElement, state: AppState, _app: App) {
@@ -28,7 +29,7 @@ export async function BalanceScreen(c: HTMLElement, state: AppState, _app: App) 
 <div><p class="bl">${t.hbd_savings}</p><p class="ba gc">${sd.amount.toFixed(3)}</p></div></div>
 ${sd.amount > 0 ? `<div class="info mt2"><p class="sm mt">${t.est_interest} <strong class="gc">~${(sd.amount*.2).toFixed(3)} ${t.hbd_yr}</strong></p></div>` : ''}
 ${a.savings_withdraw_requests > 0 ? `<p class="wrn mt1">${fmt(t.pending_withdrawals, a.savings_withdraw_requests)}</p>` : ''}
-<p class="xs mt mt2">${t.rpc_label} ${cl.currentEndpoint}${(() => { const m = getRpcManager(); const ep = m.allEndpoints.find(e => e.url === cl.currentEndpoint); return ep ? ` (${ep.source})` : ''; })()} | ${isObfuscationEnabled() ? `<span class="gc">${t.obfuscated}</span>` : `<span class="wrn">${t.direct}</span>`}</p>`;
+<p class="xs mt mt2">${t.rpc_label} ${cl.currentEndpoint}${(() => { const m = getRpcManager(); const ep = m.allEndpoints.find(e => e.url === cl.currentEndpoint); return ep ? ` (${ep.source})` : ''; })()}${isPhase2() ? ` | ${isObfuscationEnabled() ? `<span class="gc">${t.obfuscated}</span>` : `<span class="wrn">${t.direct}</span>`}` : ''}</p>`;
     } catch (e) { bel.innerHTML = `<p class="err">${e instanceof Error ? e.message : e}</p>`; }
     finally { rbtn.disabled = false; }
   }

@@ -4,6 +4,7 @@ import { isObfuscationEnabled, setObfuscationMode } from '../../obfuscation/mana
 import { getRpcManager } from '../../discovery/rpc-manager';
 import { decryptMemo } from '../../hive/memo';
 import { isValidPayload, type EndpointPayload } from '../../discovery/endpoint-feed';
+import { isPhase2 } from '../../phase';
 import { t, fmt } from '../locale';
 
 const $ = (s: string, c: HTMLElement) => c.querySelector(s) as HTMLElement;
@@ -55,7 +56,7 @@ function wireMemoHandlers(
 }
 
 export async function LoginScreen(c: HTMLElement, state: AppState, app: App) {
-  const ob = isObfuscationEnabled();
+  const ob = isPhase2() && isObfuscationEnabled();
   const mgr = getRpcManager();
   const needsProxy = ob && !mgr.hasProxyEndpoints();
   const loggedIn = !!state.account;

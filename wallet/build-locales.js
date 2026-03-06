@@ -11,9 +11,9 @@ for (const locale of ['en', 'zh']) {
     env: { ...process.env, LOCALE: locale },
     stdio: 'inherit',
   });
-  renameSync('dist/index.html', `dist/haa-wallet-${locale}.html`);
+  renameSync('dist/index.html', `dist/propolis-wallet-${locale}.html`);
 }
 
 console.log('\nDone! Built:');
-console.log('  dist/haa-wallet-en.html');
-console.log('  dist/haa-wallet-zh.html');
+console.log('  dist/propolis-wallet-en.html');
+console.log('  dist/propolis-wallet-zh.html');

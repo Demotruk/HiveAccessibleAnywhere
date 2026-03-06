@@ -6,6 +6,7 @@
 
 import { getClient, DirectTransport } from '../hive/client';
 import { ObfuscatedTransport, encodeRequest, decodeResponse } from './codec';
+import { isPhase2 } from '../phase';
 
 export type ObfuscationMode = 'obfuscated' | 'direct';
 
@@ -18,6 +19,8 @@ export function getObfuscationMode(): ObfuscationMode {
 }
 
 export function isObfuscationEnabled(): boolean {
+  // Phase 1: obfuscation is always disabled (dead-code-eliminated in Phase 1 builds)
+  if (!isPhase2()) return false;
   return getObfuscationMode() === 'obfuscated';
 }
 
@@ -26,8 +29,10 @@ export function setObfuscationMode(mode: ObfuscationMode): void {
   applyObfuscation();
 }
 
-/** Apply current mode — sets transport + installs/removes fetch interceptor. */
+/** Apply current mode — sets transport + installs/removes fetch interceptor.
+ *  In Phase 1 this is a no-op (direct mode forced). */
 export function applyObfuscation(): void {
+  if (!isPhase2()) return; // Phase 1: no-op
   const cl = getClient();
   if (getObfuscationMode() === 'obfuscated') {
     cl.setTransport(new ObfuscatedTransport());

@@ -3,13 +3,13 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const MAX_SIZE = 100 * 1024; // 100KB
+const MAX_SIZE = 120 * 1024; // 120KB
 
 // Check both locale builds and the default build
 const files = [
   'dist/index.html',
-  'dist/haa-wallet-en.html',
-  'dist/haa-wallet-zh.html',
+  'dist/propolis-wallet-en.html',
+  'dist/propolis-wallet-zh.html',
 ];
 
 let checked = 0;

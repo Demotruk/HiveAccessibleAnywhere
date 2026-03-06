@@ -9,7 +9,7 @@ export const t = {
   html_lang: 'zh',
 
   // App
-  app_title: 'HAA 钱包',
+  app_title: 'Propolis 钱包',
   nav_balance: '余额',
   nav_transfer: '转账',
   nav_savings: '储蓄',
@@ -167,5 +167,5 @@ export const t = {
 
   // Settings — About
   about: '关于',
-  about_text: 'HAA钱包 v0.1.0 — 密钥绝不会离开此设备。',
+  about_text: 'Propolis钱包 v1.0.0 — 密钥绝不会离开此设备。',
 } as const;

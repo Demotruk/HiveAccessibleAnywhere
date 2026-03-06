@@ -9,7 +9,7 @@ export const t = {
   html_lang: 'en',
 
   // App
-  app_title: 'HAA Wallet',
+  app_title: 'Propolis Wallet',
   nav_balance: 'Balance',
   nav_transfer: 'Transfer',
   nav_savings: 'Savings',
@@ -167,5 +167,5 @@ export const t = {
 
   // Settings — About
   about: 'About',
-  about_text: 'HAA Wallet v0.1.0 \u2014 Keys never leave this device.',
+  about_text: 'Propolis Wallet v1.0.0 \u2014 Keys never leave this device.',
 } as const;

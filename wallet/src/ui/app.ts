@@ -10,6 +10,7 @@ import { SavingsScreen } from './components/savings';
 import { SettingsScreen } from './components/settings';
 import { getRpcManager } from '../discovery/rpc-manager';
 import { applyObfuscation, isObfuscationEnabled } from '../obfuscation/manager';
+import { isPhase2 } from '../phase';
 import { t } from './locale';
 
 export interface AppState {
@@ -50,8 +51,8 @@ export class App {
     this.container = container;
     this.state = this.loadState();
 
-    // Apply obfuscation mode (default: ON)
-    applyObfuscation();
+    // Apply obfuscation mode (Phase 2 only; Phase 1 forces direct mode)
+    if (isPhase2()) applyObfuscation();
 
     // Build shell
     this.container.innerHTML = '';
@@ -77,8 +78,9 @@ export class App {
     this.route();
 
     // Start endpoint discovery if already logged in with memo key
-    // (only if we have usable endpoints — skip if obfuscation is ON with no proxy)
-    if (!isObfuscationEnabled() || getRpcManager().hasProxyEndpoints()) {
+    // Phase 1: always start (direct mode, no obfuscation check needed)
+    // Phase 2: only if we have usable endpoints — skip if obfuscation is ON with no proxy
+    if (!isPhase2() || !isObfuscationEnabled() || getRpcManager().hasProxyEndpoints()) {
       this.startDiscovery();
     }
   }
@@ -176,7 +178,8 @@ export class App {
 
     // If obfuscation is ON but no proxy configured, force login/proxy-setup
     // regardless of login state — no RPC calls can succeed without a proxy
-    const needsProxy = isObfuscationEnabled() && !getRpcManager().hasProxyEndpoints();
+    // Phase 1: never needs proxy (obfuscation disabled)
+    const needsProxy = isPhase2() && isObfuscationEnabled() && !getRpcManager().hasProxyEndpoints();
     if (needsProxy && hash !== 'login') {
       this.navigate('login');
       return;

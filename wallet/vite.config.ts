@@ -3,9 +3,13 @@ import { viteSingleFile } from 'vite-plugin-singlefile';
 import { fileURLToPath, URL } from 'node:url';
 
 const locale = process.env.LOCALE || 'en';
+const phase = parseInt(process.env.PHASE || '1');
 
 export default defineConfig({
   plugins: [viteSingleFile()],
+  define: {
+    __PHASE__: JSON.stringify(phase),
+  },
   server: {
     port: parseInt(process.env.PORT || '5174'),
   },

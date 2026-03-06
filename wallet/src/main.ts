@@ -10,7 +10,7 @@ const appEl = document.getElementById('app')!;
 const app = new App(appEl);
 
 // Export for browser console testing during development
-(window as any).haa = {
+(window as any).propolis = {
   app,
   getClient,
   importKey,
