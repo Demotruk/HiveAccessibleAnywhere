@@ -28,9 +28,9 @@ Additionally:
 
 The project delivers value incrementally across three phases. Each phase builds on the previous one, but Phase 1 is independently useful to the entire Hive community — not just users in restricted regions.
 
-### Phase 1 — Self-Bootstrapping Wallet Tool (Initial Release)
+### Phase 1 — Propolis Wallet (Initial Release)
 
-A self-contained, on-chain-distributed Hive wallet that any Hive user can run in a browser with no installation. Connects directly to public Hive API nodes. Useful to the entire Hive community as a lightweight, portable wallet and as a demonstration of on-chain software distribution.
+**Propolis Wallet** — a self-contained, on-chain-distributed Hive wallet that any Hive user can run in a browser with no installation. Named after the resin bees use to build and protect the hive, Propolis builds itself from on-chain data and connects directly to public Hive API nodes. Useful to the entire Hive community as a lightweight, portable wallet and as a demonstration of on-chain software distribution.
 
 ### Phase 2 — Restricted Access Infrastructure
 
@@ -42,24 +42,46 @@ Enable users to convert local currency to HBD and withdraw HBD back to local cur
 
 ---
 
-## Phase 1 Requirements — Self-Bootstrapping Wallet Tool
+## Phase 1 Requirements — Propolis Wallet
+
+### Delivery priority
+
+Phase 1 is split into two sub-phases. Phase 1a is the minimum viable release — ship this first. Phase 1b follows shortly after.
+
+**Phase 1a — Minimum viable release:**
+- Self-bootstrapping from a Hive post (sections 1.2, 1.2.1)
+- Bootstrap security: author filtering, hash manifest verification (section 1.2.1)
+- Local caching after first bootstrap (section 1.2.1)
+- Key import for existing accounts (section 1.1)
+- View balances, send transfers, manage HBD savings (section 1.1)
+- Transaction signing — all signing local, keys never leave the device (section 1.1)
+- Publishing tooling — build script to split the wallet and post it on-chain (section 1.3)
+
+**Phase 1b — Fast follows:**
+- QR key backup with optional PIN protection (section 1.1)
+- QR key import / scan (section 1.1)
+- Key generation for new accounts (section 1.1)
+- Auto-update version checking (section 1.2.1)
+- Standalone save option (section 1.2.1)
 
 ### 1.1 Self-Contained Wallet Tool
 
 A standalone HTML file that functions as a minimal Hive wallet, capable of:
 
-- **Key management**: Generate, import, and use Hive private keys (active key for transfers/savings, posting key for social operations)
+- **Key management**: Import and use Hive private keys (active key for transfers/savings, posting key for social operations). Key generation for new accounts is a Phase 1b feature.
 - **HBD Savings operations**: Stake HBD to savings, unstake from savings, check balances and interest
 - **Transfers**: Send and receive HIVE and HBD
 - **Transaction signing**: Sign transactions locally in the browser — private keys never leave the device
-- **Key backup**: Export keys as a QR code for safe offline backup and import on other devices
+- **Key backup** *(Phase 1b)*: Export keys as a QR code for safe offline backup and import on other devices. The backup screen displays the QR code with a prominent warning that anyone with the QR controls the account. An optional "Add PIN protection" toggle encrypts the key data with a user-chosen PIN before encoding the QR. On import, the wallet detects whether the QR is PIN-encrypted and prompts accordingly. The PIN cannot be recovered — the wallet warns the user clearly before enabling this option.
 
 The tool must:
 - Be fully self-contained in a single HTML file (all JS bundled inline)
 - Work offline for signing operations
-- Be small enough to embed on the Hive blockchain across a small number of posts (~100KB or less target)
+- Be distributable on-chain as a single Hive post plus its comments (each post/comment body has a ~65KB limit, so the wallet is split across as many comments as needed under one root post)
 - Run in any modern browser on desktop or mobile, with no installation required
 - Connect directly to public Hive API nodes (e.g. `api.hive.blog`, `api.deathwing.me`) with no dependency on custom infrastructure
+
+**Phase 2 readiness:** The wallet codebase includes the infrastructure for traffic obfuscation, per-user endpoint discovery, and proxy support (Phase 2 features), but these capabilities are hidden from the UI in Phase 1. They are present in the code but not exposed to the user. When Phase 2 infrastructure becomes available, these features are activated via a configuration change or wallet update — no architectural changes required.
 
 ### 1.2 On-Chain Software Distribution
 
@@ -78,9 +100,28 @@ The wallet tool should be capable of **bootstrapping itself from the blockchain*
 - A Hive post acts as the distribution root. Its comments each contain a chunk of the application code (JS, CSS, HTML fragments)
 - Comments use ordered permlinks (e.g. `part-01`, `part-02`) and `json_metadata` to tag content type
 - The bootstrap HTML uses `bridge.get_discussion` to fetch all comments in a single API call, then assembles and executes the code in order
-- A hash manifest in the root post's `json_metadata` allows the loader to verify each chunk's integrity before execution
+- The root post's `json_metadata` contains a hash manifest: an ordered list of expected comment permlinks and the content hash of each chunk
+
+**Bootstrap security — code injection prevention:**
+
+Anyone on Hive can reply to any post. An attacker could post a comment on the distribution post containing malicious code. If the bootstrap naively processes all comments, or executes any code before verification completes, the attacker's code could run and tamper with the hash verification itself. The following constraints prevent this:
+
+1. **Author filtering**: The bootstrap must only process comments authored by the same account that authored the root post. All other comments are discarded before any processing occurs. The publisher account is hardcoded in the bootstrap HTML.
+2. **Manifest verification**: The root post's `json_metadata` contains the expected permlink and content hash for every chunk. The bootstrap verifies each chunk against the manifest using a cryptographic hash (SHA-256).
+3. **Verify all before executing any**: The bootstrap must fetch, filter, and verify every chunk before executing any code. No comment content is evaluated, injected into the DOM, or processed in any way until the entire manifest has been validated. If any chunk is missing or fails verification, the bootstrap aborts entirely — no partial execution.
+4. **The bootstrap HTML is the trust anchor**: The verification logic lives in the bootstrap file itself, which the user obtained through a trusted channel (direct share, gift card, etc.). On-chain content cannot modify the verification code because no on-chain code executes until verification passes.
 
 **The bootstrap HTML is small enough to share via any channel** — email, messaging apps, QR code, USB, or even a printed card. Once opened in a browser, it fetches and assembles the full app from on-chain data with no further user intervention.
+
+**The bootstrap HTML is the persistent entry point.** Users open the same bootstrap file each time they want to use the wallet. It is the file they bookmark, share, and keep.
+
+**Local caching:**
+- After the first successful bootstrap, the assembled wallet is cached in `localStorage`
+- On subsequent opens, the bootstrap loader checks the on-chain version hash against the cached version
+- If a new version is available, it fetches and caches the update automatically
+- If the chain is unreachable (offline, blocked), it falls back to the cached version
+- This means the wallet works offline after the first load, and stays up to date when online
+- Users who prefer a standalone file can save the assembled wallet as a regular HTML file, but this becomes a static snapshot that will not self-update
 
 **Retrieval cascade — the loader should try multiple paths to reach on-chain data:**
 1. Direct Hive API nodes (e.g. `api.hive.blog`, `api.deathwing.me`)
@@ -91,6 +132,31 @@ The wallet tool should be capable of **bootstrapping itself from the blockchain*
 **V1 requirement:** The first public version of the wallet tool must support self-bootstrapping from at least a direct Hive API node or an RPC proxy. Block explorer fallback and further cascade levels are desirable but can be introduced in later versions.
 
 **Versioning:** Each version is published as a new post (e.g. `wallet-v1`, `wallet-v2`). The bootstrap HTML can include a version check to notify users when an update is available.
+
+### 1.3 Publishing Tooling
+
+A build script that takes the compiled wallet HTML and publishes it to the Hive blockchain. This is developer tooling, not part of the wallet itself.
+
+The script must:
+- Take the single-file HTML output from the build process
+- Split it into chunks that fit within the Hive comment body limit (~65KB each)
+- Post the root post with `json_metadata` containing the hash manifest (ordered list of expected comment permlinks and SHA-256 hash of each chunk's content)
+- Post each chunk as a comment on the root post, with ordered permlinks and content type tags in `json_metadata`
+- Generate the bootstrap HTML file with the publisher account and root post permlink hardcoded
+- Be re-runnable for publishing updates as new posts
+
+### 1.4 Licensing
+
+Propolis Wallet is open source software, licensed under the **MIT License** — consistent with the Hive ecosystem (Hive Keychain, hive-tx, and other major Hive projects all use MIT).
+
+- The canonical license text lives in the GitHub repository as `LICENSE`
+- The root Hive post for each published version includes a short license header and a link to the full license on GitHub:
+  ```
+  Propolis Wallet — MIT License
+  Copyright (c) [year] [author]
+  Full license: https://github.com/[repo]/blob/main/LICENSE
+  ```
+- The full license text is not embedded in on-chain comments — a header plus link is sufficient, and avoids wasting space in the distribution post
 
 ---
 
@@ -251,6 +317,7 @@ A modified version of the Hive Keychain browser extension that integrates the sa
 
 - **Private keys never leave the client device.** All transaction signing happens locally.
 - **The wallet tool's integrity is verifiable** via on-chain checksums and hash manifests.
+- **Bootstrap code injection is prevented** by three layers: only comments from the publisher account are processed, every chunk is verified against a SHA-256 hash manifest before any code executes, and verification aborts entirely on any mismatch. No on-chain content runs until the full manifest is validated.
 - **Proxy nodes are untrusted relays.** They see signed transactions (which are public anyway once broadcast) and return public blockchain data. They cannot modify, forge, or withhold transactions without detection.
 - **Per-user endpoint feeds prevent single-point compromise.** No individual user can leak information that affects other users' access.
 - **Leak tracing is built in.** Endpoint-to-user-group mapping allows identification of compromised users when endpoints are blocked.
