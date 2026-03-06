@@ -65,7 +65,60 @@ Existing users can onboard new users, enabling organic growth without centralize
 - This creates social accountability — if an invitee leaks endpoint information, the invite chain is traceable
 - Invite capacity may be limited (e.g. N invites per user per period) to control growth rate and limit blast radius of compromised users
 
-### 1.3 Onboarding Fee & Subscription Model
+### 1.3 Gift Card Onboarding
+
+A QR-based onboarding mechanism that combines wallet delivery and account provisioning into a single scannable code, suitable for physical or digital distribution.
+
+**Concept:**
+A "gift card" (physical card, printout, or digital image) contains a QR code that, when scanned by a phone camera, opens the bootstrap wallet in a browser. The gift card does not contain a pre-created account — instead it carries a **claim token** that entitles the holder to create one account with a username of their choice.
+
+**QR URL structure:**
+```
+https://<proxy-domain>/<author>/<permlink>#token=<claim-token>
+```
+
+- `<proxy-domain>` — an existing proxy endpoint from the proxy network (section 2.5)
+- `<author>/<permlink>` — the on-chain post containing the bootstrap wallet (section 2.4.1)
+- `#token=<claim-token>` — URL fragment containing the claim token. **The fragment is never sent to the server** — this is a browser guarantee. The proxy only sees the path.
+
+**Claim tokens:**
+- The onboarding service pre-generates a batch of single-use claim tokens when printing gift cards
+- Each token is a cryptographic secret that authorises the creation of exactly one Hive account
+- Tokens are stored by the onboarding service and mapped to their redemption status
+- A token can only be redeemed once — after account creation, it is marked as spent
+
+**Flow:**
+1. Onboarding service generates claim tokens and prints gift cards, each with a unique QR
+2. Gift cards are distributed (in person, by post, via trusted channel)
+3. User scans QR → phone opens browser → proxy fetches the post body from any Hive API node and serves it as HTML
+4. Bootstrap wallet loads in the browser, pulls remaining code from on-chain comments (section 2.4.1)
+5. Wallet reads the claim token from the URL fragment, then immediately clears the fragment from the address bar
+6. Wallet generates keys locally and prompts the user to choose a username
+7. Wallet prompts the user to back up their keys (QR code export, manual copy, or both) **before** proceeding
+8. Wallet sends an account creation request to the onboarding service, including the claim token and the user's chosen username and public keys
+9. Onboarding service validates the token, creates the Hive account, enrols the user in the endpoint subscription feed, and marks the token as spent
+10. Wallet confirms account creation and is ready to use
+
+**Integration with existing infrastructure:**
+- The proxy serving the bootstrap HTML is the same proxy network used for RPC relay (section 2.5), with a small addition: serving a Hive post body as HTML in addition to relaying JSON-RPC
+- The bootstrap wallet is the same self-bootstrapping distribution from section 2.4.1
+- Account creation is handled by the onboarding service (section 1.1), triggered by the claim token
+- Once the account is created, the wallet operates identically regardless of how it was delivered
+
+**Security:**
+- Private keys are generated locally on the user's device and never transmitted — only public keys are sent to the onboarding service
+- The claim token is a single-use secret; once redeemed it cannot be used again
+- The wallet clears the URL fragment from the address bar immediately after reading the token
+- If a claim token is intercepted before the intended user redeems it, the attacker can create an account but the original user's card simply fails to redeem — no funds are at risk since the account is empty at creation
+- The wallet verifies its own integrity via the on-chain hash manifest before handling key material
+
+**Limitations:**
+- The QR contains a fixed proxy domain that may be blocked before the user scans it
+- Mitigation: encode multiple fallback proxy URLs in the QR, or use CDN-fronted domains with high collateral damage to block
+- Gift cards have an effective shelf life tied to the longevity of the printed proxy domain(s)
+- The account creation request requires the onboarding service to be reachable at redemption time — if the service is down, the token remains valid for later use
+
+### 1.4 Onboarding Fee & Subscription Model
 
 The service requires payment to cover infrastructure costs.
 
@@ -199,6 +252,7 @@ A modified version of the Hive Keychain browser extension that integrates the sa
 - **The wallet tool's integrity is verifiable** via on-chain checksums.
 - **Users must understand the 3-day unstaking delay** for HBD savings — this is a blockchain-level property, not a limitation of the tool.
 - **Invite chains create accountability.** Users who invite others are implicitly vouching for them, creating a social trust layer.
+- **Gift card claim tokens are single-use.** A stolen token lets an attacker claim an empty account, but does not compromise any existing user. Keys are generated locally on the user's device, never embedded in the QR or transmitted.
 
 ## Operational Model
 
