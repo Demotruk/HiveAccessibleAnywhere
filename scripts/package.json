@@ -6,6 +6,7 @@
   "scripts": {
     "publish-feed": "tsx publish-feed.ts",
     "distribute": "tsx distribute-onchain.ts",
+    "publish-bootstrap": "tsx publish-bootstrap.ts",
     "reassemble": "tsx reassemble.ts",
     "test": "tsx integration-test.ts",
     "test:readonly": "tsx integration-test.ts --skip-broadcast",
