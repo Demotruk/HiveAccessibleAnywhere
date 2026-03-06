@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --host localhost",
     "build": "vite build",
+    "build:all": "node build-locales.js",
     "preview": "vite preview",
     "check-size": "node check-size.js"
   },

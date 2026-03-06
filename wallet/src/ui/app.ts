@@ -9,7 +9,8 @@ import { TransferScreen } from './components/transfer';
 import { SavingsScreen } from './components/savings';
 import { SettingsScreen } from './components/settings';
 import { getRpcManager } from '../discovery/rpc-manager';
-import { applyObfuscation } from '../obfuscation/manager';
+import { applyObfuscation, isObfuscationEnabled } from '../obfuscation/manager';
+import { t } from './locale';
 
 export interface AppState {
   /** Logged-in account name */
@@ -33,10 +34,10 @@ const SCREENS: Record<string, Screen> = {
 };
 
 const NAV_ITEMS = [
-  { hash: 'balance', label: 'Balance' },
-  { hash: 'transfer', label: 'Transfer' },
-  { hash: 'savings', label: 'Savings' },
-  { hash: 'settings', label: 'Settings' },
+  { hash: 'balance', label: t.nav_balance },
+  { hash: 'transfer', label: t.nav_transfer },
+  { hash: 'savings', label: t.nav_savings },
+  { hash: 'settings', label: t.nav_settings },
 ];
 
 export class App {
@@ -57,7 +58,9 @@ export class App {
 
     const header = document.createElement('div');
     header.className = 'ct';
-    header.innerHTML = '<h1>HAA Wallet</h1>';
+    document.documentElement.lang = t.html_lang;
+    document.title = t.app_title;
+    header.innerHTML = `<h1>${t.app_title}</h1>`;
 
     this.navEl = document.createElement('nav');
     this.contentEl = document.createElement('div');
@@ -74,7 +77,10 @@ export class App {
     this.route();
 
     // Start endpoint discovery if already logged in with memo key
-    this.startDiscovery();
+    // (only if we have usable endpoints — skip if obfuscation is ON with no proxy)
+    if (!isObfuscationEnabled() || getRpcManager().hasProxyEndpoints()) {
+      this.startDiscovery();
+    }
   }
 
   private loadState(): AppState {
@@ -168,6 +174,14 @@ export class App {
   private route(): void {
     const hash = (window.location.hash || '').slice(1) || 'login';
 
+    // If obfuscation is ON but no proxy configured, force login/proxy-setup
+    // regardless of login state — no RPC calls can succeed without a proxy
+    const needsProxy = isObfuscationEnabled() && !getRpcManager().hasProxyEndpoints();
+    if (needsProxy && hash !== 'login') {
+      this.navigate('login');
+      return;
+    }
+
     // Require login for all screens except login
     if (hash !== 'login' && !this.state.account) {
       this.navigate('login');
@@ -175,7 +189,8 @@ export class App {
     }
 
     // If logged in and trying to access login, go to balance
-    if (hash === 'login' && this.state.account) {
+    // (but NOT if proxy setup is needed — let login screen handle it)
+    if (hash === 'login' && this.state.account && !needsProxy) {
       this.navigate('balance');
       return;
     }

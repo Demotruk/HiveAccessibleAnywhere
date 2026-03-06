@@ -133,6 +133,28 @@ The wallet tool must be distributable to users who cannot access conventional do
 - A version identifier and integrity checksum are included on-chain so users can verify they have the correct, untampered file
 - Updates follow the same distribution path
 
+#### 2.4.1 Self-Bootstrapping Distribution (v1 Target)
+
+The wallet tool should be capable of **bootstrapping itself from the blockchain**. Rather than requiring users to manually copy and reassemble code from multiple posts, a minimal bootstrap HTML file can pull the full application code automatically.
+
+**Mechanism:**
+- A Hive post acts as the distribution root. Its comments each contain a chunk of the application code (JS, CSS, HTML fragments)
+- Comments use ordered permlinks (e.g. `part-01`, `part-02`) and `json_metadata` to tag content type
+- The bootstrap HTML uses `bridge.get_discussion` to fetch all comments in a single API call, then assembles and executes the code in order
+- A hash manifest in the root post's `json_metadata` allows the loader to verify each chunk's integrity before execution
+
+**The bootstrap HTML is small enough to share via any channel** — email, messaging apps, QR code, USB, or even a printed card. Once opened in a browser, it fetches and assembles the full app from on-chain data with no further user intervention.
+
+**Retrieval cascade — the loader should try multiple paths to reach on-chain data:**
+1. Direct Hive API nodes (e.g. `api.hive.blog`, `api.deathwing.me`)
+2. User's discovered proxy endpoints (from encrypted memo feed)
+3. Block explorers (e.g. `hiveblockexplorer.com`, `hivehub.dev`) — the code exists within the explorer's rendered HTML and can be extracted via DOM parsing
+4. Web archives and search engine caches as a last resort
+
+**V1 requirement:** The first public version of the wallet tool must support self-bootstrapping from at least a direct Hive API node or an RPC proxy. Block explorer fallback and further cascade levels are desirable but can be introduced in later versions.
+
+**Versioning:** Each version is published as a new post (e.g. `wallet-v1`, `wallet-v2`). The bootstrap HTML can include a version check to notify users when an update is available.
+
 ### 2.5 RPC Proxy Network
 
 A network of proxy nodes that relay RPC requests to actual Hive API nodes.

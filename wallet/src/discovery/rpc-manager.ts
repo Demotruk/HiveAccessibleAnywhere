@@ -10,6 +10,7 @@
 
 import { getClient } from '../hive/client';
 import { getLatestEndpoints, type EndpointPayload } from './endpoint-feed';
+import { isObfuscationEnabled } from '../obfuscation/manager';
 
 /** Endpoint source categories, in priority order */
 export type EndpointSource = 'discovered' | 'manual' | 'fallback';
@@ -28,6 +29,8 @@ const PUBLIC_FALLBACKS = [
   'https://hive-api.arcange.eu',
 ];
 
+const MANUAL_KEY = 'haa_manual_endpoints';
+
 export class RpcManager {
   private endpoints: ManagedEndpoint[] = [];
   private discoveryInterval: ReturnType<typeof setInterval> | null = null;
@@ -43,8 +46,13 @@ export class RpcManager {
 
   constructor(serviceAccounts: string[] = ['haa-service']) {
     this.serviceAccounts = serviceAccounts;
-    // Start with public fallbacks
+    this.loadManualEndpoints();
     this.addFallbacks();
+  }
+
+  /** Whether any proxy endpoints (discovered or manual) are configured */
+  hasProxyEndpoints(): boolean {
+    return this.endpoints.some(e => e.source === 'discovered' || e.source === 'manual');
   }
 
   /** Get all endpoints sorted by priority (discovered > manual > fallback) */
@@ -65,7 +73,7 @@ export class RpcManager {
       .map(e => e.url);
   }
 
-  /** Add manually configured endpoint */
+  /** Add manually configured endpoint (persisted to localStorage) */
   addManualEndpoint(url: string): void {
     if (this.endpoints.some(e => e.url === url)) return;
     this.endpoints.push({
@@ -74,6 +82,7 @@ export class RpcManager {
       healthy: true, // assume healthy until checked
       lastCheck: 0,
     });
+    this.saveManualEndpoints();
     this.applyToClient();
   }
 
@@ -82,6 +91,7 @@ export class RpcManager {
     this.endpoints = this.endpoints.filter(
       e => !(e.url === url && e.source === 'manual')
     );
+    this.saveManualEndpoints();
     this.applyToClient();
   }
 
@@ -128,9 +138,13 @@ export class RpcManager {
   /**
    * Run health checks on all endpoints.
    * Tests each endpoint with a lightweight RPC call.
+   * When obfuscation is ON, skips fallback (public) endpoints.
    */
   async healthCheckAll(): Promise<void> {
-    const checks = this.endpoints.map(async (ep) => {
+    const targets = isObfuscationEnabled()
+      ? this.endpoints.filter(e => e.source !== 'fallback')
+      : this.endpoints;
+    const checks = targets.map(async (ep) => {
       try {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 8_000);
@@ -204,15 +218,43 @@ export class RpcManager {
     }
   }
 
-  /** Apply the current endpoint list to the HiveClient singleton */
+  /** Apply the current endpoint list to the HiveClient singleton.
+   *  When obfuscation is ON, excludes public fallback endpoints. */
   private applyToClient(): void {
-    const healthy = this.healthyEndpoints;
-    if (healthy.length > 0) {
-      try {
-        getClient().setEndpoints(healthy);
-      } catch {
-        // If all unhealthy, keep current client endpoints
+    const priority: Record<EndpointSource, number> = { discovered: 0, manual: 1, fallback: 2 };
+    let candidates = this.endpoints.filter(e => e.healthy);
+    if (isObfuscationEnabled()) {
+      candidates = candidates.filter(e => e.source !== 'fallback');
+    }
+    const urls = candidates
+      .sort((a, b) => priority[a.source] - priority[b.source])
+      .map(e => e.url);
+    if (urls.length > 0) {
+      try { getClient().setEndpoints(urls); } catch {}
+    }
+  }
+
+  /** Load persisted manual endpoints from localStorage */
+  private loadManualEndpoints(): void {
+    try {
+      const saved = localStorage.getItem(MANUAL_KEY);
+      if (!saved) return;
+      const urls = JSON.parse(saved) as string[];
+      for (const url of urls) {
+        if (!this.endpoints.some(e => e.url === url)) {
+          this.endpoints.push({ url, source: 'manual', healthy: true, lastCheck: 0 });
+        }
       }
+    } catch {}
+  }
+
+  /** Persist manual endpoints to localStorage */
+  private saveManualEndpoints(): void {
+    const manual = this.endpoints.filter(e => e.source === 'manual').map(e => e.url);
+    if (manual.length > 0) {
+      localStorage.setItem(MANUAL_KEY, JSON.stringify(manual));
+    } else {
+      localStorage.removeItem(MANUAL_KEY);
     }
   }
 

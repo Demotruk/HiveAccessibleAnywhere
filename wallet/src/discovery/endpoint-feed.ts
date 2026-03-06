@@ -125,7 +125,7 @@ export async function getLatestEndpoints(
 }
 
 /** Type guard for EndpointPayload */
-function isValidPayload(obj: unknown): obj is EndpointPayload {
+export function isValidPayload(obj: unknown): obj is EndpointPayload {
   if (typeof obj !== 'object' || obj === null) return false;
   const p = obj as Record<string, unknown>;
   return (
