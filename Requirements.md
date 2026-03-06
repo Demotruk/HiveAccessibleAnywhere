@@ -372,3 +372,14 @@ The architecture must support all phases without structural changes. The transit
 - **Minimal trust assumptions.** Users trust only the Hive blockchain itself and their own key management. Everything else (proxies, signaling feed, distribution) is verifiable or replaceable.
 - **Graceful degradation.** If the endpoint feed is unavailable, users can manually enter a known RPC endpoint. If proxies are blocked, users can fall back to a VPN. The tool should always remain functional given *any* working RPC connection.
 - **Subscription pricing must leave clear margin.** The subscription fee should be a small fraction of HBD savings interest, ensuring the service is obviously worthwhile to users.
+
+## Browser Targets
+
+**Phase 1 (Propolis Wallet):** Chrome, Firefox, Safari — desktop and mobile. These cover the vast majority of Hive community users. The wallet uses standard Web APIs (`fetch`, `crypto.subtle`, `localStorage`) and targets ES2022, all well-supported across these browsers.
+
+**Phase 2 (Restricted access):** Adds testing and support for browsers common in target restricted regions, particularly:
+- WeChat in-app browser (Chromium-based, significant quirks)
+- QQ Browser, UC Browser, Baidu Browser (major market share in China)
+- Safari on iOS (iPhones are widely used in China)
+
+Phase 2 browser testing is deferred until the proxy infrastructure exists to actually serve users in those regions.
