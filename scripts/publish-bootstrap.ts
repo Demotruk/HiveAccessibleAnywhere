@@ -42,6 +42,67 @@ if (!ACCOUNT || !POSTING_KEY) {
 
 const DIST_DIR = resolve(import.meta.dirname, '..', 'wallet', 'dist');
 
+// -- Localized post content --
+
+interface PostStrings {
+  title: string;
+  heading: string;
+  intro: string;
+  howToUseHeading: string;
+  steps: string[];
+  whatThisDoesHeading: string;
+  bullets: (account: string, version: string, locale: string) => string[];
+  bootstrapHeading: string;
+  footer: (account: string) => string;
+}
+
+const POST_STRINGS: Record<string, PostStrings> = {
+  en: {
+    title: 'Propolis Wallet — Bootstrap Loader (EN)',
+    heading: '# Propolis Wallet — Bootstrap Loader',
+    intro: 'This post contains a self-bootstrapping HTML loader for the **Propolis Wallet**.',
+    howToUseHeading: '## How to use',
+    steps: [
+      '1. Copy the HTML code below',
+      '2. Save it as a `.html` file (e.g. `propolis.html`)',
+      '3. Open the file in any modern browser (Chrome, Firefox, Safari)',
+      '4. The loader will fetch the full wallet from the Hive blockchain, verify its integrity via SHA-256, and load it automatically',
+    ],
+    whatThisDoesHeading: '## What this does',
+    bullets: (account, version, locale) => [
+      `- Fetches the Propolis Wallet application from [@${account}/propolis-wallet-v${version}-${locale}](https://hive.blog/@${account}/propolis-wallet-v${version}-${locale}) and its comments`,
+      `- Verifies every chunk against its SHA-256 hash before executing anything`,
+      `- Only loads code published by \`@${account}\` — comments from other accounts are ignored`,
+      `- Caches the wallet locally (via IndexedDB) for faster subsequent loads`,
+      `- The entire wallet runs locally in your browser — your keys never leave your device`,
+    ],
+    bootstrapHeading: '## Bootstrap HTML',
+    footer: (account) => `*Published by @${account} — [MIT License](https://github.com/nicholidev/HiveAccessibleAnywhere/blob/develop/LICENSE)*`,
+  },
+  zh: {
+    title: 'Propolis 钱包 — 引导加载器 (ZH)',
+    heading: '# Propolis 钱包 — 引导加载器',
+    intro: '本帖包含 **Propolis 钱包** 的自引导 HTML 加载器。',
+    howToUseHeading: '## 使用方法',
+    steps: [
+      '1. 复制下方的 HTML 代码',
+      '2. 将其保存为 `.html` 文件（例如 `propolis.html`）',
+      '3. 用任意现代浏览器打开该文件（Chrome、Firefox、Safari）',
+      '4. 加载器将从 Hive 区块链获取完整钱包，通过 SHA-256 验证其完整性，并自动加载',
+    ],
+    whatThisDoesHeading: '## 工作原理',
+    bullets: (account, version, locale) => [
+      `- 从 [@${account}/propolis-wallet-v${version}-${locale}](https://hive.blog/@${account}/propolis-wallet-v${version}-${locale}) 及其评论中获取 Propolis 钱包应用`,
+      `- 在执行任何代码之前，逐块验证 SHA-256 哈希值`,
+      `- 仅加载由 \`@${account}\` 发布的代码——其他账户的评论将被忽略`,
+      `- 通过 IndexedDB 在本地缓存钱包，加快后续加载速度`,
+      `- 整个钱包在您的浏览器中本地运行——您的密钥永远不会离开您的设备`,
+    ],
+    bootstrapHeading: '## 引导 HTML',
+    footer: (account) => `*由 @${account} 发布 — [MIT 许可证](https://github.com/nicholidev/HiveAccessibleAnywhere/blob/develop/LICENSE)*`,
+  },
+};
+
 // -- Main --
 
 async function main() {
@@ -57,37 +118,31 @@ async function main() {
     process.exit(1);
   }
 
+  const strings = POST_STRINGS[locale] || POST_STRINGS['en'];
   const permlink = `propolis-bootstrap-v${version}-${locale}`;
-  const title = `Propolis Wallet — Bootstrap Loader (${locale.toUpperCase()})`;
+  const title = strings.title;
 
   const body = [
-    `# Propolis Wallet — Bootstrap Loader`,
+    strings.heading,
     '',
-    `This post contains a self-bootstrapping HTML loader for the **Propolis Wallet**.`,
+    strings.intro,
     '',
-    `## How to use`,
+    strings.howToUseHeading,
     '',
-    `1. Copy the HTML code below`,
-    `2. Save it as a \`.html\` file (e.g. \`propolis.html\`)`,
-    `3. Open the file in any modern browser (Chrome, Firefox, Safari)`,
-    `4. The loader will fetch the full wallet from the Hive blockchain, verify its integrity via SHA-256, and load it automatically`,
+    ...strings.steps,
     '',
-    `## What this does`,
+    strings.whatThisDoesHeading,
     '',
-    `- Fetches the Propolis Wallet application from [@${ACCOUNT}/propolis-wallet-v${version}-${locale}](https://hive.blog/@${ACCOUNT}/propolis-wallet-v${version}-${locale}) and its comments`,
-    `- Verifies every chunk against its SHA-256 hash before executing anything`,
-    `- Only loads code published by \`@${ACCOUNT}\` — comments from other accounts are ignored`,
-    `- Caches the wallet locally (via IndexedDB) for faster subsequent loads`,
-    `- The entire wallet runs locally in your browser — your keys never leave your device`,
+    ...strings.bullets(ACCOUNT!, version, locale),
     '',
-    `## Bootstrap HTML`,
+    strings.bootstrapHeading,
     '',
     '```html',
     bootstrapHtml,
     '```',
     '',
     '---',
-    `*Published by @${ACCOUNT} — [MIT License](https://github.com/nicholidev/HiveAccessibleAnywhere/blob/develop/LICENSE)*`,
+    strings.footer(ACCOUNT!),
   ].join('\n');
 
   console.log(`Publishing bootstrap post: @${ACCOUNT}/${permlink}`);
