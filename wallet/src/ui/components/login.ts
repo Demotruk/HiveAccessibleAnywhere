@@ -6,6 +6,7 @@ import { decryptMemo } from '../../hive/memo';
 import { isValidPayload, type EndpointPayload } from '../../discovery/endpoint-feed';
 import { isPhase2 } from '../../phase';
 import { t, fmt } from '../locale';
+import { isQrScannerSupported, scanQrCode, parseQrPayload } from './qr-scanner';
 
 const $ = (s: string, c: HTMLElement) => c.querySelector(s) as HTMLElement;
 
@@ -61,6 +62,13 @@ export async function LoginScreen(c: HTMLElement, state: AppState, app: App) {
   const needsProxy = ob && !mgr.hasProxyEndpoints();
   const loggedIn = !!state.account;
 
+  // Read and consume temporary memo key handed off from bootstrap
+  let bootstrapMemoKey: string | null = null;
+  try {
+    bootstrapMemoKey = localStorage.getItem('propolis_bootstrap_memo_key');
+    if (bootstrapMemoKey) localStorage.removeItem('propolis_bootstrap_memo_key');
+  } catch { /* ignore */ }
+
   // If already logged in but just needs proxy, show simplified proxy-only card
   if (needsProxy && loggedIn) {
     const hasMemo = !!state.memoKeyWif;
@@ -111,6 +119,7 @@ ${memoSectionHtml(false)}
 <p class="sm mt1"><a href="#" id="dm">${t.switch_direct_link}</a></p>
 <p class="err hidden" id="pe"></p></div>` : ''}
 <p class="sm mt mb">${t.login_info}</p>
+${isQrScannerSupported() ? `<button class="btn-s mb" id="qr" type="button">${t.scan_qr}</button>` : ''}
 <label>${t.account_name}</label><input id="a" placeholder="${t.username_placeholder}" autocomplete="off" spellcheck="false">
 <label>${t.private_active_key}</label><input type="password" id="k" placeholder="${t.key_placeholder}" autocomplete="off">
 <label>${t.private_memo_key}</label><input type="password" id="m" placeholder="${t.memo_key_placeholder}" autocomplete="off">
@@ -123,8 +132,38 @@ ${memoSectionHtml(false)}
   const pw = $('#pw',c), btn = $('#b',c) as HTMLButtonElement;
   const er = $('#e',c), st = $('#s',c);
 
+  // Pre-fill memo key from bootstrap handoff (user still controls persistence via "Remember keys")
+  if (bootstrapMemoKey) mi.value = bootstrapMemoKey;
+
   const show = (el: HTMLElement, msg: string) => { el.textContent = msg; el.classList.remove('hidden'); };
   const hide = (...els: HTMLElement[]) => els.forEach(e => e.classList.add('hidden'));
+
+  // QR code scanning
+  const qrBtn = c.querySelector('#qr') as HTMLButtonElement | null;
+  if (qrBtn) {
+    qrBtn.addEventListener('click', async () => {
+      try {
+        const raw = await scanQrCode();
+        if (!raw) return;
+        hide(er, st);
+        const result = parseQrPayload(raw);
+        if (result.type === 'combined') {
+          ai.value = result.account;
+          ki.value = result.activeWif;
+          if (result.memoWif) mi.value = result.memoWif;
+          show(st, t.qr_filled_all);
+        } else if (result.type === 'wif') {
+          if (!ki.value) { ki.value = result.key; show(st, t.qr_filled_active); }
+          else if (!mi.value) { mi.value = result.key; show(st, t.qr_filled_memo); }
+          else { ki.value = result.key; show(st, t.qr_filled_active); }
+        } else {
+          show(er, t.qr_unknown);
+        }
+      } catch (e) {
+        show(er, e instanceof Error ? e.message : t.qr_no_camera);
+      }
+    });
+  }
 
   // Proxy setup handlers (only when obfuscation ON and no proxy configured)
   if (needsProxy) {

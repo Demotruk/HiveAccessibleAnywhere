@@ -29,7 +29,7 @@ const PUBLIC_FALLBACKS = [
   'https://hive-api.arcange.eu',
 ];
 
-const MANUAL_KEY = 'haa_manual_endpoints';
+const MANUAL_KEY = 'propolis_manual_endpoints';
 
 export class RpcManager {
   private endpoints: ManagedEndpoint[] = [];

@@ -9,6 +9,16 @@ import 'dotenv/config';
  *
  * Usage:
  *   npx tsx publish-feed.ts [--dry-run] [--config feed-config.json]
+ *   npx tsx publish-feed.ts --auto-discover [--recency-days 30] [--dry-run]
+ *   npx tsx publish-feed.ts --auto-discover --config feed-config.json [--dry-run]
+ *
+ * Flags:
+ *   --dry-run           Show what would happen without sending transactions
+ *   --config <path>     Path to feed-config.json (default: feed-config.json)
+ *   --auto-discover     Discover subscribers from incoming transfers to haa-service
+ *   --recency-days <N>  Only discover subscribers from the last N days (default: 30)
+ *   --endpoints <urls>  Comma-separated endpoint URLs (alternative to config file)
+ *   --expires <date>    ISO 8601 expiry date (default: 90 days from now)
  *
  * Environment variables:
  *   HAA_SERVICE_ACCOUNT   - Hive account name of the service operator
@@ -30,10 +40,14 @@ import 'dotenv/config';
  *
  * Subscribers not in a group receive the top-level endpoints.
  * Groups allow different users to get different endpoints for leak tracing.
+ *
+ * Self-subscription: Users send any transfer to haa-service to subscribe.
+ * Use --auto-discover to scan for these subscribers automatically.
+ * Subscriptions auto-expire after --recency-days (default 30).
  */
 
 import { Transaction, Memo, config as hiveTxConfig, PrivateKey } from 'hive-tx';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 // -- Types --
@@ -52,7 +66,7 @@ interface FeedGroup {
 interface FeedConfig {
   endpoints: string[];
   expires: string;
-  subscribers: string[];
+  subscribers?: string[];
   groups?: Record<string, FeedGroup>;
 }
 
@@ -65,8 +79,18 @@ interface SubscriberAssignment {
 
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
+const autoDiscover = args.includes('--auto-discover');
 const configIdx = args.indexOf('--config');
 const configPath = configIdx >= 0 ? args[configIdx + 1] : 'feed-config.json';
+
+const recencyIdx = args.indexOf('--recency-days');
+const recencyDays = recencyIdx >= 0 ? parseInt(args[recencyIdx + 1], 10) : 30;
+
+const endpointsIdx = args.indexOf('--endpoints');
+const cliEndpoints = endpointsIdx >= 0 ? args[endpointsIdx + 1].split(',').map(s => s.trim()) : null;
+
+const expiresIdx = args.indexOf('--expires');
+const cliExpires = expiresIdx >= 0 ? args[expiresIdx + 1] : null;
 
 // -- Load environment --
 
@@ -80,54 +104,180 @@ if (!SERVICE_ACCOUNT || !ACTIVE_KEY || !MEMO_KEY) {
   process.exit(1);
 }
 
-// -- Load config --
+// -- Load config (optional when using --auto-discover with --endpoints) --
 
-let config: FeedConfig;
-try {
-  const raw = readFileSync(resolve(configPath), 'utf-8');
-  config = JSON.parse(raw) as FeedConfig;
-} catch (e) {
-  console.error(`Failed to read config from ${configPath}:`, (e as Error).message);
-  console.error('Create a feed-config.json or specify --config <path>');
+let config: FeedConfig | null = null;
+
+const configFullPath = resolve(configPath);
+if (existsSync(configFullPath)) {
+  try {
+    const raw = readFileSync(configFullPath, 'utf-8');
+    config = JSON.parse(raw) as FeedConfig;
+  } catch (e) {
+    console.error(`Failed to parse config from ${configPath}:`, (e as Error).message);
+    process.exit(1);
+  }
+} else if (!autoDiscover) {
+  console.error(`Config file not found: ${configPath}`);
+  console.error('Create a feed-config.json, specify --config <path>, or use --auto-discover');
   process.exit(1);
+}
+
+// Resolve endpoints and expires from config or CLI flags
+const endpoints = cliEndpoints ?? config?.endpoints ?? null;
+const expires = cliExpires ?? config?.expires ?? new Date(Date.now() + 90 * 86400_000).toISOString();
+
+if (!endpoints || endpoints.length === 0) {
+  console.error('No endpoints specified. Use --endpoints <urls> or provide them in the config file.');
+  process.exit(1);
+}
+
+// -- Discover subscribers from incoming transfers --
+
+async function discoverSubscribers(
+  serviceAccount: string,
+  recencyDays: number,
+): Promise<string[]> {
+  const cutoff = new Date(Date.now() - recencyDays * 86400_000);
+  const subscribers = new Map<string, string>(); // account -> most recent timestamp
+
+  console.log(`Scanning @${serviceAccount} history for incoming transfers (last ${recencyDays} days)...`);
+
+  let start = -1;
+  const batchSize = 1000;
+  let done = false;
+
+  while (!done) {
+    const response = await fetch(hiveTxConfig.nodes[0], {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'condenser_api.get_account_history',
+        params: [serviceAccount, start, batchSize],
+        id: 1,
+      }),
+    });
+    const data = await response.json() as any;
+    const history: any[] = data.result ?? [];
+
+    if (history.length === 0) break;
+
+    for (const [idx, entry] of history) {
+      const [opType, opBody] = entry.op;
+      if (opType !== 'transfer') continue;
+
+      const { from, to } = opBody as { from: string; to: string };
+
+      // Must be a transfer TO the service account
+      if (to.toLowerCase() !== serviceAccount.toLowerCase()) continue;
+
+      // Check recency
+      const timestamp = new Date(entry.timestamp + 'Z');
+      if (timestamp < cutoff) {
+        // History is not strictly ordered, but once we're past cutoff in older entries we can stop paginating
+        continue;
+      }
+
+      // Record the subscriber (deduplicate, keep most recent)
+      const account = from.toLowerCase();
+      if (!subscribers.has(account) || timestamp.toISOString() > subscribers.get(account)!) {
+        subscribers.set(account, timestamp.toISOString());
+      }
+    }
+
+    // Paginate backwards: use the smallest index in this batch
+    const oldestIdx = history[0][0];
+    if (oldestIdx <= 0 || history.length < batchSize) {
+      done = true;
+    } else {
+      // Check if the oldest entry is already past cutoff
+      const oldestEntry = history[0][1];
+      const oldestTime = new Date(oldestEntry.timestamp + 'Z');
+      if (oldestTime < cutoff) {
+        done = true;
+      } else {
+        start = oldestIdx - 1;
+      }
+    }
+  }
+
+  // Sort by most recent first
+  const sorted = [...subscribers.entries()]
+    .sort((a, b) => b[1].localeCompare(a[1]))
+    .map(([account]) => account);
+
+  return sorted;
 }
 
 // -- Build subscriber assignments --
 
-function buildAssignments(config: FeedConfig): SubscriberAssignment[] {
+function buildAssignments(
+  config: FeedConfig | null,
+  discoveredSubscribers: string[],
+  defaultEndpoints: string[],
+  defaultExpires: string,
+): SubscriberAssignment[] {
   const assignments: SubscriberAssignment[] = [];
-  const grouped = new Set<string>();
+  const assigned = new Set<string>();
 
-  // Group-specific assignments
-  if (config.groups) {
+  // Group-specific assignments from config
+  if (config?.groups) {
     for (const [groupName, group] of Object.entries(config.groups)) {
       console.log(`Group "${groupName}": ${group.subscribers.length} subscribers, ${group.endpoints.length} endpoints`);
       for (const account of group.subscribers) {
+        const key = account.toLowerCase();
         assignments.push({
           account,
           payload: {
             v: 1,
             endpoints: group.endpoints,
-            expires: config.expires,
+            expires: defaultExpires,
           },
         });
-        grouped.add(account);
+        assigned.add(key);
       }
     }
   }
 
-  // Default assignments (subscribers not in any group)
-  for (const account of config.subscribers) {
-    if (!grouped.has(account)) {
+  // Manual subscribers from config (not in any group)
+  const manualSubscribers = config?.subscribers ?? [];
+  for (const account of manualSubscribers) {
+    const key = account.toLowerCase();
+    if (!assigned.has(key)) {
       assignments.push({
         account,
         payload: {
           v: 1,
-          endpoints: config.endpoints,
-          expires: config.expires,
+          endpoints: defaultEndpoints,
+          expires: defaultExpires,
         },
       });
+      assigned.add(key);
     }
+  }
+
+  // Auto-discovered subscribers (not already assigned via config)
+  let discoveredCount = 0;
+  for (const account of discoveredSubscribers) {
+    const key = account.toLowerCase();
+    if (!assigned.has(key)) {
+      assignments.push({
+        account,
+        payload: {
+          v: 1,
+          endpoints: defaultEndpoints,
+          expires: defaultExpires,
+        },
+      });
+      assigned.add(key);
+      discoveredCount++;
+    }
+  }
+
+  if (discoveredSubscribers.length > 0) {
+    const skippedDupes = discoveredSubscribers.length - discoveredCount;
+    console.log(`Discovered: ${discoveredSubscribers.length} subscriber(s), ${discoveredCount} new, ${skippedDupes} already in config`);
   }
 
   return assignments;
@@ -186,15 +336,35 @@ async function sendMemoTransfer(
 async function main() {
   console.log('=== HAA Endpoint Feed Publisher ===');
   console.log(`Service account: @${SERVICE_ACCOUNT}`);
-  console.log(`Config: ${configPath}`);
+  if (config) console.log(`Config: ${configPath}`);
+  if (autoDiscover) console.log(`Auto-discover: ON (last ${recencyDays} days)`);
+  console.log(`Endpoints: ${endpoints!.join(', ')}`);
+  console.log(`Expires: ${expires}`);
   console.log(`Mode: ${dryRun ? 'DRY RUN' : 'LIVE'}`);
   console.log('');
 
   // Configure hive-tx
   hiveTxConfig.nodes = ['https://api.hive.blog'];
 
-  const assignments = buildAssignments(config);
+  // Discover subscribers if enabled
+  let discovered: string[] = [];
+  if (autoDiscover) {
+    discovered = await discoverSubscribers(SERVICE_ACCOUNT!, recencyDays);
+    if (discovered.length === 0) {
+      console.log('No subscribers discovered from incoming transfers.');
+    } else {
+      console.log(`Found ${discovered.length} subscriber(s): ${discovered.join(', ')}`);
+    }
+    console.log('');
+  }
+
+  const assignments = buildAssignments(config, discovered, endpoints!, expires);
   console.log(`Total subscribers: ${assignments.length}`);
+
+  if (assignments.length === 0) {
+    console.log('Nothing to do.');
+    return;
+  }
   console.log('');
 
   // Look up public memo keys

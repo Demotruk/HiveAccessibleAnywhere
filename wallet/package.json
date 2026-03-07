@@ -6,16 +6,23 @@
   "scripts": {
     "dev": "vite --host localhost",
     "build": "vite build",
+    "build:phase2": "cross-env PHASE=2 vite build",
     "build:all": "node build-locales.js",
+    "build:all:phase2": "cross-env PHASE=2 node build-locales.js",
     "preview": "vite preview",
-    "check-size": "node check-size.js"
+    "check-size": "node check-size.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
-    "hive-tx": "^7.0.1"
+    "hive-tx": "^7.0.1",
+    "qr-scanner": "^1.4.2"
   },
   "devDependencies": {
+    "cross-env": "^10.1.0",
     "typescript": "^5.7.0",
     "vite": "^6.0.0",
-    "vite-plugin-singlefile": "^2.0.0"
+    "vite-plugin-singlefile": "^2.0.0",
+    "vitest": "^4.0.18"
   }
 }

@@ -1,0 +1,20 @@
+{
+  "endpoints": [
+    "https://proxy-wispy-glitter-3564.fly.dev"
+  ],
+  "expires": "2026-06-01T00:00:00Z",
+  "subscribers": [
+    "demotruktest27",
+    "testingnewuser"
+  ],
+  "groups": {
+    "group-a": {
+      "endpoints": [
+        "https://proxy-wispy-glitter-3564.fly.dev"
+      ],
+      "subscribers": [
+        "demotruktest27"
+      ]
+    }
+  }
+}

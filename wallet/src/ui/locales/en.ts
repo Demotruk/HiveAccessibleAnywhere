@@ -48,6 +48,15 @@ export const t = {
   wrong_key_role: 'This is a %1 key. Active key required.',
   wrong_memo_role: 'Second key is %1, not memo.',
 
+  // QR scanning
+  scan_qr: 'Scan QR Code',
+  qr_scanning: 'Point camera at QR code',
+  qr_filled_all: 'Scanned! Account and keys filled.',
+  qr_filled_active: 'Scanned! Active key filled.',
+  qr_filled_memo: 'Scanned! Memo key filled.',
+  qr_unknown: 'Unrecognized QR code format',
+  qr_no_camera: 'Camera access denied',
+
   // Proxy setup
   proxy_setup: 'Proxy Setup',
   proxy_required: 'Proxy required',
