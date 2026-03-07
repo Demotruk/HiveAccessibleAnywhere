@@ -35,3 +35,7 @@ nav a{color:var(--tm);text-decoration:none;padding:8px 12px;border-radius:var(--
 nav a.active{background:var(--sf);color:var(--tx)}
 nav a:hover{color:var(--tx)}
 .hidden{display:none}
+[dir=rtl]{text-align:right}
+[dir=rtl] input,[dir=rtl] textarea,[dir=rtl] select{text-align:right}
+[dir=rtl] nav{flex-direction:row-reverse}
+[dir=rtl] .fx{flex-direction:row-reverse}

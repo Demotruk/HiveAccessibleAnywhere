@@ -7,6 +7,7 @@ export function fmt(s: string, ...a: (string | number)[]): string {
 
 export const t = {
   html_lang: 'en',
+  html_dir: 'ltr' as const,
 
   // App
   app_title: 'Propolis Wallet',

@@ -60,6 +60,7 @@ export class App {
     const header = document.createElement('div');
     header.className = 'ct';
     document.documentElement.lang = t.html_lang;
+    document.documentElement.dir = t.html_dir;
     document.title = t.app_title;
     header.innerHTML = `<h1>${t.app_title}</h1>`;
 
