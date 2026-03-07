@@ -203,92 +203,122 @@ A network of proxy nodes that relay RPC requests to actual Hive API nodes.
 - The proxy layer adds no trust requirements — transactions are signed client-side, so proxies only relay signed data and return public blockchain state
 - Proxy operators cannot steal funds or forge transactions (they never see private keys)
 - Each proxy endpoint is assigned to a small group of users to enable leak tracing
-- Proxy nodes also serve the bootstrap wallet HTML from on-chain posts (section 1.2.1), enabling gift card onboarding (section 2.6)
+- Gift card onboarding (section 2.4) uses the same proxy endpoints for RPC access; the bootstrap wallet itself is served from a public URL (e.g. GitHub Pages, CDN) rather than the proxy
 
 **Scaling consideration:** The initial proof-of-concept deploys two proxy instances (London and Singapore) using Fly.io's free tier with auto-stop to minimise costs. Additional instances in other regions (e.g. US, Frankfurt, Tokyo) should be deployed as users come onboard, scaling with demand rather than provisioning speculatively. Each 256MB shared-CPU instance is lightweight and costs are negligible when auto-stopped, so scaling can be reactive.
 
-### 2.4 Onboarding Service
+### 2.4 Gift Card Onboarding
 
-A service accessible to new users who do not yet have a Hive account or access to Hive RPC nodes.
-
-The onboarding service:
-- Is reachable through channels that are accessible in restricted regions (e.g. CDN-fronted website, Telegram bot, email, or in-person)
-- Accepts payment in cryptocurrency to cover setup costs
-- Provisions a new Hive account for the user
-- Delivers the wallet tool (the self-contained HTML file) to the user
-- Enrolls the user in a personal RPC endpoint subscription feed
-- Provides initial RPC endpoint(s) so the user can begin interacting with Hive immediately
-
-### 2.5 Invite System
-
-Existing users can onboard new users, enabling organic growth without centralized bottlenecks.
-
-- Existing users can create Hive accounts for new users using Hive's native account creation tokens
-- The inviting user can enroll the new user in the endpoint subscription feed
-- This creates social accountability — if an invitee leaks endpoint information, the invite chain is traceable
-- Invite capacity may be limited (e.g. N invites per user per period) to control growth rate and limit blast radius of compromised users
-
-### 2.6 Gift Card Onboarding
-
-A QR-based onboarding mechanism that combines wallet delivery and account provisioning into a single scannable code, suitable for physical or digital distribution.
+The primary onboarding mechanism for new users. A QR-based system that combines wallet delivery and account provisioning into a single scannable code, suitable for physical or digital distribution. Existing Hive systems for account creation and invites have not achieved major growth; the gift card system is novel and designed for instant, autonomous onboarding without human approval bottlenecks.
 
 **Concept:**
-A "gift card" (physical card, printout, or digital image) contains a QR code that, when scanned by a phone camera, opens the bootstrap wallet in a browser. The gift card does not contain a pre-created account — instead it carries a **claim token** that entitles the holder to create one account with a username of their choice.
+A "gift card" (physical card, printout, or digital image) contains a QR code and a 6-character alphanumeric PIN. When scanned, the QR opens the bootstrap wallet in a browser. The user enters the PIN to decrypt the embedded data, which contains a **claim token** entitling the holder to create one Hive account with a username of their choice. Account creation happens within seconds — the user can begin using Hive immediately.
 
 **QR URL structure:**
 ```
-https://<proxy-domain>/<author>/<permlink>#token=<claim-token>
+https://<bootstrap-url>/gift#<encrypted-blob>
 ```
 
-- `<proxy-domain>` — an existing proxy endpoint from the proxy network (section 2.3)
-- `<author>/<permlink>` — the on-chain post containing the bootstrap wallet (section 1.2.1)
-- `#token=<claim-token>` — URL fragment containing the claim token. **The fragment is never sent to the server** — this is a browser guarantee. The proxy only sees the path.
+- `<bootstrap-url>` — a publicly accessible URL hosting the bootstrap wallet (e.g. GitHub Pages, CDN, or a proxy endpoint). This URL is not sensitive.
+- `#<encrypted-blob>` — a URL fragment containing PIN-encrypted data. **The fragment is never sent to the server** — this is a browser guarantee.
+
+**Encrypted blob contents** (revealed after PIN decryption):
+- `token` — the single-use claim token
+- `provider` — the Hive account name of the gift card provider
+- `serviceUrl` — the URL of the provider's gift card service (for account creation requests)
+- `endpoints` — one or more proxy endpoint URLs for the wallet to use
+
+**PIN protection:**
+- Each gift card includes a 6-character alphanumeric PIN, printed on the card alongside the QR code (in future versions, hidden under scratch-off foil)
+- The PIN decrypts the QR fragment data using AES-256-GCM with a key derived via a suitable KDF
+- Without the PIN, the QR reveals only the public bootstrap URL — no proxy domains, claim tokens, or provider information are exposed
+- **Threat model:** The PIN protects against casual and automated scanning (e.g. surveillance systems bulk-scanning QR codes). A determined adversary who physically intercepts both the card and the PIN obtains everything, but this is inherent to physical distribution. The 6-character alphanumeric space (~2.2 billion combinations) provides meaningful resistance to brute-force attempts against captured QR data.
 
 **Claim tokens:**
-- The onboarding service pre-generates a batch of single-use claim tokens when printing gift cards
+- The gift card service pre-generates a batch of single-use claim tokens when producing gift cards
 - Each token is a cryptographic secret that authorises the creation of exactly one Hive account
-- Tokens are stored by the onboarding service and mapped to their redemption status
+- Tokens are stored in a SQLite database on the gift card service, mapped to their redemption status, batch, and expiry
 - A token can only be redeemed once — after account creation, it is marked as spent
+- **Expiry:** Tokens expire after a configurable period (default: 1 year). The expiry date should be clearly printed on the gift card. Expired tokens cannot be redeemed, freeing the provider from reserving account creation tokens indefinitely for cards that may have been lost, abandoned, or destroyed
+
+**Gift card service:**
+The gift card service is a **separate service from the RPC proxy**, deployed independently. This separation exists for two reasons:
+1. **Security isolation.** The gift card service holds sensitive keys — either the provider's active key or account creation token authority — needed to create Hive accounts. The proxy holds no such keys.
+2. **Multi-operator support.** Any Hive account with sufficient account creation tokens can run their own gift card service independently. This enables Hive whales to operate their own gift card programs, potentially earning a return on their Hive Power by selling account creation as a service.
+
+**On-chain service discovery:**
+Gift card providers register their service URL on-chain so the wallet can discover it from the provider account name. Registration is via `custom_json` on the provider's account or via a transfer memo to a known discovery account. This enables the wallet to look up the service URL at redemption time without the QR needing to embed a domain that might change.
+
+Note: The QR's encrypted blob also includes the `serviceUrl` directly as a fallback, so the wallet can contact the service even if on-chain lookup fails. The on-chain record is the canonical source and takes precedence when available.
 
 **Flow:**
-1. Onboarding service generates claim tokens and prints gift cards, each with a unique QR
+1. Gift card provider generates a batch of claim tokens with a configured expiry (default: 1 year) and produces gift cards, each with a unique QR code and PIN
 2. Gift cards are distributed (in person, by post, via trusted channel)
-3. User scans QR → phone opens browser → proxy fetches the post body from any Hive API node and serves it as HTML
-4. Bootstrap wallet loads in the browser, pulls remaining code from on-chain comments (section 1.2.1)
-5. Wallet reads the claim token from the URL fragment, then immediately clears the fragment from the address bar
-6. Wallet generates keys locally and prompts the user to choose a username
-7. Wallet prompts the user to back up their keys (QR code export, manual copy, or both) **before** proceeding
-8. Wallet sends an account creation request to the onboarding service, including the claim token and the user's chosen username and public keys
-9. Onboarding service validates the token, creates the Hive account, enrols the user in the endpoint subscription feed, and marks the token as spent
-10. Wallet confirms account creation and is ready to use
+3. User scans QR → phone opens browser → bootstrap wallet loads from the public URL
+4. Bootstrap wallet self-verifies via the on-chain hash manifest, then pulls remaining code from on-chain comments (section 1.2.1)
+5. Wallet detects the encrypted fragment and prompts the user to enter the PIN from the gift card
+6. Wallet decrypts the fragment, extracting the claim token, provider account, service URL, and proxy endpoints. The fragment is immediately cleared from the address bar
+7. Wallet generates keys locally and prompts the user to choose a username
+8. Wallet prompts the user to back up their keys (QR code export, manual copy, or both) **before** proceeding
+9. Wallet sends an account creation request to the gift card service, including: the claim token, the user's chosen username, and the user's public keys
+10. Gift card service validates the token (not expired, not already spent), creates the Hive account on-chain, delegates a small amount of HP to the new account (so the user has enough Resource Credits to transact), and marks the token as spent
+11. Gift card service sends a transfer to the endpoint subscription service (e.g. `haa-service`) with the new account's username in the memo, signalling that this user should be enrolled in the endpoint feed
+12. Wallet confirms account creation and is ready to use
 
 **Integration with existing infrastructure:**
-- The proxy serving the bootstrap HTML is the same proxy network used for RPC relay (section 2.3), with a small addition: serving a Hive post body as HTML in addition to relaying JSON-RPC
-- The bootstrap wallet is the same self-bootstrapping distribution from section 1.2.1
-- Account creation is handled by the onboarding service (section 2.4), triggered by the claim token
-- Once the account is created, the wallet operates identically regardless of how it was delivered
+- The bootstrap wallet is the same self-bootstrapping distribution from section 1.2.1, hosted on GitHub Pages or any public CDN
+- The proxy endpoints embedded in the gift card's encrypted data are from the proxy network (section 2.3), giving the new user immediate access to Hive RPC
+- Once the account is created, the wallet operates identically regardless of how it was delivered — the gift card flow simply provides the initial account and proxy configuration
+- The gift card service is independent of the proxy — it only needs to reach a Hive API node (directly or via proxy) to broadcast the account creation transaction
+
+**Endpoint subscription enrollment:**
+When the gift card service creates a new account, it signals the endpoint subscription service by sending a small transfer (e.g. 0.001 HBD) to the service account (e.g. `haa-service`) with the new username in the memo. The endpoint feed publisher (section 2.1) recognises this as a subscription request and includes the new user in the next feed update. This keeps the feed publisher's keys separate from the gift card service's keys.
 
 **Security:**
-- Private keys are generated locally on the user's device and never transmitted — only public keys are sent to the onboarding service
+- Private keys are generated locally on the user's device and never transmitted — only public keys are sent to the gift card service
 - The claim token is a single-use secret; once redeemed it cannot be used again
-- The wallet clears the URL fragment from the address bar immediately after reading the token
-- If a claim token is intercepted before the intended user redeems it, the attacker can create an account but the original user's card simply fails to redeem — no funds are at risk since the account is empty at creation
-- The wallet verifies its own integrity via the on-chain hash manifest before handling key material
+- The wallet clears the URL fragment from the address bar immediately after decryption
+- PIN encryption ensures the QR code alone reveals nothing about proxy infrastructure or claim tokens
+- If a gift card is intercepted (QR + PIN), the attacker can create an account but the original user's card simply fails to redeem — no funds are at risk since the account is empty at creation
+- The wallet verifies its own integrity via the on-chain hash manifest before handling any key material or claim tokens
+- The gift card service never sees private keys — it receives only public keys and broadcasts a standard `create_claimed_account` transaction
 
 **Limitations:**
-- The QR contains a fixed proxy domain that may be blocked before the user scans it
-- Mitigation: encode multiple fallback proxy URLs in the QR, or use CDN-fronted domains with high collateral damage to block
-- Gift cards have an effective shelf life tied to the longevity of the printed proxy domain(s)
-- The account creation request requires the onboarding service to be reachable at redemption time — if the service is down, the token remains valid for later use
+- The bootstrap URL in the QR must be accessible in the user's region. GitHub Pages and major CDNs are broadly accessible, but could be blocked in extreme cases
+- Gift cards have a shelf life determined by both the token expiry (default: 1 year) and the longevity of the bootstrap URL and service URL
+- The gift card service must be reachable at redemption time — if the service is down, the token remains valid for later use (assuming it has not expired)
+- The initial HP delegation is a cost borne by the gift card provider; it should be small enough to enable basic transactions but represents a capital commitment that is recovered when the delegation is eventually removed
+
+### 2.5 Onboarding Service (General)
+
+The gift card system (section 2.4) is the primary onboarding mechanism. This section describes the general onboarding service capabilities that support gift card onboarding and may also support other onboarding channels in the future (e.g. web-based signup, Telegram bot, invite system).
+
+The onboarding service:
+- Is reachable through channels that are accessible in restricted regions (e.g. CDN-fronted website, Telegram bot, or in-person via gift cards)
+- Provisions new Hive accounts using account creation tokens
+- Delegates initial HP to new accounts so they have sufficient Resource Credits to transact
+- Enrolls new users in the endpoint subscription feed via transfer memo to the feed service account
+- For the proof-of-concept phase, payments are ad hoc or free — the focus is on validating the technical flow
+
+### 2.6 Invite System
+
+Existing users can onboard new users, enabling organic growth without centralized bottlenecks. This is a supplementary mechanism alongside gift card onboarding (section 2.4).
+
+- Existing users can create Hive accounts for new users using Hive's native account creation tokens
+- The inviting user can enroll the new user in the endpoint subscription feed by sending a transfer to the service account with the new username in the memo
+- This creates social accountability — if an invitee leaks endpoint information, the invite chain is traceable
+- Invite capacity may be limited (e.g. N invites per user per period) to control growth rate and limit blast radius of compromised users
+- Existing Hive systems for account creation and invites have not driven significant growth on their own; the invite system here complements gift card onboarding rather than replacing it
 
 ### 2.7 Onboarding Fee & Subscription Model
 
-The service requires payment to cover infrastructure costs.
+The service requires payment to cover infrastructure costs. For the proof-of-concept phase, onboarding is free or ad hoc — the priority is validating the technical flow. The payment model below applies to production operation.
 
-- **Onboarding fee (one-time)**: Covers Hive account creation and initial setup. Payable in cryptocurrency via the onboarding channel.
+- **Onboarding fee (one-time)**: Covers Hive account creation, initial HP delegation, and setup. For gift card onboarding, this fee is paid by the gift card provider when generating a batch (effectively the cost of account creation tokens + infrastructure). End users do not pay at redemption time.
 - **Endpoint subscription (recurring)**: Covers ongoing provision of personal RPC endpoints and proxy infrastructure. Payable in HBD via on-chain transfer to the service account.
 - **Self-sustaining from interest**: A user staking HBD in savings earns ~20% APR. Even modest stakes generate enough interest to cover subscription fees. For example, 100 HBD earns ~20 HBD/year — the subscription should be priced well below this to ensure the service is a clear net positive for users.
 - **Grace periods**: New users should receive an initial service period included in the onboarding fee, giving them time to acquire and stake HBD before the first subscription payment is due.
+- **Gift card provider economics**: Hive whales with substantial account creation tokens can run independent gift card services, selling cards at a modest markup over their costs (account tokens + HP delegation + infrastructure). This provides a return on Hive Power and distributes the operational burden across multiple independent providers.
 
 ### 2.8 Modified Hive Keychain
 
@@ -325,7 +355,9 @@ A modified version of the Hive Keychain browser extension that integrates the sa
 - **Leak tracing is built in.** Endpoint-to-user-group mapping allows identification of compromised users when endpoints are blocked.
 - **Users must understand the 3-day unstaking delay** for HBD savings — this is a blockchain-level property, not a limitation of the tool.
 - **Invite chains create accountability.** Users who invite others are implicitly vouching for them, creating a social trust layer.
-- **Gift card claim tokens are single-use.** A stolen token lets an attacker claim an empty account, but does not compromise any existing user. Keys are generated locally on the user's device, never embedded in the QR or transmitted.
+- **Gift card QR codes are PIN-encrypted.** The QR alone reveals only a public bootstrap URL — proxy endpoints, claim tokens, and provider information are encrypted with a 6-character alphanumeric PIN. This prevents proxy infrastructure from being discovered through bulk QR scanning.
+- **Gift card claim tokens are single-use and expire.** A stolen token lets an attacker claim an empty account, but does not compromise any existing user. Keys are generated locally on the user's device, never embedded in the QR or transmitted. Expired tokens cannot be redeemed.
+- **Gift card services are security-isolated from proxies.** The gift card service holds account creation keys; the proxy holds no such keys. Compromise of a proxy does not grant account creation capability.
 
 ## Operational Model
 
@@ -339,6 +371,7 @@ This means:
 - Multiple independent operators can coexist, each managing their own subscriber base and proxy infrastructure
 - Users can switch between service providers by simply subscribing to a different operator's feed
 - The RPC proxy protocol is open, so anyone can stand up proxy nodes
+- Any Hive account with account creation tokens can independently run a gift card service, registering their service URL on-chain for wallet discovery
 
 ### Why This Matters
 
