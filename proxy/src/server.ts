@@ -20,12 +20,13 @@
 import express from 'express';
 import helmet from 'helmet';
 import { relayHandler, getAllowedMethods } from './relay.js';
-import { serveCoverPage } from './cover-site.js';
+import { serveCoverPage, getThemeName } from './cover-site.js';
 import { rateLimit } from './middleware/rate-limit.js';
 import { deobfuscateMiddleware } from './deobfuscate.js';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3100', 10);
+const INSTANCE_ID = process.env.PROXY_INSTANCE_ID || 'default';
 
 // Security headers (relaxed CSP for cover site)
 app.use(helmet({
@@ -72,6 +73,8 @@ app.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
     service: 'haa-proxy',
+    instance: INSTANCE_ID,
+    theme: getThemeName(),
     methods: getAllowedMethods(),
   });
 });
@@ -84,7 +87,7 @@ app.use((_req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`HAA Proxy listening on port ${PORT}`);
+  console.log(`HAA Proxy listening on port ${PORT} [instance: ${INSTANCE_ID}, theme: ${getThemeName()}]`);
   console.log(`Cover site: http://localhost:${PORT}/`);
   console.log(`RPC relay:  http://localhost:${PORT}/rpc`);
   console.log(`Health:     http://localhost:${PORT}/health`);

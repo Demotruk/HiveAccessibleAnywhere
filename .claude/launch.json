@@ -21,6 +21,15 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "http.server", "8080", "--directory", "docs"],
       "port": 8080
+    },
+    {
+      "name": "proxy-food",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["--import", "tsx", "src/server.ts"],
+      "port": 3100,
+      "cwd": "proxy",
+      "autoPort": false,
+      "env": { "COVER_SITE_THEME": "food", "PROXY_INSTANCE_ID": "test-food" }
     }
   ]
 }
