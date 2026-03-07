@@ -87,10 +87,9 @@ primary_region = '${region}'
   processes = ['app']
 
 [[vm]]
-  memory = '1gb'
   cpu_kind = 'shared'
   cpus = 1
-  memory_mb = 1024
+  memory_mb = 256
 `;
 
   if (dryRun) {

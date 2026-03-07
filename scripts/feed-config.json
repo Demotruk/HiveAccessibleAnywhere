@@ -1,6 +1,7 @@
 {
   "endpoints": [
-    "https://proxy-wispy-glitter-3564.fly.dev"
+    "https://proxy-wispy-glitter-3564.fly.dev",
+    "https://haa-proxy-10tlv0.fly.dev"
   ],
   "expires": "2026-06-01T00:00:00Z",
   "subscribers": [

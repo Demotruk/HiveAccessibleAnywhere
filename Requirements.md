@@ -205,6 +205,8 @@ A network of proxy nodes that relay RPC requests to actual Hive API nodes.
 - Each proxy endpoint is assigned to a small group of users to enable leak tracing
 - Proxy nodes also serve the bootstrap wallet HTML from on-chain posts (section 1.2.1), enabling gift card onboarding (section 2.6)
 
+**Scaling consideration:** The initial proof-of-concept deploys two proxy instances (London and Singapore) using Fly.io's free tier with auto-stop to minimise costs. Additional instances in other regions (e.g. US, Frankfurt, Tokyo) should be deployed as users come onboard, scaling with demand rather than provisioning speculatively. Each 256MB shared-CPU instance is lightweight and costs are negligible when auto-stopped, so scaling can be reactive.
+
 ### 2.4 Onboarding Service
 
 A service accessible to new users who do not yet have a Hive account or access to Hive RPC nodes.
