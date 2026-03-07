@@ -177,4 +177,19 @@ export const t = {
   // Settings — About
   about: '关于',
   about_text: 'Propolis钱包 v1.0.0 — 密钥绝不会离开此设备。',
+
+  // RPC / broadcast errors (localized with raw detail preserved)
+  err_missing_active_auth: 'Active密钥没有此账户的授权。',
+  err_missing_posting_auth: 'Posting密钥没有此账户的授权。',
+  err_missing_owner_auth: 'Owner密钥没有此账户的授权。',
+  err_key_mismatch: '密钥与此账户不匹配。',
+  err_insufficient_rc: '资源信用点不足，请等待恢复或请求HP委托。',
+  err_account_not_found: '在区块链上未找到此账户。',
+  err_tx_expired: '交易已过期，请重试。',
+  err_duplicate_tx: '重复交易，已处理。',
+  err_all_endpoints_failed: '无法连接任何RPC节点，请检查网络连接。',
+  err_http_error: '服务器错误，请重试或切换RPC节点。',
+  err_network: '网络错误，请检查网络连接。',
+  err_timeout: '请求超时，请重试或切换RPC节点。',
+  err_unknown: '操作失败，请稍后重试。',
 } as const;

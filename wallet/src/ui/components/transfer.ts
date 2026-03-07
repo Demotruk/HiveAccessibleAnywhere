@@ -2,6 +2,7 @@ import type { AppState, App } from '../app';
 import { transfer } from '../../hive/operations';
 import { signAndBroadcast } from '../../hive/signing';
 import { importKey, formatAsset } from '../../hive/keys';
+import { showError } from '../../hive/errors';
 import { t, fmt } from '../locale';
 
 export async function TransferScreen(c: HTMLElement, state: AppState, _app: App) {
@@ -48,7 +49,7 @@ export async function TransferScreen(c: HTMLElement, state: AppState, _app: App)
       show(ok, fmt(t.sent_tx, res.tx_id?.slice(0,12) || '', res.status));
       to.value = ''; am.value = ''; me.value = '';
     } catch (e) {
-      show(er, e instanceof Error ? e.message : String(e));
+      showError(er, e);
       cb.classList.add('hidden'); sb.classList.remove('hidden');
     } finally { yb.disabled = false; yb.textContent = t.confirm; }
   });

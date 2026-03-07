@@ -3,6 +3,7 @@ import { getClient } from '../../hive/client';
 import { importKey, parseAsset, formatAsset } from '../../hive/keys';
 import { transferToSavings, transferFromSavings, cancelTransferFromSavings } from '../../hive/operations';
 import { signAndBroadcast } from '../../hive/signing';
+import { localizeError, showError } from '../../hive/errors';
 import { t, fmt } from '../locale';
 
 export async function SavingsScreen(c: HTMLElement, state: AppState, _app: App) {
@@ -47,10 +48,10 @@ ${sd.amount > 0 ? `<p class="sm gc mt1">${fmt(t.apr_estimate, (sd.amount*.2).toF
           this.disabled = true;
           try { const r = await signAndBroadcast([cancelTransferFromSavings(state.account!, 0)], importKey(state.activeKeyWif!));
             showO(fmt(t.cancelled, r.status)); await load();
-          } catch(e) { showE(e instanceof Error ? e.message : String(e)); } finally { this.disabled = false; }
+          } catch(e) { showError(er, e); } finally { this.disabled = false; }
         });
       } else pw.classList.add('hidden');
-    } catch(e) { si.innerHTML = `<p class="err">${e instanceof Error ? e.message : e}</p>`; }
+    } catch(e) { si.innerHTML = `<p class="err">${localizeError(e instanceof Error ? e.message : String(e))}</p>`; }
   }
 
   async function op(btn: HTMLButtonElement, inp: HTMLInputElement, sel: HTMLSelectElement, isSave: boolean) {
@@ -67,7 +68,7 @@ ${sd.amount > 0 ? `<p class="sm gc mt1">${fmt(t.apr_estimate, (sd.amount*.2).toF
       const r = await signAndBroadcast([o], kp);
       showO(`${isSave ? t.deposited : t.withdrawal_initiated}. (${r.status})`);
       inp.value = ''; await load();
-    } catch(e) { showE(e instanceof Error ? e.message : String(e)); }
+    } catch(e) { showError(er, e); }
     finally { btn.disabled = false; btn.textContent = isSave ? t.deposit_btn : t.withdraw_btn; }
   }
 

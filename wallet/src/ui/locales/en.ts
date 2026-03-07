@@ -177,4 +177,19 @@ export const t = {
   // Settings — About
   about: 'About',
   about_text: 'Propolis Wallet v1.0.0 \u2014 Keys never leave this device.',
+
+  // RPC / broadcast errors (localized with raw detail preserved)
+  err_missing_active_auth: 'Active key does not have authority for this account.',
+  err_missing_posting_auth: 'Posting key does not have authority for this account.',
+  err_missing_owner_auth: 'Owner key does not have authority for this account.',
+  err_key_mismatch: 'Key does not match this account.',
+  err_insufficient_rc: 'Insufficient resource credits. Wait for recovery or request HP delegation.',
+  err_account_not_found: 'Account not found on the blockchain.',
+  err_tx_expired: 'Transaction expired. Please try again.',
+  err_duplicate_tx: 'Duplicate transaction — already processed.',
+  err_all_endpoints_failed: 'Unable to reach any RPC node. Check your network connection.',
+  err_http_error: 'Server error. Try again or switch RPC node.',
+  err_network: 'Network error. Check your internet connection.',
+  err_timeout: 'Request timed out. Try again or switch RPC node.',
+  err_unknown: 'Operation failed. Please try again.',
 } as const;

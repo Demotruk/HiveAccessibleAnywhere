@@ -5,6 +5,7 @@ import { getRpcManager } from '../../discovery/rpc-manager';
 import { decryptMemo } from '../../hive/memo';
 import { isValidPayload, type EndpointPayload } from '../../discovery/endpoint-feed';
 import { isPhase2 } from '../../phase';
+import { showError } from '../../hive/errors';
 import { t, fmt } from '../locale';
 import { isQrScannerSupported, scanQrCode, parseQrPayload } from './qr-scanner';
 
@@ -219,7 +220,7 @@ ${isQrScannerSupported() ? `<button class="btn-s mb" id="qr" type="button">${t.s
       state.memoKeyWif = memoWif; state.persistKeys = pi.checked;
       app.saveState(); app.startDiscovery(); app.navigate('balance');
     } catch (e) {
-      show(er, e instanceof Error ? e.message : String(e)); hide(st); btn.disabled = false;
+      showError(er, e); hide(st); btn.disabled = false;
     }
   });
 }
