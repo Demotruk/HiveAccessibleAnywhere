@@ -131,7 +131,7 @@ async function publishLocale(locale: string): Promise<void> {
 
   // Build manifest
   const manifest: ManifestEntry[] = chunks.map((chunk, i) => ({
-    permlink: `${locale}-part-${padNum(i + 1)}`,
+    permlink: `v${version}-${locale}-part-${padNum(i + 1)}`,
     hash: sha256(chunk),
   }));
 
