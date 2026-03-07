@@ -20,6 +20,9 @@ export async function TransferScreen(c: HTMLElement, state: AppState, _app: App)
   const ct = c.querySelector('#ct') as HTMLElement, yb = c.querySelector('#y') as HTMLButtonElement;
   const nb = c.querySelector('#n') as HTMLElement, er = c.querySelector('#e') as HTMLElement, ok = c.querySelector('#o') as HTMLElement;
 
+  // Trim recipient on blur (handles browser autofill trailing spaces)
+  to.addEventListener('blur', () => { to.value = to.value.trim().toLowerCase().replace('@',''); });
+
   const show = (el: HTMLElement, msg: string) => { el.textContent = msg; el.classList.remove('hidden'); };
   const hide = (...els: HTMLElement[]) => els.forEach(e => e.classList.add('hidden'));
 

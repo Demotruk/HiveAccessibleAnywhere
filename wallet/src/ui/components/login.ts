@@ -132,6 +132,9 @@ ${isQrScannerSupported() ? `<button class="btn-s mb" id="qr" type="button">${t.s
   const pw = $('#pw',c), btn = $('#b',c) as HTMLButtonElement;
   const er = $('#e',c), st = $('#s',c);
 
+  // Trim account name on blur (handles browser autofill trailing spaces)
+  ai.addEventListener('blur', () => { ai.value = ai.value.trim().toLowerCase().replace('@',''); });
+
   // Pre-fill memo key from bootstrap handoff (user still controls persistence via "Remember keys")
   if (bootstrapMemoKey) mi.value = bootstrapMemoKey;
 
