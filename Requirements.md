@@ -212,7 +212,7 @@ A network of proxy nodes that relay RPC requests to actual Hive API nodes.
 The primary onboarding mechanism for new users. A QR-based system that combines wallet delivery and account provisioning into a single scannable code, suitable for physical or digital distribution. Existing Hive systems for account creation and invites have not achieved major growth; the gift card system is novel and designed for instant, autonomous onboarding without human approval bottlenecks.
 
 **Concept:**
-A "gift card" (physical card, printout, or digital image) contains a QR code and a 6-character alphanumeric PIN. When scanned, the QR opens the bootstrap wallet in a browser. The user enters the PIN to decrypt the embedded data, which contains a **claim token** entitling the holder to create one Hive account with a username of their choice. Account creation happens within seconds — the user can begin using Hive immediately.
+A "gift card" (physical card, printout, or digital image) contains a QR code and a 6-character alphanumeric PIN. When scanned, the QR opens the bootstrap wallet in a browser. The user enters the PIN to decrypt the embedded data, which contains a **claim token** entitling the holder to redeem a specific **promise** — typically creating a Hive account with a username of their choice. The promise type is extensible: while account creation is the initial implementation, a gift card could also promise a HIVE/HBD transfer, an HP delegation, or a combination of actions. Redemption happens within seconds.
 
 **QR URL structure:**
 ```
@@ -225,8 +225,13 @@ https://<bootstrap-url>/gift#<encrypted-blob>
 **Encrypted blob contents** (revealed after PIN decryption):
 - `token` — the single-use claim token
 - `provider` — the Hive account name of the gift card provider
-- `serviceUrl` — the URL of the provider's gift card service (for account creation requests)
+- `serviceUrl` — the URL of the provider's gift card service (for redemption requests)
 - `endpoints` — one or more proxy endpoint URLs for the wallet to use
+- `batchId` — identifier of the batch this card belongs to
+- `expires` — expiry date of the token (ISO 8601)
+- `signature` — digital signature from the provider's memo key over the card's data (see Authenticity below)
+- `promiseType` — the type of promise this card makes (e.g. `account-creation`, `transfer`, `delegation`)
+- `promiseParams` — (optional) type-specific parameters for the promise (e.g. `{ "amount": "10.000 HIVE" }` for a transfer card)
 
 **PIN protection:**
 - Each gift card includes a 6-character alphanumeric PIN, printed on the card alongside the QR code (in future versions, hidden under scratch-off foil)
@@ -236,10 +241,31 @@ https://<bootstrap-url>/gift#<encrypted-blob>
 
 **Claim tokens:**
 - The gift card service pre-generates a batch of single-use claim tokens when producing gift cards
-- Each token is a cryptographic secret that authorises the creation of exactly one Hive account
+- Each token is a cryptographic secret that authorises one redemption of the batch's promise (e.g. account creation, token transfer, HP delegation)
+- All tokens in a batch share the same promise type — the type is a batch-level attribute
 - Tokens are stored in a SQLite database on the gift card service, mapped to their redemption status, batch, and expiry
-- A token can only be redeemed once — after account creation, it is marked as spent
+- A token can only be redeemed once — after fulfilment, it is marked as spent
 - **Expiry:** Tokens expire after a configurable period (default: 1 year). The expiry date should be clearly printed on the gift card. Expired tokens cannot be redeemed, freeing the provider from reserving account creation tokens indefinitely for cards that may have been lost, abandoned, or destroyed
+
+**On-chain batch declaration:**
+When a batch of gift cards is generated, the provider broadcasts a `custom_json` transaction declaring the batch on-chain. This creates a public, immutable record of issuance. The declaration includes:
+- Batch ID
+- Number of tokens in the batch
+- Expiry date
+- Promise type (e.g. `account-creation`, `transfer`, `delegation`)
+- Promise parameters (if applicable, e.g. `{ "amount": "10.000 HIVE" }`)
+- A Merkle root of the token hashes (SHA-256 of each token), which commits to the full set of tokens without revealing them individually
+
+This enables anyone to verify that a specific token belongs to a declared batch (by providing the Merkle proof), and provides transparency into how many tokens a provider has allocated to gift cards and what they promise.
+
+**Authenticity signature:**
+Each gift card includes a digital signature from the provider's memo key, proving the card was genuinely issued by the stated provider. The signature is over a canonical string of the card's data:
+
+```
+<token>:<batchId>:<provider>:<expires>:<promiseType>
+```
+
+The `promiseType` field in the canonical string ensures that a signature for one type of card (e.g. `account-creation`) cannot be reinterpreted as a different type (e.g. `transfer`). The signature is included in the encrypted blob. On decryption, the wallet verifies the signature against the provider's public memo key (which is available on-chain via `condenser_api.get_accounts`). If verification fails, the wallet rejects the card as counterfeit. This prevents an attacker from creating fake gift cards that claim to be from a legitimate provider.
 
 **Gift card service:**
 The gift card service is a **separate service from the RPC proxy**, deployed independently. This separation exists for two reasons:
@@ -252,18 +278,19 @@ Gift card providers register their service URL on-chain so the wallet can discov
 Note: The QR's encrypted blob also includes the `serviceUrl` directly as a fallback, so the wallet can contact the service even if on-chain lookup fails. The on-chain record is the canonical source and takes precedence when available.
 
 **Flow:**
-1. Gift card provider generates a batch of claim tokens with a configured expiry (default: 1 year) and produces gift cards, each with a unique QR code and PIN
+1. Gift card provider generates a batch of claim tokens with a configured expiry (default: 1 year), signs each card's data with the provider's memo key, broadcasts a batch declaration `custom_json` on-chain, and produces gift cards with unique QR codes and PINs
 2. Gift cards are distributed (in person, by post, via trusted channel)
 3. User scans QR → phone opens browser → bootstrap wallet loads from the public URL
 4. Bootstrap wallet self-verifies via the on-chain hash manifest, then pulls remaining code from on-chain comments (section 1.2.1)
 5. Wallet detects the encrypted fragment and prompts the user to enter the PIN from the gift card
-6. Wallet decrypts the fragment, extracting the claim token, provider account, service URL, and proxy endpoints. The fragment is immediately cleared from the address bar
-7. Wallet generates keys locally and prompts the user to choose a username
-8. Wallet prompts the user to back up their keys (QR code export, manual copy, or both) **before** proceeding
-9. Wallet sends an account creation request to the gift card service, including: the claim token, the user's chosen username, and the user's public keys
-10. Gift card service validates the token (not expired, not already spent), creates the Hive account on-chain, delegates a small amount of HP to the new account (so the user has enough Resource Credits to transact), and marks the token as spent
-11. Gift card service sends a transfer to the endpoint subscription service (e.g. `haa-service`) with the new account's username in the memo, signalling that this user should be enrolled in the endpoint feed
-12. Wallet confirms account creation and is ready to use
+6. Wallet decrypts the fragment, extracting the claim token, provider account, batch ID, service URL, proxy endpoints, and authenticity signature. The fragment is immediately cleared from the address bar
+7. Wallet looks up the provider's public memo key on-chain and verifies the authenticity signature. If verification fails, the wallet rejects the card as counterfeit
+8. Wallet generates keys locally and prompts the user to choose a username
+9. Wallet prompts the user to back up their keys (QR code export, manual copy, or both) **before** proceeding
+10. Wallet sends an account creation request to the gift card service, including: the claim token, the user's chosen username, and the user's public keys
+11. Gift card service validates the token (not expired, not already spent), creates the Hive account on-chain, delegates a small amount of HP to the new account (so the user has enough Resource Credits to transact), and marks the token as spent
+12. Gift card service sends a transfer to the endpoint subscription service (e.g. `haa-service`) with the new account's username in the memo, signalling that this user should be enrolled in the endpoint feed
+13. Wallet confirms account creation and is ready to use
 
 **Integration with existing infrastructure:**
 - The bootstrap wallet is the same self-bootstrapping distribution from section 1.2.1, hosted on GitHub Pages or any public CDN
@@ -279,9 +306,25 @@ When the gift card service creates a new account, it signals the endpoint subscr
 - The claim token is a single-use secret; once redeemed it cannot be used again
 - The wallet clears the URL fragment from the address bar immediately after decryption
 - PIN encryption ensures the QR code alone reveals nothing about proxy infrastructure or claim tokens
+- **Authenticity verification:** Each card carries a digital signature from the provider's memo key. The wallet verifies this signature on-chain before proceeding, preventing counterfeit cards from impersonating a legitimate provider
+- **On-chain batch transparency:** Batch declarations are recorded on-chain, providing a public audit trail of issuance. The Merkle root commitment allows individual tokens to be verified as belonging to a declared batch
 - If a gift card is intercepted (QR + PIN), the attacker can create an account but the original user's card simply fails to redeem — no funds are at risk since the account is empty at creation
 - The wallet verifies its own integrity via the on-chain hash manifest before handling any key material or claim tokens
 - The gift card service never sees private keys — it receives only public keys and broadcasts a standard `create_claimed_account` transaction
+
+**Accountability & auditability:**
+Gift card issuers make promises on-chain (via batch declarations) and must demonstrably fulfil them. The system provides the building blocks for third-party auditing so that a user scanning a gift card can assess whether the issuer has historically honoured their commitments.
+
+*On-chain fulfilment linking.* Every promise-type handler **must** include `SHA-256(token)` — the hash of the raw claim token — in the on-chain transaction that fulfils the promise. For account creation this is the `giftcard_token_hash` field in the new account's `json_metadata`. For future promise types (transfer, delegation) this should be in the transaction memo or an accompanying `custom_json`. The token hash — not the raw token — is published, so the token remains secret until the holder chooses to reveal it.
+
+This creates a verifiable chain: batch declaration (merkle root + count + promise type) → individual fulfilment TXs (each tagged with a token hash that can be verified against the merkle root). An auditor can count declared tokens vs. fulfilled token hashes for any issuer and identify shortfalls.
+
+*Merkle membership proofs.* A claimant who holds a token can hash it and, given a merkle proof path, verify membership in the on-chain batch root. The gift card service can provide merkle proof paths on request. This allows a claimant (or any third party given a revealed token) to prove that a specific token was part of a legitimately declared batch.
+
+*Future considerations* (not yet implemented but architecturally supported):
+- **Signed claim receipts:** The gift card service could sign a receipt at claim time (token hash, timestamp, batch ID, fulfillment TX ID) using the provider's memo key, giving the claimant cryptographic evidence of their claim attempt.
+- **Claimant-published claim records:** For non-account-creation promise types where the claimant already has a Hive account, the claimant could publish their own `custom_json` claim record before the service fulfils, creating an independent on-chain timeline that the issuer cannot deny.
+- **Issuer reputation scoring:** By aggregating batch declarations and fulfilment TX counts across an issuer's history, a wallet could display a trust score when a user scans a gift card from that issuer.
 
 **Limitations:**
 - The bootstrap URL in the QR must be accessible in the user's region. GitHub Pages and major CDNs are broadly accessible, but could be blocked in extreme cases
@@ -356,6 +399,8 @@ A modified version of the Hive Keychain browser extension that integrates the sa
 - **Users must understand the 3-day unstaking delay** for HBD savings — this is a blockchain-level property, not a limitation of the tool.
 - **Invite chains create accountability.** Users who invite others are implicitly vouching for them, creating a social trust layer.
 - **Gift card QR codes are PIN-encrypted.** The QR alone reveals only a public bootstrap URL — proxy endpoints, claim tokens, and provider information are encrypted with a 6-character alphanumeric PIN. This prevents proxy infrastructure from being discovered through bulk QR scanning.
+- **Gift card authenticity is cryptographically verifiable.** Each card carries a digital signature from the provider's memo key. The wallet verifies this against the on-chain public key before proceeding, preventing counterfeit cards.
+- **Gift card batches are declared on-chain.** Batch declarations with Merkle root commitments provide a transparent audit trail of token issuance and enable verification that individual tokens belong to a declared batch.
 - **Gift card claim tokens are single-use and expire.** A stolen token lets an attacker claim an empty account, but does not compromise any existing user. Keys are generated locally on the user's device, never embedded in the QR or transmitted. Expired tokens cannot be redeemed.
 - **Gift card services are security-isolated from proxies.** The gift card service holds account creation keys; the proxy holds no such keys. Compromise of a proxy does not grant account creation capability.
 

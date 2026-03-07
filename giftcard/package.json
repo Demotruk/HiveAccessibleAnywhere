@@ -1,0 +1,26 @@
+{
+  "name": "haa-giftcard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "node --import tsx src/server.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.0.0",
+    "express": "^5.1.0",
+    "helmet": "^8.0.0",
+    "hive-tx": "^7.0.1",
+    "tsx": "^4.19.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "vitest": "^4.0.0"
+  }
+}

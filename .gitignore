@@ -3,6 +3,12 @@ dist/
 *.env
 *.local
 
+# Gift card service
+giftcard/data/*.db
+giftcard/data/*.db-wal
+giftcard/data/*.db-shm
+scripts/giftcard-output/
+
 # OS
 .DS_Store
 Thumbs.db
