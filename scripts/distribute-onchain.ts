@@ -527,7 +527,15 @@ async function fetchFromChain(){
   return assembled;
 }
 
+// Collect proxy endpoints discovered during bootstrap (memo decrypt, URL param, cache)
+const proxyEndpoints=[];
+
 function loadWallet(html){
+  // Hand off proxy endpoints to the wallet via localStorage so the user
+  // doesn't have to enter them again on the login screen
+  if(proxyEndpoints.length){
+    try{localStorage.setItem("propolis_manual_endpoints",JSON.stringify([...new Set(proxyEndpoints)]));}catch(e){}
+  }
   document.open();
   document.write(html);
   document.close();
@@ -564,7 +572,7 @@ const urlMemo=params.get("memo")||"";
 const urlRpc=params.get("rpc")||"";
 
 // Prepend dev RPC endpoint if provided
-if(urlRpc)NODES.unshift(urlRpc);
+if(urlRpc){NODES.unshift(urlRpc);proxyEndpoints.push(urlRpc);}
 
 try{
   // Check for cached endpoints
@@ -574,6 +582,7 @@ try{
     const epCache=await cacheGet(db,EP_KEY);
     if(epCache&&epCache.endpoints&&(!epCache.expires||new Date(epCache.expires)>new Date())){
       for(let i=epCache.endpoints.length-1;i>=0;i--)NODES.unshift(epCache.endpoints[i]);
+      proxyEndpoints.push(...epCache.endpoints);
     }
   }
 
@@ -582,6 +591,7 @@ try{
     try{
       const endpoints=await showMemoForm(false);
       for(let i=endpoints.length-1;i>=0;i--)NODES.unshift(endpoints[i]);
+      proxyEndpoints.push(...endpoints);
       if(db)await cacheSet(db,EP_KEY,{endpoints,expires:null,cachedAt:Date.now()});
     }catch(e){
       fail("Memo decryption failed: "+e.message);
@@ -608,6 +618,7 @@ try{
       try{
         const endpoints=await showMemoForm(true);
         for(let i=endpoints.length-1;i>=0;i--)NODES.unshift(endpoints[i]);
+        proxyEndpoints.push(...endpoints);
         if(db)await cacheSet(db,EP_KEY,{endpoints,expires:null,cachedAt:Date.now()});
         er.style.display="none";
         html=await fetchFromChain();
