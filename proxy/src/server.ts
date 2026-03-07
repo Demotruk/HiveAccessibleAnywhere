@@ -6,6 +6,7 @@
  *
  * Architecture:
  * - GET /         → Cover site (looks like a photography blog)
+ * - POST /        → JSON-RPC relay (drop-in Hive API replacement)
  * - POST /rpc     → JSON-RPC relay to Hive nodes (method allowlisted)
  * - GET /health   → Health check endpoint
  *
@@ -61,7 +62,11 @@ const rpcLimiter = rateLimit({ max: 120, windowMs: 60_000 });
 // Cover site — what visitors see in a browser
 app.get('/', serveCoverPage);
 
-// JSON-RPC relay endpoint (direct)
+// JSON-RPC relay at root — drop-in replacement for standard Hive API nodes
+// (e.g., https://api.hive.blog accepts POST at /)
+app.post('/', rpcLimiter, relayHandler);
+
+// JSON-RPC relay endpoint (legacy explicit path)
 app.post('/rpc', rpcLimiter, relayHandler);
 
 // Obfuscated relay — accepts POST to /api/:path with X-Api-Version: 1
@@ -89,6 +94,6 @@ app.use((_req, res) => {
 app.listen(PORT, () => {
   console.log(`HAA Proxy listening on port ${PORT} [instance: ${INSTANCE_ID}, theme: ${getThemeName()}]`);
   console.log(`Cover site: http://localhost:${PORT}/`);
-  console.log(`RPC relay:  http://localhost:${PORT}/rpc`);
+  console.log(`RPC relay:  POST http://localhost:${PORT}/ (or /rpc)`);
   console.log(`Health:     http://localhost:${PORT}/health`);
 });

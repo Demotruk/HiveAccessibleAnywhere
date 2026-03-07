@@ -23,6 +23,12 @@
       "port": 8080
     },
     {
+      "name": "bootstrap-test",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8090", "--directory", "wallet/dist"],
+      "port": 8090
+    },
+    {
       "name": "proxy-food",
       "runtimeExecutable": "node",
       "runtimeArgs": ["--import", "tsx", "src/server.ts"],
