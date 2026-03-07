@@ -13,7 +13,8 @@
     "check-size": "node check-size.js"
   },
   "dependencies": {
-    "hive-tx": "^7.0.1"
+    "hive-tx": "^7.0.1",
+    "qr-scanner": "^1.4.2"
   },
   "devDependencies": {
     "cross-env": "^10.1.0",

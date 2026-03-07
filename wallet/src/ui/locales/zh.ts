@@ -48,6 +48,15 @@ export const t = {
   wrong_key_role: '这是 %1 密钥，需要Active密钥。',
   wrong_memo_role: '第二个密钥是 %1，不是Memo密钥。',
 
+  // QR scanning
+  scan_qr: '扫描二维码',
+  qr_scanning: '将摄像头对准二维码',
+  qr_filled_all: '扫描成功！已填写账户和密钥。',
+  qr_filled_active: '扫描成功！已填写Active密钥。',
+  qr_filled_memo: '扫描成功！已填写Memo密钥。',
+  qr_unknown: '无法识别的二维码格式',
+  qr_no_camera: '摄像头访问被拒绝',
+
   // Proxy setup
   proxy_setup: '代理设置',
   proxy_required: '需要代理',
