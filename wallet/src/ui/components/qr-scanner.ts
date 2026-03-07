@@ -58,14 +58,17 @@ export function scanQrCode(): Promise<string | null> {
     closeBtn.textContent = '\u00d7';
     closeBtn.style.cssText = 'position:absolute;top:12px;right:16px;background:none;border:none;color:#fff;font-size:2rem;cursor:pointer;z-index:10000;width:auto;padding:4px 12px;';
 
-    // Video element
+    // Video element — playsinline required for iOS/Android inline playback
     const video = document.createElement('video');
-    video.style.cssText = 'max-width:80vw;max-height:60vh;border-radius:8px;border:2px solid #4ecca3;';
+    video.setAttribute('playsinline', '');
+    video.setAttribute('autoplay', '');
+    video.muted = true;
+    video.style.cssText = 'width:80vw;max-height:60vh;min-height:200px;border-radius:8px;border:2px solid #4ecca3;object-fit:cover;background:#000;';
 
     // Instruction text
     const label = document.createElement('p');
     label.textContent = t.qr_scanning;
-    label.style.cssText = 'color:#a0a0b0;font-size:0.85rem;margin-top:12px;';
+    label.style.cssText = 'color:#a0a0b0;font-size:0.85rem;margin-top:12px;text-align:center;padding:0 1rem;';
 
     overlay.appendChild(closeBtn);
     overlay.appendChild(video);
@@ -73,32 +76,52 @@ export function scanQrCode(): Promise<string | null> {
     document.body.appendChild(overlay);
 
     let scanner: QrScanner | null = null;
+    let resolved = false;
 
     const cleanup = () => {
       if (scanner) { scanner.destroy(); scanner = null; }
       if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
     };
 
-    closeBtn.addEventListener('click', () => {
+    const done = (value: string | null) => {
+      if (resolved) return;
+      resolved = true;
       cleanup();
-      resolve(null);
-    });
+      resolve(value);
+    };
 
-    // Start scanner
-    scanner = new QrScanner(video, (result) => {
-      const data = result.data;
-      cleanup();
-      resolve(data);
-    }, {
-      preferredCamera: 'environment',
-      maxScansPerSecond: 5,
-      returnDetailedScanResult: true,
-      onDecodeError: () => { /* ignore frame-level decode errors */ },
-    });
+    const showError = (msg: string) => {
+      label.textContent = msg;
+      label.style.color = '#ff6b6b';
+    };
 
-    scanner.start().catch(() => {
-      cleanup();
-      resolve(null);
-    });
+    closeBtn.addEventListener('click', () => done(null));
+
+    // Request camera access explicitly first to handle permission prompt
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+      .then((stream) => {
+        // Permission granted — stop this temporary stream, let QrScanner manage its own
+        stream.getTracks().forEach(track => track.stop());
+
+        scanner = new QrScanner(video, (result) => {
+          done(result.data);
+        }, {
+          preferredCamera: 'environment',
+          maxScansPerSecond: 5,
+          returnDetailedScanResult: true,
+          onDecodeError: () => { /* ignore frame-level decode errors */ },
+        });
+
+        scanner.start().catch((err) => {
+          showError(err instanceof Error ? err.message : t.qr_no_camera);
+        });
+      })
+      .catch((err) => {
+        // Camera access denied or unavailable — show error, let user close
+        const msg = err instanceof Error && err.name === 'NotAllowedError'
+          ? t.qr_no_camera
+          : (err instanceof Error ? err.message : t.qr_no_camera);
+        showError(msg);
+      });
   });
 }
