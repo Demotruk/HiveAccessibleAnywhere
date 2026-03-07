@@ -89,6 +89,13 @@ export class HiveClient {
     return this.endpoints[this.currentIndex];
   }
 
+  /** Get all endpoints, ordered starting from current index */
+  getEndpoints(): string[] {
+    return this.endpoints.map((_, i) =>
+      this.endpoints[(this.currentIndex + i) % this.endpoints.length]
+    );
+  }
+
   /** Set the endpoint list (e.g. from discovered endpoints) */
   setEndpoints(endpoints: string[]): void {
     if (endpoints.length === 0) throw new Error('At least one endpoint required');

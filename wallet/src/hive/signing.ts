@@ -4,7 +4,8 @@
  * All signing happens client-side — private keys never leave the device.
  */
 
-import { Transaction } from 'hive-tx';
+import { Transaction, config as hiveTxConfig } from 'hive-tx';
+import { getClient } from './client';
 import type { HiveOperation } from './operations';
 import type { KeyPair } from './keys';
 
@@ -17,25 +18,34 @@ import type { KeyPair } from './keys';
  * - Serialization and signing
  * - Broadcasting
  *
- * Note: hive-tx uses its internal config.node for RPC calls, which we keep
- * in sync via the HiveClient singleton (see client.ts).
+ * Retries across all endpoints from HiveClient on failure, since hive-tx
+ * only uses a single node internally with no failover.
  */
 export async function signAndBroadcast(
   operations: HiveOperation[],
   key: KeyPair,
 ): Promise<{ tx_id: string; status: string }> {
-  const tx = new Transaction();
+  const client = getClient();
+  const endpoints = client.getEndpoints();
+  let lastError: Error | undefined;
 
-  // addOperation is async — it fetches dynamic global properties
-  // on the first call to set up the reference block
-  for (const [opName, opBody] of operations) {
-    await tx.addOperation(opName as any, opBody as any);
+  for (let i = 0; i < endpoints.length; i++) {
+    hiveTxConfig.nodes = [endpoints[i]];
+    try {
+      const tx = new Transaction();
+
+      for (const [opName, opBody] of operations) {
+        await tx.addOperation(opName as any, opBody as any);
+      }
+
+      tx.sign(key.private);
+      const result = await tx.broadcast(true);
+      return result;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      console.warn(`Broadcast via ${endpoints[i]} failed: ${lastError.message}`);
+    }
   }
 
-  // Sign locally — private key never leaves the device
-  tx.sign(key.private);
-
-  // Broadcast and wait for confirmation
-  const result = await tx.broadcast(true);
-  return result;
+  throw lastError ?? new Error('All RPC endpoints failed');
 }
