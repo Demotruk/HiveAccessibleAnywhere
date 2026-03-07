@@ -529,12 +529,19 @@ async function fetchFromChain(){
 
 // Collect proxy endpoints discovered during bootstrap (memo decrypt, URL param, cache)
 const proxyEndpoints=[];
+// Memo key used during bootstrap decryption — handed off to wallet for pre-fill
+let bootstrapMemoKey="";
 
 function loadWallet(html){
   // Hand off proxy endpoints to the wallet via localStorage so the user
   // doesn't have to enter them again on the login screen
   if(proxyEndpoints.length){
     try{localStorage.setItem("propolis_manual_endpoints",JSON.stringify([...new Set(proxyEndpoints)]));}catch(e){}
+  }
+  // Hand off memo key for wallet login pre-fill (temporary — wallet reads once and deletes)
+  if(bootstrapMemoKey){
+    try{localStorage.setItem("propolis_bootstrap_memo_key",bootstrapMemoKey);}catch(e){}
+    bootstrapMemoKey="";
   }
   document.open();
   document.write(html);
@@ -556,7 +563,8 @@ function showMemoForm(showMemoField){
         progress(0,"Decrypting memo...");
         mf.classList.remove("show");
         const payload=await decryptMemo(memoStr||urlMemo,keyStr);
-        // Clear key from memory
+        // Save key for wallet login pre-fill, then clear DOM input
+        bootstrapMemoKey=keyStr;
         mk.value="";
         if(!payload.endpoints||!payload.endpoints.length)throw new Error("No endpoints in memo");
         if(payload.expires&&new Date(payload.expires)<new Date())throw new Error("Endpoints expired");

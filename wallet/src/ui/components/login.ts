@@ -61,6 +61,13 @@ export async function LoginScreen(c: HTMLElement, state: AppState, app: App) {
   const needsProxy = ob && !mgr.hasProxyEndpoints();
   const loggedIn = !!state.account;
 
+  // Read and consume temporary memo key handed off from bootstrap
+  let bootstrapMemoKey: string | null = null;
+  try {
+    bootstrapMemoKey = localStorage.getItem('propolis_bootstrap_memo_key');
+    if (bootstrapMemoKey) localStorage.removeItem('propolis_bootstrap_memo_key');
+  } catch { /* ignore */ }
+
   // If already logged in but just needs proxy, show simplified proxy-only card
   if (needsProxy && loggedIn) {
     const hasMemo = !!state.memoKeyWif;
@@ -122,6 +129,9 @@ ${memoSectionHtml(false)}
   const mi = $('#m',c) as HTMLInputElement, pi = $('#p',c) as HTMLInputElement;
   const pw = $('#pw',c), btn = $('#b',c) as HTMLButtonElement;
   const er = $('#e',c), st = $('#s',c);
+
+  // Pre-fill memo key from bootstrap handoff (user still controls persistence via "Remember keys")
+  if (bootstrapMemoKey) mi.value = bootstrapMemoKey;
 
   const show = (el: HTMLElement, msg: string) => { el.textContent = msg; el.classList.remove('hidden'); };
   const hide = (...els: HTMLElement[]) => els.forEach(e => e.classList.add('hidden'));
