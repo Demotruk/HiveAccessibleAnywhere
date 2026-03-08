@@ -404,6 +404,7 @@ A modified version of the Hive Keychain browser extension that integrates the sa
 - **Gift card batches are declared on-chain.** Batch declarations with Merkle root commitments provide a transparent audit trail of token issuance and enable verification that individual tokens belong to a declared batch.
 - **Gift card claim tokens are single-use and expire.** A stolen token lets an attacker claim an empty account, but does not compromise any existing user. Keys are generated locally on the user's device, never embedded in the QR or transmitted. Expired tokens cannot be redeemed.
 - **Gift card services are security-isolated from proxies.** The gift card service holds account creation keys; the proxy holds no such keys. Compromise of a proxy does not grant account creation capability.
+- **Gift card service account alerting.** The gift card provider account's active key is held persistently by the claim service (required for autonomous account creation). To mitigate the risk of key compromise, the provider should be alerted immediately when any unexpected operation is broadcast from the account — i.e. any operation other than `create_claimed_account`, `delegate_vesting_shares`, or small HBD transfers to the feed service account. On alert, the provider can revoke the active key via a wallet that holds the owner key (e.g. Peakd with Hive Keychain). Existing Hive ecosystem monitoring tools should be evaluated before building a custom solution.
 
 ## Operational Model
 
