@@ -42,7 +42,7 @@ import 'dotenv/config';
  */
 
 import QRCode from 'qrcode';
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { Transaction, PrivateKey, config as hiveTxConfig } from 'hive-tx';
@@ -63,6 +63,7 @@ import {
   insertToken,
   updateBatchDeclaration,
 } from '../giftcard/src/db.js';
+import { generateInvitePdf } from './generate-invite-pdf.js';
 
 // -- CLI Arguments --
 
@@ -297,6 +298,16 @@ async function main() {
   const cardsDir = resolve(outputDir, 'cards');
   mkdirSync(cardsDir, { recursive: true });
 
+  // Load Hive logo for invite PDFs
+  const logoPath = resolve(import.meta.dirname, '..', 'hive-branding', 'logo', 'png', 'logo_transparent@2.png');
+  let logoPngBytes: Uint8Array | undefined;
+  if (existsSync(logoPath)) {
+    logoPngBytes = new Uint8Array(readFileSync(logoPath));
+    console.log(`Loaded Hive logo: ${logoPath}`);
+  } else {
+    console.warn('Warning: Hive logo not found — PDFs will use text fallback');
+  }
+
   console.log('Generating QR codes...');
   const QR_OPTIONS = {
     errorCorrectionLevel: 'H' as const,
@@ -311,6 +322,7 @@ async function main() {
     expires: string;
     qrPng: string;
     qrSvg: string;
+    invitePdf: string;
   }> = [];
 
   for (let i = 0; i < cards.length; i++) {
@@ -354,12 +366,24 @@ async function main() {
     ].join('\n');
     writeFileSync(resolve(cardsDir, `${prefix}-card.txt`), cardTxt);
 
+    // Printable invite postcard PDF (A6 landscape, 2-page)
+    const pdfBytes = await generateInvitePdf({
+      qrPngBytes: new Uint8Array(png),
+      pin: card.pin,
+      issuer: providerAccount,
+      expires: expiresIso.split('T')[0],
+      logoPngBytes,
+    });
+    const pdfPath = resolve(cardsDir, `${prefix}-invite.pdf`);
+    writeFileSync(pdfPath, pdfBytes);
+
     manifestEntries.push({
       tokenPrefix: prefix,
       pin: card.pin,
       expires: expiresIso,
       qrPng: `cards/${prefix}-qr.png`,
       qrSvg: `cards/${prefix}-qr.svg`,
+      invitePdf: `cards/${prefix}-invite.pdf`,
     });
 
     // Progress indicator for large batches
@@ -367,7 +391,7 @@ async function main() {
       process.stdout.write(`  ${i + 1}/${cards.length} cards\r`);
     }
   }
-  console.log(`  Generated ${cards.length} QR code pairs (PNG + SVG)`);
+  console.log(`  Generated ${cards.length} QR code pairs (PNG + SVG) + invite PDFs`);
   console.log('');
 
   // 6. Write manifest
