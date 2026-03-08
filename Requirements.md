@@ -214,7 +214,63 @@ The primary onboarding mechanism for new users. A QR-based system that provides 
 **Concept:**
 A "gift card" (physical card, printout, or digital image) contains a QR code and a 6-character alphanumeric PIN. When scanned, the QR opens a lightweight **invite app** in the browser — a single-purpose onboarding application, separate from the Propolis wallet. The user enters the PIN to decrypt the embedded data, which contains a **claim token** entitling the holder to redeem a specific **promise** — typically creating a Hive account with a username of their choice. The promise type is extensible: while account creation is the initial implementation, a gift card could also promise a HIVE/HBD transfer, an HP delegation, or a combination of actions. Redemption happens within seconds.
 
-The invite app is deliberately separate from the wallet to keep both codebases focused: the invite app handles one-time onboarding (PIN entry, key generation, account claim), while the wallet handles ongoing key management and transactions. After account creation, the invite app hands the user off to the wallet. Initially the invite app is hosted as a static site on GitHub Pages; it can later be migrated to on-chain bootstrapping (using the same mechanism as the wallet, section 1.2.1) if censorship resistance is needed for the onboarding flow.
+The invite app is deliberately separate from the wallet to keep both codebases focused: the invite app handles one-time onboarding (PIN entry, key generation, account claim), while the wallet handles ongoing key management and transactions. After account creation, the invite app hands the user off to the appropriate wallet experience. Initially the invite app is hosted as a static site on GitHub Pages; it can later be migrated to on-chain bootstrapping (using the same mechanism as the wallet, section 1.2.1) if censorship resistance is needed for the onboarding flow.
+
+**Gift card variants:**
+Gift cards come in two variants, determined at batch generation time. The variant is a batch-level attribute stored in the encrypted payload as the `variant` field.
+
+1. **Standard invites** — for countries with unrestricted internet access. The encrypted payload does not include proxy endpoints. The invite app uses public Hive API nodes directly for on-chain operations (signature verification, username availability checks). After account creation, the invite app redirects the user to peakd.com via HiveSigner OAuth login — the target end state is the user logged into peakd.com, on any device. PeakLock (Peakd's built-in browser key storage) is available as a fallback. The gift card service does not enroll the new user in the proxy endpoint feed. Standard invites are simpler to operate: the provider does not need proxy infrastructure, only a gift card service and sufficient account creation tokens.
+
+   **Standard invite handoff — staged onboarding:**
+   The handoff prioritises getting the user active on Hive immediately, with security upgrades deferred to a follow-up prompt.
+
+   *Stage 1 — Immediate (seconds after account creation):*
+   The invite app shows a congratulations screen confirming the account exists on-chain, then guides the user to log into peakd.com using **HiveSigner** — an open-source OAuth2 provider that requires no install or extension. The invite app redirects the user to HiveSigner's import page with peakd.com pre-configured as the OAuth callback. The user enters their username and posting key, clicks Login, and is redirected back to peakd.com fully authenticated. The user is browsing Hive within a minute of account creation.
+
+   **PeakLock** (Peakd's built-in browser key storage) remains available as a fallback option if HiveSigner is unavailable or if a PeakLock deep link feature is implemented by the Peakd team (see implementation notes below).
+
+   *Stage 2 — Follow-up (days later, optional):*
+   The gift card service sends a small transfer (e.g. 0.001 HBD) to the new account with a welcome memo containing a link to Hive Keychain setup instructions. This appears in the user's transaction history on Peakd, serving as a gentle nudge to upgrade their security. The memo could link to a guide for installing the Hive Keychain mobile app (Android/iOS) or browser extension (Chrome/Firefox/Brave), which provides better key management and multi-app support than HiveSigner or PeakLock.
+
+   *HiveSigner implementation notes (investigated March 2026):*
+   HiveSigner is an open-source (MIT, `ecency/hivesigner-ui`) OAuth2 provider. Its `/import` page accepts query parameters: `client_id`, `redirect_uri`, `scope`, `response_type`, `state`, `authority`. The form has two fields (username, private key) and an optional "Save and encrypt" checkbox. After successful login, the user is redirected back to the callback URL (peakd.com) with an authorization code.
+
+   Confirmed behaviour:
+   - The `&username=` URL parameter is **not** currently supported (confirmed by source code review — the username is stored in Vuex, not read from the URL)
+   - If `scope=posting` and the client app (peakd.app) is not in the account's posting authorities, HiveSigner requires an active key or master password to add the authority — a posting key alone will trigger an error
+   - Keys are stored encrypted on HiveSigner's servers (semi-custodial), not in the browser
+   - The OAuth redirect flow provides a clean UX: invite app → HiveSigner → peakd.com, all automatic
+
+   Step comparison (HiveSigner vs PeakLock):
+   - **HiveSigner** (~3-5 user actions): paste username, paste key, click Login, [possibly click Authorize if peakd.app not pre-authorized], auto-redirect to peakd.com
+   - **PeakLock** (~7 user actions): click link to peakd.com, click login icon, click PeakLock, click Add Account, paste username, paste posting key, enter 5-digit PIN
+
+   Options for reducing HiveSigner friction, in order of preference:
+   - **Pre-authorize peakd.app during account creation** *(no cooperation needed)*: Add `["peakd.app", 1]` to the posting authority's `account_auths` in the `create_claimed_account` operation. This eliminates the authorization step entirely — the user only needs to paste username + posting key + click Login (~3 actions). This is the recommended approach.
+   - **Submit PR for `&username=` URL parameter** *(no cooperation needed — open source)*: A trivial change to `import.vue` to read `this.$route.query.username` and initialize `PersistentFormsModule.import.username`. Would reduce to ~2 user actions (paste key + click Login) when combined with pre-authorization.
+   - **Programmatic form fill via native input setter** *(technically proven but impractical)*: Works from same-origin JavaScript but blocked by cross-origin restrictions from the invite app domain.
+
+   *PeakLock implementation notes (investigated March 2026):*
+   PeakLock is a Vue 2 component within peakd.com that stores posting keys encrypted with a 5-digit PIN in the browser's localStorage. The PeakLock "Add Account" form has three fields: Hive account (text), Hive Posting Key (password), and a 5-digit PIN code. Investigation confirmed that form fields can be programmatically pre-filled using native input value setters with Vue-compatible event dispatch — but only from JavaScript running on peakd.com itself. The invite app (hosted on a different domain) cannot manipulate peakd.com's DOM due to cross-origin restrictions.
+
+   Confirmed constraints:
+   - PeakLock source is not publicly available (shared privately by the PeakD team with select developers)
+   - No URL parameter or deep link support exists — `peakd.com/?login=peaklock&username=x` has no effect
+   - No `postMessage` API for cross-origin PeakLock interaction
+   - The login modal is triggered only by clicking the UI login button → PeakLock → Add Account
+
+   PeakLock fallback options:
+   - **Deep link with pre-fill** *(requires Peakd cooperation — feature request to @asgarth)*: A URL like `peakd.com/?action=peaklock&account=username` that auto-opens the PeakLock modal with the username pre-filled. The user would only need to paste their posting key and choose a PIN. This is technically straightforward on Peakd's side (the form-fill code already works, it just needs a URL trigger) and benefits any Hive onboarding tool, not just this project.
+   - **Clipboard + instructions** *(works today, no cooperation needed)*: Copy the posting key to clipboard, open peakd.com in a new tab, and display step-by-step instructions: (1) click login icon, (2) click PeakLock, (3) click Add Account, (4) type username (shown prominently in invite app), (5) paste key, (6) choose PIN, (7) Save. The invite app retains the username and key in memory so they can be re-displayed at any point.
+
+   *Tradeoffs — HiveSigner vs PeakLock:*
+   HiveSigner is semi-custodial (keys stored encrypted on HiveSigner's servers) while PeakLock is non-custodial (keys in browser localStorage). For new users in the immediate handoff, the HiveSigner convenience tradeoff is acceptable — the Stage 2 follow-up encourages upgrading to Hive Keychain, which is fully non-custodial and replaces both HiveSigner and PeakLock.
+
+   The handoff flow should be as hand-held as possible — the user has just created their first Hive account and may have no prior blockchain experience. Each step should include clear instructions and confirmation that the step was completed before advancing. The invite app retains the user's keys in memory during this flow so they can be copied or re-displayed at each stage; keys are cleared from memory once the user confirms they have successfully logged into Peakd, or when the page is closed.
+
+2. **Robust invites** — for countries with restrictive internet where Hive infrastructure may be blocked. The encrypted payload includes one or more proxy endpoint URLs. The invite app uses these proxy endpoints for all on-chain operations during onboarding. After account creation, the gift card service enrolls the new user in the proxy endpoint feed, and the invite app hands the user off to the Propolis wallet pre-configured with proxy access. Robust invites require the full Phase 2 infrastructure (proxy network, endpoint feed, Propolis wallet).
+
+The invite app adapts its flow based on the variant: the core onboarding steps (PIN entry, verification, username selection, key backup, account claim) are identical, but the RPC access method, post-claim handoff destination, and endpoint enrollment differ. The invite app hosted on GitHub Pages serves both variants — on-chain bootstrapping of the invite app (section 1.2.1) is only needed if GitHub Pages itself becomes inaccessible in a target region, which is primarily a concern for robust invite deployments.
 
 **QR URL structure:**
 ```
@@ -228,7 +284,8 @@ https://<invite-app-url>/invite#<encrypted-blob>
 - `token` — the single-use claim token
 - `provider` — the Hive account name of the gift card provider
 - `serviceUrl` — the URL of the provider's gift card service (for redemption requests)
-- `endpoints` — one or more proxy endpoint URLs (used by the invite app for RPC access during onboarding, and passed to the wallet after account creation)
+- `variant` — `"standard"` or `"robust"` (determines flow behaviour; see Gift card variants above)
+- `endpoints` — *(robust only)* one or more proxy endpoint URLs (used by the invite app for RPC access during onboarding, and passed to the wallet after account creation). Omitted or empty for standard invites
 - `batchId` — identifier of the batch this card belongs to
 - `expires` — expiry date of the token (ISO 8601)
 - `signature` — digital signature from the provider's memo key over the card's data (see Authenticity below)
@@ -280,27 +337,28 @@ Gift card providers register their service URL on-chain so the invite app can di
 Note: The QR's encrypted blob also includes the `serviceUrl` directly as a fallback, so the invite app can contact the service even if on-chain lookup fails. The on-chain record is the canonical source and takes precedence when available.
 
 **Flow:**
-1. Gift card provider generates a batch of claim tokens with a configured expiry (default: 1 year), signs each card's data with the provider's memo key, broadcasts a batch declaration `custom_json` on-chain, and produces gift cards with unique QR codes and PINs
+1. Gift card provider generates a batch of claim tokens with a configured variant and expiry (default: 1 year), signs each card's data with the provider's memo key, broadcasts a batch declaration `custom_json` on-chain, and produces gift cards with unique QR codes and PINs
 2. Gift cards are distributed (in person, by post, via trusted channel)
 3. User scans QR → phone opens browser → invite app loads from the public URL (e.g. GitHub Pages)
 4. Invite app detects the encrypted fragment and prompts the user to enter the PIN from the gift card
-5. Invite app decrypts the fragment, extracting the claim token, provider account, batch ID, service URL, proxy endpoints, and authenticity signature. The fragment is immediately cleared from the address bar
-6. Invite app looks up the provider's public memo key on-chain (via a proxy endpoint from the decrypted data) and verifies the authenticity signature. If verification fails, the invite app rejects the card as counterfeit
+5. Invite app decrypts the fragment, extracting the claim token, provider account, batch ID, service URL, variant, authenticity signature, and (for robust invites) proxy endpoints. The fragment is immediately cleared from the address bar
+6. Invite app looks up the provider's public memo key on-chain and verifies the authenticity signature. For robust invites, this uses a proxy endpoint from the decrypted data; for standard invites, this uses public Hive API nodes directly. If verification fails, the invite app rejects the card as counterfeit
 7. Invite app generates keys locally and prompts the user to choose a username
 8. Invite app prompts the user to back up their keys (QR code export, manual copy, or both) **before** proceeding
 9. Invite app sends an account creation request to the gift card service, including: the claim token, the user's chosen username, and the user's public keys
 10. Gift card service validates the token (not expired, not already spent), creates the Hive account on-chain, delegates a small amount of HP to the new account (so the user has enough Resource Credits to transact), and marks the token as spent
-11. Gift card service sends a transfer to the endpoint subscription service (e.g. `haa-service`) with the new account's username in the memo, signalling that this user should be enrolled in the endpoint feed
-12. Invite app confirms account creation and provides a link to the Propolis wallet (bootstrap URL), pre-configured with the user's proxy endpoints. The user can import their keys into the wallet and begin using Hive
+11. *(Robust only)* Gift card service sends a transfer to the endpoint subscription service (e.g. `haa-service`) with the new account's username in the memo, signalling that this user should be enrolled in the endpoint feed. This step is skipped for standard invites
+12. Invite app confirms account creation and begins the handoff flow. For **standard invites**, the invite app congratulates the user and redirects them to peakd.com via HiveSigner (OAuth login — no install required). For **robust invites**, the invite app links to the Propolis wallet (bootstrap URL), pre-configured with the user's proxy endpoints
 
 **Integration with existing infrastructure:**
-- The invite app is a lightweight static site hosted on GitHub Pages (or any public CDN), separate from the Propolis wallet. It can be migrated to on-chain bootstrapping (section 1.2.1) in the future for censorship resistance
-- The proxy endpoints embedded in the gift card's encrypted data are from the proxy network (section 2.3), giving the invite app RPC access for signature verification and username availability checks, and giving the new user immediate proxy access when they transition to the wallet
-- After account creation, the user transitions to the Propolis wallet, which bootstraps independently from on-chain code (section 1.2.1). The wallet operates identically regardless of how the user's account was created
+- The invite app is a lightweight static site hosted on GitHub Pages (or any public CDN), separate from any wallet. It serves both standard and robust invite variants. It can be migrated to on-chain bootstrapping (section 1.2.1) in the future for censorship resistance, primarily relevant for robust invites in regions where GitHub Pages may be blocked
+- For robust invites, the proxy endpoints embedded in the encrypted data are from the proxy network (section 2.3), giving the invite app RPC access for signature verification and username availability checks, and giving the new user immediate proxy access when they transition to the Propolis wallet
+- For standard invites, the invite app uses public Hive API nodes directly and redirects the user to peakd.com via HiveSigner OAuth login (no install required). PeakLock is available as a fallback. Hive Keychain is recommended as a follow-up upgrade via transfer memo. No proxy infrastructure is required
+- After account creation, the user transitions to the appropriate wallet experience. For robust invites, the Propolis wallet bootstraps independently from on-chain code (section 1.2.1) and operates identically regardless of how the user's account was created
 - The gift card service is independent of both the invite app and the proxy — it only needs to reach a Hive API node (directly or via proxy) to broadcast the account creation transaction
 
-**Endpoint subscription enrollment:**
-When the gift card service creates a new account, it signals the endpoint subscription service by sending a small transfer (e.g. 0.001 HBD) to the service account (e.g. `haa-service`) with the new username in the memo. The endpoint feed publisher (section 2.1) recognises this as a subscription request and includes the new user in the next feed update. This keeps the feed publisher's keys separate from the gift card service's keys.
+**Endpoint subscription enrollment** *(robust invites only)*:
+When the gift card service creates a new account via a robust invite, it signals the endpoint subscription service by sending a small transfer (e.g. 0.001 HBD) to the service account (e.g. `haa-service`) with the new username in the memo. The endpoint feed publisher (section 2.1) recognises this as a subscription request and includes the new user in the next feed update. This keeps the feed publisher's keys separate from the gift card service's keys. For standard invites, this step is skipped — the new user accesses Hive through public API nodes and does not need proxy endpoints.
 
 **Security:**
 - Private keys are generated locally on the user's device and never transmitted — only public keys are sent to the gift card service
@@ -331,7 +389,9 @@ This creates a verifiable chain: batch declaration (merkle root + count + promis
 - Gift cards have a shelf life determined by both the token expiry (default: 1 year) and the longevity of the invite app URL and service URL
 - The gift card service must be reachable at redemption time — if the service is down, the token remains valid for later use (assuming it has not expired)
 - The initial HP delegation is a cost borne by the gift card provider; it should be small enough to enable basic transactions but represents a capital commitment that is recovered when the delegation is eventually removed
-- After account creation, the user must transition from the invite app to the Propolis wallet to begin using Hive. The invite app provides a direct link with pre-configured proxy endpoints to make this seamless
+- After account creation, the user must transition from the invite app to their target wallet experience. For robust invites, the invite app provides a direct link to Propolis with pre-configured proxy endpoints. For standard invites, the invite app redirects the user to peakd.com via HiveSigner OAuth — this involves a cross-domain redirect where the user must enter their username, paste their posting key, and click Login (~3 user actions). If peakd.app is pre-authorized during account creation, no additional authorization step is needed. The invite app must retain keys in memory throughout this handoff so the user can re-access them at each step
+- **HiveSigner username pre-fill limitation**: HiveSigner does not currently read a `username` URL parameter (confirmed by source code review, March 2026). Since HiveSigner is open source (MIT, `ecency/hivesigner-ui`), a PR can be submitted to add this trivial feature. PeakLock likewise has no URL-based pre-fill (closed source, feature request made to @asgarth)
+- **TLS certificate acceptance for LAN deployments:** When the gift card service runs on a local network (e.g. internet café, community centre, offline kiosk) rather than behind a public domain with a valid certificate, the invite app's `fetch()` requests to the service will silently fail unless the user has previously accepted the self-signed certificate warning by visiting the service URL directly. This is a browser security constraint — `fetch()` to an untrusted HTTPS origin is rejected without user interaction, and the invite app cannot trigger the browser's certificate acceptance UI programmatically. A future UX improvement could detect LAN/IP-based service URLs and prompt the user to verify the connection (opening the service health endpoint in a new tab) before attempting the claim. This is not an issue for public deployments with valid TLS certificates (e.g. Let's Encrypt)
 
 ### 2.5 Onboarding Service (General)
 
