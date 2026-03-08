@@ -23,6 +23,7 @@ export const t = {
   cancel: 'İptal',
   broadcasting: 'Yayınlanıyor…',
   invalid_url: 'Geçersiz URL.',
+  https_required: 'Proxy URL HTTPS kullanmalıdır.',
   enter_proxy_url: 'Bir proxy URL girin.',
   amount_positive: 'Miktar 0\'dan büyük olmalıdır.',
   username_placeholder: 'kullanıcı adı',

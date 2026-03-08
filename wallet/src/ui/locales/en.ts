@@ -23,6 +23,7 @@ export const t = {
   cancel: 'Cancel',
   broadcasting: 'Broadcasting...',
   invalid_url: 'Invalid URL.',
+  https_required: 'HTTPS required for proxy URLs.',
   enter_proxy_url: 'Enter a proxy URL.',
   amount_positive: 'Amount must be > 0.',
   username_placeholder: 'username',

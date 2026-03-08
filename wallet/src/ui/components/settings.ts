@@ -56,8 +56,12 @@ ${S('mt mb', `${t.active_check} ${state.activeKeyWif ? '✓' : '✗'} | ${t.memo
   c.querySelector('#se')!.addEventListener('click', () => {
     const u = ci.value.trim();
     if (!u) { sh(es, 'err', t.enter_url); return; }
-    try { new URL(u); mgr.addManualEndpoint(u); ce.textContent = cl.currentEndpoint; sh(es, 'ok', t.added); ci.value = ''; if (el) el.innerHTML = rl(mgr); }
-    catch { sh(es, 'err', t.invalid_url); }
+    let parsed: URL;
+    try { parsed = new URL(u); } catch { sh(es, 'err', t.invalid_url); return; }
+    if (parsed.protocol !== 'https:' && parsed.hostname !== 'localhost' && parsed.hostname !== '127.0.0.1') {
+      sh(es, 'err', t.https_required); return;
+    }
+    mgr.addManualEndpoint(u); ce.textContent = cl.currentEndpoint; sh(es, 'ok', t.added); ci.value = ''; if (el) el.innerHTML = rl(mgr);
   });
 
   c.querySelector('#re')!.addEventListener('click', () => { cl.setEndpoints(DEFAULTS); ce.textContent = cl.currentEndpoint; sh(es, 'ok', t.reset_done); });

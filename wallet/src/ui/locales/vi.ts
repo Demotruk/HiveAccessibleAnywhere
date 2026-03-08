@@ -23,6 +23,7 @@ export const t = {
   cancel: 'Hủy',
   broadcasting: 'Đang phát…',
   invalid_url: 'URL không hợp lệ.',
+  https_required: 'URL proxy phải sử dụng HTTPS.',
   enter_proxy_url: 'Nhập URL proxy.',
   amount_positive: 'Số tiền phải lớn hơn 0.',
   username_placeholder: 'tên người dùng',

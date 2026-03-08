@@ -23,6 +23,7 @@ export const t = {
   cancel: 'Отмена',
   broadcasting: 'Отправка…',
   invalid_url: 'Неверный URL.',
+  https_required: 'URL прокси должен использовать HTTPS.',
   enter_proxy_url: 'Введите URL прокси.',
   amount_positive: 'Сумма должна быть > 0.',
   username_placeholder: 'имя пользователя',

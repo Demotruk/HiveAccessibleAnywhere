@@ -23,6 +23,7 @@ export const t = {
   cancel: '取消',
   broadcasting: '广播中…',
   invalid_url: '无效的URL。',
+  https_required: '代理URL必须使用HTTPS。',
   enter_proxy_url: '请输入代理URL。',
   amount_positive: '金额必须大于0。',
   username_placeholder: '用户名',

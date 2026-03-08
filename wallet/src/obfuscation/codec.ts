@@ -50,7 +50,7 @@ export async function encodeRequest(request: JsonRpcRequest): Promise<{
 }> {
   const encoded = toB64(await gz(JSON.stringify(request)));
   return {
-    path: PATHS[Math.floor(Math.random() * PATHS.length)],
+    path: PATHS[new Uint32Array(crypto.getRandomValues(new Uint32Array(1)))[0] % PATHS.length],
     body: JSON.stringify({ q: encoded, sid: rHex(8) }),
     headers: { 'Content-Type': 'application/json', 'X-Api-Version': '1' },
   };

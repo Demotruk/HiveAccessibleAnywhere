@@ -23,6 +23,7 @@ export const t = {
   cancel: 'إلغاء',
   broadcasting: 'جارٍ البث…',
   invalid_url: 'رابط غير صالح.',
+  https_required: 'يجب أن يستخدم رابط الوكيل HTTPS.',
   enter_proxy_url: 'أدخل رابط الوكيل.',
   amount_positive: 'يجب أن يكون المبلغ أكبر من صفر.',
   username_placeholder: 'اسم المستخدم',

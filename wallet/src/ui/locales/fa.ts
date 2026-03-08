@@ -23,6 +23,7 @@ export const t = {
   cancel: 'لغو',
   broadcasting: 'در حال ارسال…',
   invalid_url: 'URL نامعتبر.',
+  https_required: 'URL پراکسی باید از HTTPS استفاده کند.',
   enter_proxy_url: 'URL پراکسی را وارد کنید.',
   amount_positive: 'مبلغ باید بیشتر از صفر باشد.',
   username_placeholder: 'نام کاربری',

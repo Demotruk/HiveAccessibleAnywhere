@@ -11,6 +11,16 @@ import { isQrScannerSupported, scanQrCode, parseQrPayload } from './qr-scanner';
 
 const $ = (s: string, c: HTMLElement) => c.querySelector(s) as HTMLElement;
 
+/** Reject non-HTTPS proxy URLs (allow localhost for dev). */
+function requireHttps(url: string): string | null {
+  let parsed: URL;
+  try { parsed = new URL(url); } catch { return t.invalid_url; }
+  if (parsed.protocol !== 'https:' && parsed.hostname !== 'localhost' && parsed.hostname !== '127.0.0.1') {
+    return t.https_required;
+  }
+  return null;
+}
+
 /** Try to decrypt a memo and extract proxy endpoints. Returns endpoint URLs or throws. */
 function extractEndpointsFromMemo(memo: string, memoKeyWif: string): string[] {
   const text = memo.trim();
@@ -89,7 +99,8 @@ ${memoSectionHtml(hasMemo)}
     paBtn.addEventListener('click', () => {
       const url = pxInput.value.trim();
       if (!url) { peErr.textContent = t.enter_proxy_url; peErr.classList.remove('hidden'); return; }
-      try { new URL(url); } catch { peErr.textContent = t.invalid_url; peErr.classList.remove('hidden'); return; }
+      const err = requireHttps(url);
+      if (err) { peErr.textContent = err; peErr.classList.remove('hidden'); return; }
       mgr.addManualEndpoint(url);
       app.startDiscovery();
       app.navigate('balance');
@@ -179,7 +190,8 @@ ${isQrScannerSupported() ? `<button class="btn-s mb" id="qr" type="button">${t.s
     paBtn.addEventListener('click', () => {
       const url = pxInput.value.trim();
       if (!url) { show(peErr, t.enter_proxy_url); return; }
-      try { new URL(url); } catch { show(peErr, t.invalid_url); return; }
+      const err = requireHttps(url);
+      if (err) { show(peErr, err); return; }
       mgr.addManualEndpoint(url);
       LoginScreen(c, state, app); // re-render without proxy setup
     });

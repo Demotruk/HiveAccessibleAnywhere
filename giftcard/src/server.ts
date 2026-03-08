@@ -77,12 +77,7 @@ app.post('/claim', claimLimiter, claimHandler(db, config));
 
 // Health check
 app.get('/health', (_req, res) => {
-  res.json({
-    status: 'ok',
-    service: 'haa-giftcard',
-    provider: config.providerAccount,
-    theme: getThemeName(),
-  });
+  res.json({ status: 'ok' });
 });
 
 // 404 for everything else (looks like a normal site)
