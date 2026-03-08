@@ -177,7 +177,7 @@ async function main() {
   const note = parsed['note'] || null;
   const bootstrapUrl = parsed['bootstrap-url'] || 'https://demotruk.github.io/HiveAccessibleAnywhere';
   const serviceUrl = parsed['service-url'] || '';
-  const dbPath = parsed['db-path'] || resolve(import.meta.dirname, '..', 'giftcard', 'data', 'tokens.db');
+  const dbPath = parsed['db-path'] || process.env.GIFTCARD_DB_PATH || resolve(import.meta.dirname, '..', 'giftcard', 'data', 'tokens.db');
 
   // Env vars
   const providerAccount = requireEnv('GIFTCARD_PROVIDER_ACCOUNT');
@@ -415,21 +415,30 @@ async function main() {
 
   // 7. Print if requested
   if (printCards) {
-    console.log('Sending to default printer...');
     const { execSync } = await import('node:child_process');
     const absPath = resolve(combinedPath);
     try {
-      if (process.platform === 'win32') {
-        // Windows: Start-Process with -Verb Print sends to default printer
-        execSync(`powershell -Command "Start-Process -FilePath '${absPath}' -Verb Print -Wait"`, { stdio: 'inherit' });
+      if (process.platform === 'darwin') {
+        // macOS: send directly to default printer via CUPS
+        console.log('Sending postcards to default printer...');
+        execSync(`lp "${absPath}"`);
+        console.log('  Sent to printer.');
+      } else if (process.platform === 'linux') {
+        // Linux: send directly to default printer via CUPS
+        console.log('Sending postcards to default printer...');
+        execSync(`lpr "${absPath}"`);
+        console.log('  Sent to printer.');
       } else {
-        // Unix/macOS: lpr sends to default printer
-        execSync(`lpr "${absPath}"`, { stdio: 'inherit' });
+        // Windows: no reliable silent-print for PDFs without third-party software.
+        // Open in default viewer so the user can Ctrl+P.
+        console.log('Opening postcards for printing...');
+        execSync(`start "" "${absPath}"`, { shell: 'cmd.exe' });
+        console.log(`  Opened: ${absPath}`);
+        console.log('  Press Ctrl+P in the viewer to print.');
       }
-      console.log('  Print job sent');
     } catch (err) {
-      console.error(`  Print failed: ${err instanceof Error ? err.message : String(err)}`);
-      console.error(`  You can print manually: ${combinedPath}`);
+      console.error(`  Could not print: ${err instanceof Error ? err.message : String(err)}`);
+      console.error(`  Print manually: ${combinedPath}`);
     }
     console.log('');
   }

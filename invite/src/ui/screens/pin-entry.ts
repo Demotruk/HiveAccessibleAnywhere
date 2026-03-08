@@ -48,6 +48,12 @@ export const PinEntryScreen: ScreenFn = (container, state, advance) => {
     errEl.classList.add('hidden');
 
     try {
+      if (!crypto?.subtle) {
+        errEl.textContent = 'Web Crypto not available — HTTPS required. This page must be served over HTTPS or localhost.';
+        errEl.classList.remove('hidden');
+        submitBtn.disabled = false;
+        return;
+      }
       const payload = await decryptPayload(state.encryptedBlob!, pin);
       state.pin = pin;
       state.payload = payload;

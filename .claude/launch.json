@@ -31,9 +31,28 @@
     {
       "name": "invite-dev",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["node_modules/vite/bin/vite.js", "--port", "5175", "--host", "127.0.0.1"],
+      "runtimeArgs": ["node_modules/vite/bin/vite.js", "--port", "5175", "--host", "0.0.0.0"],
       "port": 5175,
       "cwd": "invite"
+    },
+    {
+      "name": "invite-dev-https",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["node_modules/vite/bin/vite.js", "--port", "5176", "--host", "0.0.0.0"],
+      "port": 5176,
+      "cwd": "invite",
+      "env": { "HTTPS_DEV": "1" }
+    },
+    {
+      "name": "giftcard-dev",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["--env-file", ".env", "--import", "tsx", "src/server.ts"],
+      "port": 3200,
+      "cwd": "giftcard",
+      "env": {
+        "GIFTCARD_TLS_CERT": "../.claude/certs/dev-cert.pem",
+        "GIFTCARD_TLS_KEY": "../.claude/certs/dev-key.pem"
+      }
     },
     {
       "name": "proxy-food",

@@ -21,6 +21,8 @@
 
 import express from 'express';
 import helmet from 'helmet';
+import https from 'node:https';
+import { readFileSync, existsSync } from 'node:fs';
 import { rateLimit } from './middleware/rate-limit.js';
 import { serveCoverPage, getThemeName } from './cover-site.js';
 import { claimHandler } from './routes/claim.js';
@@ -90,11 +92,31 @@ app.use((_req, res) => {
   );
 });
 
-app.listen(config.port, () => {
-  console.log(`HAA Gift Card Service listening on port ${config.port} [provider: @${config.providerAccount}, theme: ${getThemeName()}]`);
-  console.log(`Cover site: http://localhost:${config.port}/`);
-  console.log(`Claim:      POST http://localhost:${config.port}/claim`);
-  console.log(`Validate:   POST http://localhost:${config.port}/validate`);
-  console.log(`Health:     http://localhost:${config.port}/health`);
-  console.log(`Database:   ${config.dbPath}`);
-});
+// HTTPS support for local dev (required for Web Crypto on LAN)
+const certPath = process.env.GIFTCARD_TLS_CERT;
+const keyPath = process.env.GIFTCARD_TLS_KEY;
+const useHttps = certPath && keyPath && existsSync(certPath) && existsSync(keyPath);
+
+if (useHttps) {
+  const tlsOptions = {
+    cert: readFileSync(certPath!),
+    key: readFileSync(keyPath!),
+  };
+  https.createServer(tlsOptions, app).listen(config.port, '0.0.0.0', () => {
+    console.log(`HAA Gift Card Service (HTTPS) listening on port ${config.port} [provider: @${config.providerAccount}, theme: ${getThemeName()}]`);
+    console.log(`Cover site: https://localhost:${config.port}/`);
+    console.log(`Claim:      POST https://localhost:${config.port}/claim`);
+    console.log(`Validate:   POST https://localhost:${config.port}/validate`);
+    console.log(`Health:     https://localhost:${config.port}/health`);
+    console.log(`Database:   ${config.dbPath}`);
+  });
+} else {
+  app.listen(config.port, () => {
+    console.log(`HAA Gift Card Service listening on port ${config.port} [provider: @${config.providerAccount}, theme: ${getThemeName()}]`);
+    console.log(`Cover site: http://localhost:${config.port}/`);
+    console.log(`Claim:      POST http://localhost:${config.port}/claim`);
+    console.log(`Validate:   POST http://localhost:${config.port}/validate`);
+    console.log(`Health:     http://localhost:${config.port}/health`);
+    console.log(`Database:   ${config.dbPath}`);
+  });
+}
