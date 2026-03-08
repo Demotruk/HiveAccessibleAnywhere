@@ -13,6 +13,8 @@ import {
   listTokens,
   getStats,
   updateBatchDeclaration,
+  isTokenSpent,
+  markTokenSpentByHash,
 } from '../db.js';
 
 describe('Database layer', () => {
@@ -222,6 +224,42 @@ describe('Database layer', () => {
       expect(stats.active).toBe(2);
       expect(stats.spent).toBe(1);
       expect(stats.revoked).toBe(1);
+    });
+  });
+
+  describe('spent_tokens (Merkle proof path)', () => {
+    it('creates spent_tokens table', () => {
+      const tables = db.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+      ).all() as { name: string }[];
+      expect(tables.map(t => t.name)).toContain('spent_tokens');
+    });
+
+    it('isTokenSpent returns false for unknown hash', () => {
+      expect(isTokenSpent(db, 'abc123')).toBe(false);
+    });
+
+    it('markTokenSpentByHash and isTokenSpent roundtrip', () => {
+      markTokenSpentByHash(db, 'hash-aaa', 'batch-1', 'newuser', '1.2.3.4', 'tx-001');
+      expect(isTokenSpent(db, 'hash-aaa')).toBe(true);
+    });
+
+    it('stores all fields correctly', () => {
+      markTokenSpentByHash(db, 'hash-bbb', 'batch-2', 'testuser', '5.6.7.8', 'tx-002');
+      const row = db.prepare('SELECT * FROM spent_tokens WHERE token_hash = ?').get('hash-bbb') as any;
+      expect(row.token_hash).toBe('hash-bbb');
+      expect(row.batch_id).toBe('batch-2');
+      expect(row.claimed_by).toBe('testuser');
+      expect(row.claimed_ip).toBe('5.6.7.8');
+      expect(row.tx_id).toBe('tx-002');
+      expect(row.claimed_at).toBeTruthy();
+    });
+
+    it('rejects duplicate token hash (PRIMARY KEY)', () => {
+      markTokenSpentByHash(db, 'hash-dup', 'batch-1', 'user1', '1.1.1.1', 'tx1');
+      expect(() => {
+        markTokenSpentByHash(db, 'hash-dup', 'batch-1', 'user2', '2.2.2.2', 'tx2');
+      }).toThrow();
     });
   });
 });

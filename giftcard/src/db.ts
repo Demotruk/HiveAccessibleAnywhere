@@ -81,6 +81,17 @@ export function initDatabase(dbPath: string): Database.Database {
 
     CREATE INDEX IF NOT EXISTS idx_tokens_batch ON tokens(batch_id);
     CREATE INDEX IF NOT EXISTS idx_tokens_status ON tokens(status);
+
+    CREATE TABLE IF NOT EXISTS spent_tokens (
+      token_hash   TEXT PRIMARY KEY,
+      batch_id     TEXT NOT NULL,
+      claimed_by   TEXT NOT NULL,
+      claimed_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      claimed_ip   TEXT,
+      tx_id        TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_spent_tokens_batch ON spent_tokens(batch_id);
   `);
 
   return db;
@@ -279,4 +290,33 @@ export function getStats(db: Database.Database): {
     expiringWithin60d: (expiringQuery.get('+60 days') as { count: number }).count,
     expiringWithin90d: (expiringQuery.get('+90 days') as { count: number }).count,
   };
+}
+
+// -- Spent token tracking (for Merkle proof validation path) --
+
+/**
+ * Check if a token hash has already been spent.
+ * Used by the Merkle proof validation path where tokens are not pre-loaded in the DB.
+ */
+export function isTokenSpent(db: Database.Database, tokenHash: string): boolean {
+  const row = db.prepare('SELECT 1 FROM spent_tokens WHERE token_hash = ?').get(tokenHash);
+  return !!row;
+}
+
+/**
+ * Record a token as spent after successful claim via Merkle proof validation.
+ * Stores only the SHA-256 hash of the token (not the raw token) for privacy.
+ */
+export function markTokenSpentByHash(
+  db: Database.Database,
+  tokenHash: string,
+  batchId: string,
+  claimedBy: string,
+  ip: string,
+  txId: string,
+): void {
+  db.prepare(`
+    INSERT INTO spent_tokens (token_hash, batch_id, claimed_by, claimed_ip, tx_id)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(tokenHash, batchId, claimedBy, ip, txId);
 }

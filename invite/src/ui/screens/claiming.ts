@@ -44,6 +44,13 @@ export const ClaimingScreen: ScreenFn = async (container, state, advance) => {
         token: payload.token,
         username: state.username,
         keys,
+        // Merkle proof validation fields
+        batchId: payload.batchId,
+        signature: payload.signature,
+        expires: payload.expires,
+        promiseType: payload.promiseType,
+        promiseParams: payload.promiseParams,
+        merkleProof: payload.merkleProof,
       }),
     });
 

@@ -6,6 +6,11 @@ import {
   encryptPayload,
   decryptPayload,
   merkleRoot,
+  generateMerkleProof,
+  verifyMerkleProof,
+  encodeMerkleProof,
+  decodeMerkleProof,
+  hashToken,
   signCardData,
   verifyCardSignature,
   type GiftCardPayload,
@@ -152,6 +157,111 @@ describe('Merkle tree', () => {
   it('handles power-of-two number of tokens', () => {
     const root = merkleRoot(['t1', 't2', 't3', 't4']);
     expect(root).toHaveLength(64);
+  });
+});
+
+describe('Merkle proofs', () => {
+  it('generates valid proof for a single token', () => {
+    const tokens = ['single-token'];
+    const root = merkleRoot(tokens);
+    const proof = generateMerkleProof(tokens, 'single-token');
+    expect(proof).toHaveLength(0); // Root IS the token hash
+    expect(verifyMerkleProof(hashToken('single-token').toString('hex'), proof, root)).toBe(true);
+  });
+
+  it('generates valid proof for two tokens', () => {
+    const tokens = ['token-a', 'token-b'];
+    const root = merkleRoot(tokens);
+    for (const token of tokens) {
+      const proof = generateMerkleProof(tokens, token);
+      expect(proof).toHaveLength(1);
+      expect(verifyMerkleProof(hashToken(token).toString('hex'), proof, root)).toBe(true);
+    }
+  });
+
+  it('generates valid proof for odd number of tokens', () => {
+    const tokens = ['t1', 't2', 't3'];
+    const root = merkleRoot(tokens);
+    for (const token of tokens) {
+      const proof = generateMerkleProof(tokens, token);
+      expect(verifyMerkleProof(hashToken(token).toString('hex'), proof, root)).toBe(true);
+    }
+  });
+
+  it('generates valid proof for power-of-two tokens', () => {
+    const tokens = ['a', 'b', 'c', 'd'];
+    const root = merkleRoot(tokens);
+    for (const token of tokens) {
+      const proof = generateMerkleProof(tokens, token);
+      expect(verifyMerkleProof(hashToken(token).toString('hex'), proof, root)).toBe(true);
+    }
+  });
+
+  it('generates valid proof for 5, 7, and 10 tokens', () => {
+    for (const count of [5, 7, 10]) {
+      const tokens = Array.from({ length: count }, (_, i) => `token-${i}`);
+      const root = merkleRoot(tokens);
+      for (const token of tokens) {
+        const proof = generateMerkleProof(tokens, token);
+        expect(verifyMerkleProof(hashToken(token).toString('hex'), proof, root)).toBe(true);
+      }
+    }
+  });
+
+  it('proof is order-independent (tokens sorted internally)', () => {
+    const tokens = ['z-token', 'a-token', 'm-token'];
+    const shuffled = ['m-token', 'z-token', 'a-token'];
+    const proof1 = generateMerkleProof(tokens, 'a-token');
+    const proof2 = generateMerkleProof(shuffled, 'a-token');
+    expect(proof1).toEqual(proof2);
+  });
+
+  it('proof fails against wrong root', () => {
+    const tokens = ['t1', 't2', 't3'];
+    const proof = generateMerkleProof(tokens, 't1');
+    const wrongRoot = merkleRoot(['x1', 'x2', 'x3']);
+    expect(verifyMerkleProof(hashToken('t1').toString('hex'), proof, wrongRoot)).toBe(false);
+  });
+
+  it('throws for token not in the set', () => {
+    const tokens = ['t1', 't2', 't3'];
+    expect(() => generateMerkleProof(tokens, 'not-here')).toThrow('not found');
+  });
+
+  it('throws for empty token list', () => {
+    expect(() => generateMerkleProof([], 'any')).toThrow('empty');
+  });
+
+  it('roundtrips through encrypt/decrypt preserving compact merkleProof', () => {
+    const tokens = ['tok-a', 'tok-b', 'tok-c'];
+    const proof = generateMerkleProof(tokens, 'tok-b');
+    const compact = encodeMerkleProof(proof);
+    const payload: GiftCardPayload = {
+      token: 'a'.repeat(64),
+      provider: 'testprovider',
+      serviceUrl: 'https://example.com',
+      endpoints: [],
+      batchId: 'batch-test',
+      expires: '2027-01-01T00:00:00Z',
+      signature: 'sig',
+      promiseType: 'account-creation',
+      merkleProof: compact,
+    };
+    const blob = encryptPayload(payload, 'TESTPN');
+    const decrypted = decryptPayload(blob, 'TESTPN');
+    expect(decrypted.merkleProof).toBe(compact);
+    // Decoded proof should match original
+    expect(decodeMerkleProof(decrypted.merkleProof!)).toEqual(proof);
+  });
+
+  it('encode/decode roundtrips correctly', () => {
+    const tokens = Array.from({ length: 10 }, (_, i) => `token-${i}`);
+    for (const token of tokens) {
+      const proof = generateMerkleProof(tokens, token);
+      const compact = encodeMerkleProof(proof);
+      const decoded = decodeMerkleProof(compact);
+      expect(decoded).toEqual(proof);
+    }
   });
 });
 

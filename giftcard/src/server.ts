@@ -70,7 +70,7 @@ const validateLimiter = rateLimit({ max: 30, windowMs: 60_000 });
 app.get('/', serveCoverPage);
 
 // Token validation (pre-flight check)
-app.post('/validate', validateLimiter, validateHandler(db));
+app.post('/validate', validateLimiter, validateHandler(db, config));
 
 // Account creation (core endpoint)
 app.post('/claim', claimLimiter, claimHandler(db, config));

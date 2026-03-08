@@ -1,15 +1,23 @@
 /**
  * POST /claim — Redeem a gift card claim token.
  *
+ * Supports two validation paths:
+ * 1. Merkle proof (primary): validates token cryptographically against
+ *    on-chain batch declaration — no pre-populated DB needed.
+ * 2. DB lookup (fallback): legacy path for tokens without proof data.
+ *
  * Dispatches to a promise-type-specific handler based on the token's batch.
  * Currently implements 'account-creation'; other types return 501.
  */
 
 import { createHash } from 'node:crypto';
+import { PrivateKey } from 'hive-tx';
 import type { Request, Response } from 'express';
 import type Database from 'better-sqlite3';
 import type { GiftcardConfig } from '../config.js';
-import { getTokenWithBatch, markTokenSpent, type TokenWithPromise } from '../db.js';
+import { getTokenWithBatch, markTokenSpent, isTokenSpent, markTokenSpentByHash, type TokenWithPromise } from '../db.js';
+import { verifyMerkleProof, verifyCardSignature, decodeMerkleProof } from '../crypto/signing.js';
+import { fetchBatchDeclaration } from '../hive/batch-lookup.js';
 import { isValidUsername } from '../hive/username.js';
 import { createAccountFull, isUsernameAvailable, type PublicKeys } from '../hive/account.js';
 
@@ -26,6 +34,13 @@ function tokenHash(token: string): string {
 
 interface ClaimRequest {
   token: string;
+  // Merkle proof validation fields (sent by updated clients):
+  batchId?: string;
+  signature?: string;
+  expires?: string;
+  promiseType?: string;
+  promiseParams?: Record<string, unknown>;
+  merkleProof?: string;
   // For account-creation:
   username?: string;
   keys?: PublicKeys;
@@ -33,7 +48,22 @@ interface ClaimRequest {
   account?: string;
 }
 
+/** Which validation path was used */
+type ValidationMode = 'merkle' | 'db';
+
+/** Validated token info, common to both paths */
+interface ValidatedToken {
+  mode: ValidationMode;
+  promiseType: string;
+  promiseParams: string | null;
+  expiresAt: string;
+  batchId: string;
+}
+
 export function claimHandler(db: Database.Database, config: GiftcardConfig) {
+  // Derive the provider's public memo key once at startup
+  const memoPublicKey = PrivateKey.from(config.memoKey).createPublic().toString();
+
   return async (req: Request, res: Response): Promise<void> => {
     const body = req.body as ClaimRequest;
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
@@ -44,38 +74,109 @@ export function claimHandler(db: Database.Database, config: GiftcardConfig) {
       return;
     }
 
-    // 2. Look up token with its batch's promise type
-    const row = getTokenWithBatch(db, body.token);
-    if (!row) {
-      console.log(`[CLAIM DENIED] Token not found | IP: ${ip}`);
-      res.status(400).json({ success: false, error: 'Invalid token' });
-      return;
-    }
+    // 2. Validate token via Merkle proof or DB lookup
+    let validated: ValidatedToken;
 
-    if (row.status !== 'active') {
-      console.log(`[CLAIM DENIED] Token ${row.status} | Token: ${body.token.slice(0, 8)}... | IP: ${ip}`);
-      res.status(400).json({ success: false, error: `Token ${row.status}` });
-      return;
-    }
+    if (body.merkleProof && body.batchId && body.signature && body.expires && body.promiseType) {
+      // --- Merkle proof path ---
+      const hash = tokenHash(body.token);
 
-    const now = new Date();
-    if (now > new Date(row.expires_at)) {
-      console.log(`[CLAIM DENIED] Token expired | Token: ${body.token.slice(0, 8)}... | IP: ${ip}`);
-      res.status(400).json({ success: false, error: 'Token expired' });
-      return;
+      // Check double-spend
+      if (isTokenSpent(db, hash)) {
+        console.log(`[CLAIM DENIED] Token already redeemed (merkle) | Token: ${body.token.slice(0, 8)}... | IP: ${ip}`);
+        res.status(400).json({ success: false, error: 'Token already redeemed' });
+        return;
+      }
+
+      // Check expiry
+      if (new Date() > new Date(body.expires)) {
+        console.log(`[CLAIM DENIED] Token expired (merkle) | Token: ${body.token.slice(0, 8)}... | IP: ${ip}`);
+        res.status(400).json({ success: false, error: 'Token expired' });
+        return;
+      }
+
+      // Fetch batch declaration from chain
+      let declaration;
+      try {
+        declaration = await fetchBatchDeclaration(config.providerAccount, body.batchId, config.hiveNodes);
+      } catch (err) {
+        console.error(`[CLAIM ERROR] Batch lookup failed: ${err instanceof Error ? err.message : String(err)}`);
+        res.status(500).json({ success: false, error: 'Could not verify batch declaration' });
+        return;
+      }
+
+      if (!declaration) {
+        console.log(`[CLAIM DENIED] Unknown batch: ${body.batchId} | IP: ${ip}`);
+        res.status(400).json({ success: false, error: 'Unknown batch' });
+        return;
+      }
+
+      // Verify Merkle proof (decode compact string to steps)
+      const proofSteps = decodeMerkleProof(body.merkleProof);
+      if (!verifyMerkleProof(hash, proofSteps, declaration.merkleRoot)) {
+        console.log(`[CLAIM DENIED] Invalid Merkle proof | Token: ${body.token.slice(0, 8)}... | IP: ${ip}`);
+        res.status(400).json({ success: false, error: 'Invalid token proof' });
+        return;
+      }
+
+      // Verify signature
+      if (!verifyCardSignature(
+        body.token, body.batchId, config.providerAccount,
+        body.expires, body.promiseType, body.signature, memoPublicKey,
+      )) {
+        console.log(`[CLAIM DENIED] Invalid signature (merkle) | Token: ${body.token.slice(0, 8)}... | IP: ${ip}`);
+        res.status(400).json({ success: false, error: 'Invalid signature' });
+        return;
+      }
+
+      validated = {
+        mode: 'merkle',
+        promiseType: body.promiseType,
+        promiseParams: body.promiseParams ? JSON.stringify(body.promiseParams) : null,
+        expiresAt: body.expires,
+        batchId: body.batchId,
+      };
+    } else {
+      // --- DB lookup fallback ---
+      const row = getTokenWithBatch(db, body.token);
+      if (!row) {
+        console.log(`[CLAIM DENIED] Token not found | IP: ${ip}`);
+        res.status(400).json({ success: false, error: 'Invalid token' });
+        return;
+      }
+
+      if (row.status !== 'active') {
+        console.log(`[CLAIM DENIED] Token ${row.status} | Token: ${body.token.slice(0, 8)}... | IP: ${ip}`);
+        res.status(400).json({ success: false, error: `Token ${row.status}` });
+        return;
+      }
+
+      if (new Date() > new Date(row.expires_at)) {
+        console.log(`[CLAIM DENIED] Token expired | Token: ${body.token.slice(0, 8)}... | IP: ${ip}`);
+        res.status(400).json({ success: false, error: 'Token expired' });
+        return;
+      }
+
+      validated = {
+        mode: 'db',
+        promiseType: row.promise_type,
+        promiseParams: row.promise_params,
+        expiresAt: row.expires_at,
+        batchId: row.batch_id,
+      };
     }
 
     // 3. Dispatch to promise-type-specific handler
-    switch (row.promise_type) {
+    switch (validated.promiseType) {
       case 'account-creation':
-        await handleAccountCreation(db, config, body, row, ip, res);
+        await handleAccountCreation(db, config, body, validated, ip, res);
         break;
 
       default:
-        console.log(`[CLAIM DENIED] Unsupported promise type: ${row.promise_type} | Token: ${body.token.slice(0, 8)}... | IP: ${ip}`);
+        console.log(`[CLAIM DENIED] Unsupported promise type: ${validated.promiseType} | Token: ${body.token.slice(0, 8)}... | IP: ${ip}`);
         res.status(501).json({
           success: false,
-          error: `Promise type '${row.promise_type}' is not yet supported`,
+          error: `Promise type '${validated.promiseType}' is not yet supported`,
         });
     }
   };
@@ -91,7 +192,7 @@ async function handleAccountCreation(
   db: Database.Database,
   config: GiftcardConfig,
   body: ClaimRequest,
-  row: TokenWithPromise,
+  validated: ValidatedToken,
   ip: string,
   res: Response,
 ): Promise<void> {
@@ -128,13 +229,19 @@ async function handleAccountCreation(
 
   // Create account, delegate, enroll
   try {
-    const result = await createAccountFull(config, body.username, body.keys, tokenHash(body.token));
+    const hash = tokenHash(body.token);
+    const result = await createAccountFull(config, body.username, body.keys, hash);
 
-    // Mark token as spent (even if delegation/enrollment partially failed)
-    markTokenSpent(db, body.token, body.username, ip, result.tx_id);
+    // Mark token as spent using the appropriate method
+    if (validated.mode === 'merkle') {
+      markTokenSpentByHash(db, hash, validated.batchId, body.username, ip, result.tx_id);
+    } else {
+      markTokenSpent(db, body.token, body.username, ip, result.tx_id);
+    }
 
     console.log(
       `[CLAIM OK] @${body.username} | Token: ${body.token.slice(0, 8)}... | ` +
+      `Mode: ${validated.mode} | ` +
       `TX: ${result.tx_id.slice(0, 12)}... | ` +
       `Delegation: ${result.delegationOk ? 'OK' : 'FAILED'} | ` +
       `Enrollment: ${result.enrollmentOk ? 'OK' : 'FAILED'} | ` +

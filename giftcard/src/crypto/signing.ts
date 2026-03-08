@@ -67,6 +67,16 @@ export function verifyCardSignature(
 // -- Merkle Tree --
 
 /**
+ * A single step in a Merkle inclusion proof.
+ * `hash` is the hex-encoded sibling hash, `position` is the sibling's
+ * position relative to the current node ('left' or 'right').
+ */
+export interface MerkleProofStep {
+  hash: string;
+  position: 'left' | 'right';
+}
+
+/**
  * Compute SHA-256 hash of a token string.
  */
 export function hashToken(token: string): Buffer {
@@ -105,6 +115,107 @@ export function merkleRoot(tokens: string[]): string {
   return hashes[0].toString('hex');
 }
 
+/**
+ * Generate a Merkle inclusion proof for a specific token.
+ * The proof is an array of sibling hashes that, combined with the token's
+ * own hash, reconstruct the Merkle root.
+ *
+ * Tokens are sorted before tree construction (same as merkleRoot()).
+ */
+export function generateMerkleProof(tokens: string[], targetToken: string): MerkleProofStep[] {
+  if (tokens.length === 0) throw new Error('Cannot generate proof for empty token list');
+
+  const sorted = tokens.slice().sort();
+  let idx = sorted.indexOf(targetToken);
+  if (idx === -1) throw new Error('Target token not found in token list');
+
+  let hashes = sorted.map(t => hashToken(t));
+  const proof: MerkleProofStep[] = [];
+
+  while (hashes.length > 1) {
+    const next: Buffer[] = [];
+    let nextIdx = -1;
+
+    for (let i = 0; i < hashes.length; i += 2) {
+      if (i + 1 < hashes.length) {
+        // Pair exists
+        if (i === idx) {
+          // Our node is on the left — sibling is on the right
+          proof.push({ hash: hashes[i + 1].toString('hex'), position: 'right' });
+          nextIdx = Math.floor(i / 2);
+        } else if (i + 1 === idx) {
+          // Our node is on the right — sibling is on the left
+          proof.push({ hash: hashes[i].toString('hex'), position: 'left' });
+          nextIdx = Math.floor(i / 2);
+        }
+        const combined = Buffer.concat([hashes[i], hashes[i + 1]]);
+        next.push(createHash('sha256').update(combined).digest());
+      } else {
+        // Odd node promoted as-is — no sibling, no proof step
+        if (i === idx) {
+          nextIdx = Math.floor(i / 2);
+        }
+        next.push(hashes[i]);
+      }
+    }
+
+    hashes = next;
+    idx = nextIdx;
+  }
+
+  return proof;
+}
+
+/**
+ * Verify a Merkle inclusion proof against an expected root.
+ *
+ * @param tokenHash - hex-encoded SHA-256 hash of the token
+ * @param proof - array of sibling hashes from generateMerkleProof()
+ * @param expectedRoot - hex-encoded expected Merkle root
+ */
+export function verifyMerkleProof(
+  tokenHash: string,
+  proof: MerkleProofStep[],
+  expectedRoot: string,
+): boolean {
+  let current = Buffer.from(tokenHash, 'hex');
+
+  for (const step of proof) {
+    const sibling = Buffer.from(step.hash, 'hex');
+    if (step.position === 'left') {
+      // Sibling is on the left: hash(sibling || current)
+      current = createHash('sha256').update(Buffer.concat([sibling, current])).digest();
+    } else {
+      // Sibling is on the right: hash(current || sibling)
+      current = createHash('sha256').update(Buffer.concat([current, sibling])).digest();
+    }
+  }
+
+  return current.toString('hex') === expectedRoot;
+}
+
+/**
+ * Encode a Merkle proof as a compact string for payload transport.
+ * Format: each step is 'L' or 'R' followed by 64-char hex hash, concatenated.
+ * Example: "Labcdef...64chars...R012345...64chars..."
+ */
+export function encodeMerkleProof(proof: MerkleProofStep[]): string {
+  return proof.map(s => (s.position === 'left' ? 'L' : 'R') + s.hash).join('');
+}
+
+/**
+ * Decode a compact Merkle proof string back into MerkleProofStep array.
+ */
+export function decodeMerkleProof(compact: string): MerkleProofStep[] {
+  const steps: MerkleProofStep[] = [];
+  for (let i = 0; i < compact.length; i += 65) {
+    const dir = compact[i];
+    const hash = compact.slice(i + 1, i + 65);
+    steps.push({ hash, position: dir === 'L' ? 'left' : 'right' });
+  }
+  return steps;
+}
+
 // -- PIN Encryption / Decryption --
 
 const PBKDF2_ITERATIONS = 100_000;
@@ -129,6 +240,8 @@ export interface GiftCardPayload {
   signature: string;
   promiseType: string;
   promiseParams?: Record<string, unknown>;
+  /** Compact-encoded Merkle inclusion proof (see encodeMerkleProof) */
+  merkleProof?: string;
 }
 
 /**

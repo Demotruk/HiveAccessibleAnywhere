@@ -12,6 +12,8 @@ export interface GiftCardPayload {
   signature: string;
   promiseType: string;
   promiseParams?: Record<string, unknown>;
+  /** Compact-encoded Merkle inclusion proof */
+  merkleProof?: string;
 }
 
 /**

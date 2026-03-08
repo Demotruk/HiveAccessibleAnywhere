@@ -55,6 +55,8 @@ import {
   generatePin,
   signCardData,
   merkleRoot,
+  generateMerkleProof,
+  encodeMerkleProof,
   encryptPayload,
   type GiftCardPayload,
 } from '../giftcard/src/crypto/signing.js';
@@ -333,7 +335,8 @@ async function main() {
     const card = cards[i];
     const prefix = card.token.slice(0, 8);
 
-    // Build encrypted payload
+    // Build encrypted payload (includes compact Merkle proof for on-chain validation)
+    const merkleProof = encodeMerkleProof(generateMerkleProof(tokens, card.token));
     const payload: GiftCardPayload = {
       token: card.token,
       provider: providerAccount,
@@ -344,6 +347,7 @@ async function main() {
       signature: card.signature,
       promiseType,
       ...(promiseParams && Object.keys(promiseParams).length > 0 ? { promiseParams } : {}),
+      merkleProof,
     };
 
     const encryptedBlob = encryptPayload(payload, card.pin);
