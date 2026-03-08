@@ -7,12 +7,12 @@ export const t = {
   html_dir: 'ltr' as const,
 
   // App
-  app_title: 'Hive Invite',
+  app_title: 'Redeem Your Invitation to Hive',
 
   // Landing
-  landing_title: 'Hive Invite',
-  landing_desc: 'Create a Hive blockchain account using a gift card invite.',
-  landing_no_card: 'You need a gift card with a QR code and PIN to use this app. Scan the QR code on your card to get started.',
+  landing_title: 'Welcome to Hive',
+  landing_desc: 'Redeem your gift card to create a Hive blockchain account.',
+  landing_no_card: 'You need a gift card with a QR code and PIN to continue. Scan the QR code on your card to get started.',
 
   // PIN
   pin_title: 'Enter Your PIN',
@@ -40,14 +40,19 @@ export const t = {
   username_continue: 'Continue',
 
   // Key Backup
-  backup_title: 'Back Up Your Keys',
-  backup_desc: 'Your account keys have been generated. You must back them up before proceeding — if you lose them, you lose access to your account forever.',
+  backup_title: 'Save Your Key Backup',
+  backup_desc: 'Your account keys have been generated and encrypted with your gift card PIN. Print or screenshot the QR code below to save your backup.',
+  backup_pin_warning: 'Keep your gift card or PIN somewhere safe — you will need it together with this QR code to recover your keys.',
+  backup_qr_label: 'Encrypted Key Backup',
+  backup_qr_info: 'Print or screenshot this QR code now. You can restore your keys by scanning it and entering your gift card PIN.',
+  backup_print: 'Print Backup',
+  backup_print_title: 'Hive Account Key Backup',
+  backup_print_account: 'Account: @%1',
+  backup_print_instructions: 'Scan this QR code and enter your gift card PIN to recover your account keys. Store this printout and your gift card in a safe place.',
   backup_master_label: 'Master Password',
-  backup_master_info: 'This single password derives all your account keys. Store it somewhere safe.',
+  backup_master_info: 'This single password derives all your account keys. You can also save it manually as an extra precaution.',
   backup_copy: 'Copy',
   backup_copied: 'Copied!',
-  backup_qr_label: 'QR Code Backup',
-  backup_qr_info: 'Save this QR code as a photo for easy import later.',
   backup_keys_label: 'Account Keys',
   backup_active_wif: 'Active Key',
   backup_posting_wif: 'Posting Key',
@@ -55,7 +60,8 @@ export const t = {
   backup_owner_wif: 'Owner Key',
   backup_show_keys: 'Show individual keys',
   backup_hide_keys: 'Hide individual keys',
-  backup_confirm: 'I have safely backed up my master password',
+  backup_show_manual: 'Show master password and keys',
+  backup_hide_manual: 'Hide master password and keys',
   backup_proceed: 'Create My Account',
 
   // Claiming
@@ -70,7 +76,7 @@ export const t = {
   success_tx: 'Transaction: %1',
   success_next: 'You can now use the Propolis Wallet to manage your account, send transfers, and earn interest on HBD savings.',
   success_wallet_link: 'Open Propolis Wallet',
-  success_keys_reminder: 'Remember: log in with your username and active key (or master password).',
+  success_keys_reminder: 'Log in with your username and active key (or master password). Keep your gift card PIN safe — it protects your key backup.',
 
   // Errors
   err_network: 'Network error. Check your connection.',

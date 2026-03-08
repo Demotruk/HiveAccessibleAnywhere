@@ -39,7 +39,7 @@ label{display:block;font-size:.85rem;color:var(--tm);margin-bottom:4px}
 
 /* QR backup */
 .qr-backup{text-align:center;margin-bottom:12px}
-.qr-backup img{max-width:200px;border-radius:var(--r);background:#fff;padding:8px}
+.qr-backup img{max-width:280px;display:block;margin:8px auto;border-radius:var(--r);background:#fff;padding:8px}
 
 /* Key table */
 .key-row{margin-bottom:8px}
@@ -67,3 +67,8 @@ label{display:block;font-size:.85rem;color:var(--tm);margin-bottom:4px}
 /* Toggle link */
 .toggle-link{color:var(--tm);font-size:.85rem;cursor:pointer;text-decoration:underline;background:none;border:none;width:auto;padding:0;margin-bottom:12px}
 .toggle-link:hover{color:var(--tx)}
+
+/* Auto-backup status cards */
+.ok-card{border-color:var(--ok);background:rgba(78,204,163,.08)}
+.wrn-card{border-color:var(--wn);background:rgba(240,192,64,.08)}
+.pin-reminder{border-color:var(--wn);border-left:3px solid var(--wn)}

@@ -49,6 +49,7 @@ export const PinEntryScreen: ScreenFn = (container, state, advance) => {
 
     try {
       const payload = await decryptPayload(state.encryptedBlob!, pin);
+      state.pin = pin;
       state.payload = payload;
       advance('verifying');
     } catch {

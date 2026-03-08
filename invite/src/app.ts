@@ -33,6 +33,7 @@ export class InviteApp {
     this.container = container;
     this.state = {
       encryptedBlob: null,
+      pin: null,
       payload: null,
       masterPassword: null,
       username: null,

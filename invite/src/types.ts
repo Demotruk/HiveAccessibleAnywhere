@@ -29,6 +29,7 @@ export interface DerivedKeys {
  */
 export interface InviteState {
   encryptedBlob: string | null;
+  pin: string | null;
   payload: GiftCardPayload | null;
   masterPassword: string | null;
   username: string | null;
