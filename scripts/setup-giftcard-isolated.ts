@@ -15,9 +15,11 @@
  *     giftcard/src/...        Service source
  *     giftcard/package.json
  *     giftcard/tsconfig.json
- *     scripts/                Card generation + PDF helper
+ *     giftcard/Dockerfile     Docker build for Fly.io deployment
+ *     scripts/                Card generation + PDF helper + deploy
  *       giftcard-generate.ts
  *       generate-invite-pdf.ts
+ *       deploy-giftcard.ts
  *       package.json
  *     hive-branding/logo/...  Hive logo for invite PDFs
  *     certs/                  Self-signed TLS certs for LAN dev
@@ -25,6 +27,7 @@
  *     .env                    Secrets — edit before running
  *     start.ps1 / start.sh   Start the service
  *     generate.ps1 / generate.sh  Generate gift cards (forwards args)
+ *     deploy.ps1 / deploy.sh      Deploy to Fly.io (forwards args)
  */
 
 import { cpSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
@@ -47,8 +50,10 @@ console.log(`Setting up isolated giftcard workspace at:\n  ${target}\n`);
 mkdirSync(target, { recursive: true });
 cpSync(join(repoRoot, 'giftcard', 'src'), join(target, 'giftcard', 'src'), { recursive: true });
 cpSync(join(repoRoot, 'giftcard', 'package.json'), join(target, 'giftcard', 'package.json'));
+cpSync(join(repoRoot, 'giftcard', 'package-lock.json'), join(target, 'giftcard', 'package-lock.json'));
 cpSync(join(repoRoot, 'giftcard', 'tsconfig.json'), join(target, 'giftcard', 'tsconfig.json'));
-console.log('✓ Copied giftcard/ service source');
+cpSync(join(repoRoot, 'giftcard', 'Dockerfile'), join(target, 'giftcard', 'Dockerfile'));
+console.log('✓ Copied giftcard/ service source + Dockerfile');
 
 // -- 2. Scripts (card generation + PDF helper) --
 mkdirSync(join(target, 'scripts'), { recursive: true });
@@ -61,15 +66,23 @@ cpSync(
   join(target, 'scripts', 'generate-invite-pdf.ts'),
 );
 cpSync(
+  join(repoRoot, 'scripts', 'deploy-giftcard.ts'),
+  join(target, 'scripts', 'deploy-giftcard.ts'),
+);
+cpSync(
   join(repoRoot, 'scripts', 'package.json'),
   join(target, 'scripts', 'package.json'),
 );
+const scriptsLockSrc = join(repoRoot, 'scripts', 'package-lock.json');
+if (existsSync(scriptsLockSrc)) {
+  cpSync(scriptsLockSrc, join(target, 'scripts', 'package-lock.json'));
+}
 // feed-config.json contains proxy endpoints baked into card payloads
 const feedConfigSrc = join(repoRoot, 'scripts', 'feed-config.json');
 if (existsSync(feedConfigSrc)) {
   cpSync(feedConfigSrc, join(target, 'scripts', 'feed-config.json'));
 }
-console.log('✓ Copied scripts/ (giftcard-generate + generate-invite-pdf + feed-config)');
+console.log('✓ Copied scripts/ (giftcard-generate + generate-invite-pdf + deploy-giftcard + feed-config)');
 
 // -- 3. Hive logo for invite PDFs --
 const logoSrc = join(repoRoot, 'hive-branding', 'logo', 'png', 'logo_transparent@2.png');
@@ -175,7 +188,28 @@ node --env-file ../.env --import tsx giftcard-generate.ts @args
 writeFileSync(join(target, 'generate.ps1'), genPs1);
 console.log('✓ Created generate.sh / generate.ps1');
 
-// -- 9. .gitignore --
+// -- 9. Deploy scripts (Fly.io deployment, forwards all args) --
+const deploySh = `#!/bin/bash
+# Deploy the giftcard service to Fly.io. All arguments are forwarded.
+# Example:
+#   ./deploy.sh --name prod --region lhr --theme tech
+#   ./deploy.sh --dry-run --name test --region lhr
+cd "$(dirname "$0")/scripts"
+node --env-file ../.env --import tsx deploy-giftcard.ts "\$@"
+`;
+writeFileSync(join(target, 'deploy.sh'), deploySh, { mode: 0o755 });
+
+const deployPs1 = `# Deploy the giftcard service to Fly.io. All arguments are forwarded.
+# Example:
+#   .\\deploy.ps1 --name prod --region lhr --theme tech
+#   .\\deploy.ps1 --dry-run --name test --region lhr
+Set-Location (Join-Path $PSScriptRoot "scripts")
+node --env-file ../.env --import tsx deploy-giftcard.ts @args
+`;
+writeFileSync(join(target, 'deploy.ps1'), deployPs1);
+console.log('✓ Created deploy.sh / deploy.ps1');
+
+// -- 11. .gitignore --
 writeFileSync(join(target, '.gitignore'), `node_modules/
 data/
 .env
@@ -184,7 +218,7 @@ scripts/giftcard-output/
 `);
 console.log('✓ Created .gitignore');
 
-// -- 10. Install dependencies --
+// -- 12. Install dependencies --
 console.log('\nInstalling giftcard service dependencies...');
 execSync('npm install', { cwd: join(target, 'giftcard'), stdio: 'inherit' });
 
@@ -202,8 +236,9 @@ ${'='.repeat(56)}
     .env              ← Edit REPLACE_ME values first!
     start.ps1         ← Start the redemption service (HTTPS)
     generate.ps1      ← Generate gift cards (forwards all args)
-    giftcard/         ← Service source code
-    scripts/          ← Generation scripts + output
+    deploy.ps1        ← Deploy service to Fly.io
+    giftcard/         ← Service source code + Dockerfile
+    scripts/          ← Generation + deploy scripts + output
     certs/            ← Self-signed TLS certs for LAN dev
     data/             ← SQLite DB (created at runtime)
 
@@ -221,6 +256,10 @@ ${'='.repeat(56)}
 
     5. Dry-run (no DB, no on-chain):
          .\\generate.ps1 --count 1 --dry-run --bootstrap-url https://192.168.1.116:5176
+
+    6. Deploy to Fly.io (dry-run first):
+         .\\deploy.ps1 --dry-run --name prod --region lhr
+         .\\deploy.ps1 --name prod --region lhr --theme tech
 
   Note: Phone will show a certificate warning for the self-signed cert.
         Tap "Advanced" → "Proceed" to continue.

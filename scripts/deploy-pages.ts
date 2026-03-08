@@ -5,11 +5,12 @@
  *   npx tsx deploy-pages.ts
  */
 
-import { copyFileSync, mkdirSync } from 'node:fs';
+import { copyFileSync, mkdirSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '..');
-const DIST = resolve(ROOT, 'wallet', 'dist');
+const WALLET_DIST = resolve(ROOT, 'wallet', 'dist');
+const INVITE_DIST = resolve(ROOT, 'invite', 'dist');
 const DOCS = resolve(ROOT, 'docs');
 
 const LOCALES = ['en', 'zh'];
@@ -17,10 +18,19 @@ const LOCALES = ['en', 'zh'];
 mkdirSync(DOCS, { recursive: true });
 
 for (const locale of LOCALES) {
-  const src = resolve(DIST, `propolis-bootstrap-${locale}.html`);
+  const src = resolve(WALLET_DIST, `propolis-bootstrap-${locale}.html`);
   const dest = resolve(DOCS, `propolis-bootstrap-${locale}.html`);
   copyFileSync(src, dest);
   console.log(`Copied: propolis-bootstrap-${locale}.html → docs/`);
+}
+
+// Copy invite app (single-file HTML)
+const inviteSrc = resolve(INVITE_DIST, 'index.html');
+if (existsSync(inviteSrc)) {
+  copyFileSync(inviteSrc, resolve(DOCS, 'propolis-invite.html'));
+  console.log('Copied: propolis-invite.html → docs/');
+} else {
+  console.warn('Warning: invite/dist/index.html not found — run "npm run build:invite" first');
 }
 
 console.log('\nDone. Next steps:');
