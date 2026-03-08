@@ -21,14 +21,24 @@ export interface PublicKeys {
 
 /**
  * Build a single-key Hive Authority object.
+ * Optionally includes account-level authorizations (e.g. apps granted posting authority).
  */
-function makeAuthority(publicKey: string) {
+function makeAuthority(publicKey: string, accountAuths: [string, number][] = []) {
   return {
     weight_threshold: 1,
-    account_auths: [] as [string, number][],
+    account_auths: accountAuths,
     key_auths: [[publicKey, 1]] as [string, number][],
   };
 }
+
+/**
+ * Apps pre-authorized on the posting authority at account creation.
+ * This allows HiveSigner OAuth login to peakd.com without requiring the
+ * user's active key — the user only needs their posting key to log in.
+ */
+const POSTING_ACCOUNT_AUTHS: [string, number][] = [
+  ['peakd.app', 1],
+];
 
 /**
  * Wait for a specified number of milliseconds.
@@ -68,7 +78,7 @@ export async function createAccount(
     new_account_name: username,
     owner: makeAuthority(keys.owner),
     active: makeAuthority(keys.active),
-    posting: makeAuthority(keys.posting),
+    posting: makeAuthority(keys.posting, POSTING_ACCOUNT_AUTHS),
     memo_key: keys.memo,
     json_metadata: JSON.stringify(metadata),
     extensions: [],
