@@ -23,7 +23,7 @@ function buildHiveSignerUrl(): string {
     response_type: 'code',
     state: '/',
   });
-  return `https://hivesigner.com/import?${params.toString()}`;
+  return `https://hivesigner.com/oauth2/authorize?${params.toString()}`;
 }
 
 /** Copy text to clipboard and briefly update button label. */
