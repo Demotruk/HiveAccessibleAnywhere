@@ -168,22 +168,27 @@ writeFileSync(join(target, 'start.ps1'), startPs1);
 console.log('✓ Created start.sh / start.ps1');
 
 // -- 8. Generate scripts (card generation, forwards all args) --
+// Scripts use `import 'dotenv/config'` which reads DOTENV_CONFIG_PATH.
+// This is more reliable than --env-file across platforms.
 const genSh = `#!/bin/bash
 # Generate gift cards. All arguments are forwarded.
 # Example:
-#   ./generate.sh --count 5 --service-url https://192.168.1.116:3200 --bootstrap-url https://192.168.1.116:5176
-#   ./generate.sh --count 1 --dry-run --bootstrap-url https://192.168.1.116:5176
-cd "$(dirname "$0")/scripts"
-node --env-file ../.env --import tsx giftcard-generate.ts "\$@"
+#   ./generate.sh --count 5 --service-url https://haa-giftcard-prod.fly.dev --bootstrap-url https://demotruk.github.io/HiveAccessibleAnywhere/propolis-invite.html
+#   ./generate.sh --count 1 --dry-run
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+export DOTENV_CONFIG_PATH="\$SCRIPT_DIR/.env"
+cd "\$SCRIPT_DIR/scripts"
+node --import tsx giftcard-generate.ts "\$@"
 `;
 writeFileSync(join(target, 'generate.sh'), genSh, { mode: 0o755 });
 
 const genPs1 = `# Generate gift cards. All arguments are forwarded.
 # Example:
-#   .\\generate.ps1 --count 5 --service-url https://192.168.1.116:3200 --bootstrap-url https://192.168.1.116:5176
-#   .\\generate.ps1 --count 1 --dry-run --bootstrap-url https://192.168.1.116:5176
-Set-Location (Join-Path $PSScriptRoot "scripts")
-node --env-file ../.env --import tsx giftcard-generate.ts @args
+#   .\\generate.ps1 --count 5 --service-url https://haa-giftcard-prod.fly.dev --bootstrap-url https://demotruk.github.io/HiveAccessibleAnywhere/propolis-invite.html
+#   .\\generate.ps1 --count 1 --dry-run
+\$env:DOTENV_CONFIG_PATH = (Join-Path \$PSScriptRoot ".env")
+Set-Location (Join-Path \$PSScriptRoot "scripts")
+node --import tsx giftcard-generate.ts @args
 `;
 writeFileSync(join(target, 'generate.ps1'), genPs1);
 console.log('✓ Created generate.sh / generate.ps1');
@@ -194,8 +199,10 @@ const deploySh = `#!/bin/bash
 # Example:
 #   ./deploy.sh --name prod --region lhr --theme tech
 #   ./deploy.sh --dry-run --name test --region lhr
-cd "$(dirname "$0")/scripts"
-node --env-file ../.env --import tsx deploy-giftcard.ts "\$@"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+export DOTENV_CONFIG_PATH="\$SCRIPT_DIR/.env"
+cd "\$SCRIPT_DIR/scripts"
+node --import tsx deploy-giftcard.ts "\$@"
 `;
 writeFileSync(join(target, 'deploy.sh'), deploySh, { mode: 0o755 });
 
@@ -203,8 +210,9 @@ const deployPs1 = `# Deploy the giftcard service to Fly.io. All arguments are fo
 # Example:
 #   .\\deploy.ps1 --name prod --region lhr --theme tech
 #   .\\deploy.ps1 --dry-run --name test --region lhr
-Set-Location (Join-Path $PSScriptRoot "scripts")
-node --env-file ../.env --import tsx deploy-giftcard.ts @args
+\$env:DOTENV_CONFIG_PATH = (Join-Path \$PSScriptRoot ".env")
+Set-Location (Join-Path \$PSScriptRoot "scripts")
+node --import tsx deploy-giftcard.ts @args
 `;
 writeFileSync(join(target, 'deploy.ps1'), deployPs1);
 console.log('✓ Created deploy.sh / deploy.ps1');
