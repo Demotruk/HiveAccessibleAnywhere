@@ -25,6 +25,7 @@ import 'dotenv/config';
  *   --db-path <path>      SQLite database path (default: ../giftcard/data/tokens.db)
  *   --dry-run             Show what would happen without writing DB or broadcasting
  *   --skip-onchain        Skip on-chain batch declaration (for testing)
+ *   --print               Send postcards to default printer after generation
  *
  * Environment variables (from scripts/.env):
  *   GIFTCARD_PROVIDER_ACCOUNT  - Hive account with claimed account tokens
@@ -63,6 +64,7 @@ import {
   insertToken,
   updateBatchDeclaration,
 } from '../giftcard/src/db.js';
+import { PDFDocument } from 'pdf-lib';
 import { generateInvitePdf } from './generate-invite-pdf.js';
 
 // -- CLI Arguments --
@@ -75,7 +77,7 @@ function parseArgs() {
   for (let i = 0; i < args.length; i++) {
     if (args[i].startsWith('--')) {
       const key = args[i].slice(2);
-      if (key === 'dry-run' || key === 'skip-onchain') {
+      if (key === 'dry-run' || key === 'skip-onchain' || key === 'print') {
         flags.add(key);
       } else if (i + 1 < args.length && !args[i + 1].startsWith('--')) {
         parsed[key] = args[++i];
@@ -140,6 +142,7 @@ async function main() {
   const { parsed, flags } = parseArgs();
   const dryRun = flags.has('dry-run');
   const skipOnChain = flags.has('skip-onchain');
+  const printCards = flags.has('print');
 
   // Required args
   const count = parseInt(parsed['count'] || '0', 10);
@@ -155,6 +158,7 @@ async function main() {
     console.error('  --db-path <path>      SQLite database path');
     console.error('  --dry-run             Preview without writing');
     console.error('  --skip-onchain        Skip on-chain declaration');
+    console.error('  --print               Send postcards to default printer');
     process.exit(1);
   }
 
@@ -393,7 +397,44 @@ async function main() {
   console.log(`  Generated ${cards.length} QR code pairs (PNG + SVG) + invite PDFs`);
   console.log('');
 
-  // 6. Write manifest
+  // 6. Merge all invite PDFs into one combined document
+  console.log('Merging invite PDFs...');
+  const combinedPdf = await PDFDocument.create();
+  for (const entry of manifestEntries) {
+    const pdfPath = resolve(outputDir, entry.invitePdf);
+    const pdfBytes = readFileSync(pdfPath);
+    const srcDoc = await PDFDocument.load(pdfBytes);
+    const pages = await combinedPdf.copyPages(srcDoc, srcDoc.getPageIndices());
+    for (const page of pages) combinedPdf.addPage(page);
+  }
+  const combinedBytes = await combinedPdf.save();
+  const combinedPath = resolve(outputDir, 'all-invites.pdf');
+  writeFileSync(combinedPath, combinedBytes);
+  console.log(`  Combined PDF: ${combinedPath} (${cards.length} cards, ${(combinedBytes.length / 1024).toFixed(0)} KB)`);
+  console.log('');
+
+  // 7. Print if requested
+  if (printCards) {
+    console.log('Sending to default printer...');
+    const { execSync } = await import('node:child_process');
+    const absPath = resolve(combinedPath);
+    try {
+      if (process.platform === 'win32') {
+        // Windows: Start-Process with -Verb Print sends to default printer
+        execSync(`powershell -Command "Start-Process -FilePath '${absPath}' -Verb Print -Wait"`, { stdio: 'inherit' });
+      } else {
+        // Unix/macOS: lpr sends to default printer
+        execSync(`lpr "${absPath}"`, { stdio: 'inherit' });
+      }
+      console.log('  Print job sent');
+    } catch (err) {
+      console.error(`  Print failed: ${err instanceof Error ? err.message : String(err)}`);
+      console.error(`  You can print manually: ${combinedPath}`);
+    }
+    console.log('');
+  }
+
+  // 8. Write manifest
   const manifest = {
     batchId,
     provider: providerAccount,
