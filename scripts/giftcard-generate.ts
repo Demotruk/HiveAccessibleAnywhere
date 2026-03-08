@@ -344,9 +344,8 @@ async function main() {
 
     const encryptedBlob = encryptPayload(payload, card.pin);
 
-    // QR URL: bootstrap URL with encrypted blob in fragment
-    // The fragment is: #giftcard=<base64url-encrypted-blob>
-    const qrUrl = `${bootstrapUrl}/propolis-bootstrap-en.html#giftcard=${encryptedBlob}`;
+    // QR URL: invite app with encrypted blob in fragment
+    const qrUrl = `${bootstrapUrl}/invite/#${encryptedBlob}`;
 
     // Generate QR codes
     const svg = await QRCode.toString(qrUrl, { ...QR_OPTIONS, type: 'svg' });

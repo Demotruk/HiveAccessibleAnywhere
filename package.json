@@ -5,9 +5,11 @@
   "description": "Make HBD savings accessible from anywhere, including regions where Hive RPC nodes are blocked",
   "scripts": {
     "build:wallet": "cd wallet && npm run build",
+    "build:invite": "cd invite && npm run build",
     "dev:wallet": "cd wallet && npm run dev",
+    "dev:invite": "cd invite && npm run dev",
     "dev:proxy": "cd proxy && npm run dev",
-    "build": "npm run build:wallet",
+    "build": "npm run build:wallet && npm run build:invite",
     "deploy:pages": "cd scripts && npm run deploy-pages && npm run generate-qr"
   }
 }
