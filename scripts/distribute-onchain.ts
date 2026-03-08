@@ -41,7 +41,7 @@ interface PropolisMetadata {
 // -- Config --
 
 const CHUNK_SIZE = 55_000; // 55KB per comment body (safe margin under 65KB limit)
-const SUPPORTED_LOCALES = ['en', 'zh'];
+const SUPPORTED_LOCALES = ['en', 'zh', 'ar', 'fa', 'ru', 'tr', 'vi'];
 const POST_DELAY_MS = 4000; // delay between broadcasts to avoid rate limiting
 const DIST_DIR = resolve(import.meta.dirname, '..', 'wallet', 'dist');
 
@@ -716,9 +716,14 @@ async function main() {
   }
 
   const locales = allLocales ? SUPPORTED_LOCALES : [singleLocale];
+  const INTER_LOCALE_DELAY_MS = 5 * 60 * 1000 + 10_000; // 5 min 10s between root posts
 
-  for (const locale of locales) {
-    await publishLocale(locale);
+  for (let i = 0; i < locales.length; i++) {
+    if (i > 0 && !dryRun) {
+      console.log(`\nWaiting ${INTER_LOCALE_DELAY_MS / 1000}s before next locale (Hive 5-min root post limit)...`);
+      await delay(INTER_LOCALE_DELAY_MS);
+    }
+    await publishLocale(locales[i]);
   }
 
   console.log('\n=== Done ===');

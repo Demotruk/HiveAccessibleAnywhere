@@ -5,7 +5,9 @@ import { renameSync, rmSync, mkdirSync } from 'fs';
 rmSync('dist', { recursive: true, force: true });
 mkdirSync('dist', { recursive: true });
 
-for (const locale of ['en', 'zh']) {
+const LOCALES = ['en', 'zh', 'ar', 'fa', 'ru', 'tr', 'vi'];
+
+for (const locale of LOCALES) {
   console.log(`\nBuilding ${locale} wallet...`);
   execSync('npx vite build --emptyOutDir false', {
     env: { ...process.env, LOCALE: locale },
@@ -15,5 +17,6 @@ for (const locale of ['en', 'zh']) {
 }
 
 console.log('\nDone! Built:');
-console.log('  dist/propolis-wallet-en.html');
-console.log('  dist/propolis-wallet-zh.html');
+for (const locale of LOCALES) {
+  console.log(`  dist/propolis-wallet-${locale}.html`);
+}

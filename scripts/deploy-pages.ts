@@ -13,7 +13,7 @@ const WALLET_DIST = resolve(ROOT, 'wallet', 'dist');
 const INVITE_DIST = resolve(ROOT, 'invite', 'dist');
 const DOCS = resolve(ROOT, 'docs');
 
-const LOCALES = ['en', 'zh'];
+const LOCALES = ['en', 'zh', 'ar', 'fa', 'ru', 'tr', 'vi'];
 
 mkdirSync(DOCS, { recursive: true });
 
@@ -29,6 +29,11 @@ const inviteSrc = resolve(INVITE_DIST, 'index.html');
 if (existsSync(inviteSrc)) {
   copyFileSync(inviteSrc, resolve(DOCS, 'propolis-invite.html'));
   console.log('Copied: propolis-invite.html → docs/');
+  // Also deploy to docs/invite/ so /invite/#hash URLs work on GitHub Pages
+  const inviteDir = resolve(DOCS, 'invite');
+  mkdirSync(inviteDir, { recursive: true });
+  copyFileSync(inviteSrc, resolve(inviteDir, 'index.html'));
+  console.log('Copied: invite/index.html → docs/invite/');
 } else {
   console.warn('Warning: invite/dist/index.html not found — run "npm run build:invite" first');
 }

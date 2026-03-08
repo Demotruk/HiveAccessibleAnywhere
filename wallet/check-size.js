@@ -5,11 +5,12 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MAX_SIZE = 170 * 1024; // 170KB (raised from 120KB to accommodate qr-scanner)
 
+const LOCALES = ['en', 'zh', 'ar', 'fa', 'ru', 'tr', 'vi'];
+
 // Check both locale builds and the default build
 const files = [
   'dist/index.html',
-  'dist/propolis-wallet-en.html',
-  'dist/propolis-wallet-zh.html',
+  ...LOCALES.map(l => `dist/propolis-wallet-${l}.html`),
 ];
 
 let checked = 0;

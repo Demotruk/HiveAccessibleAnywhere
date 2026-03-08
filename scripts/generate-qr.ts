@@ -19,7 +19,7 @@ const BASE_URL =
   process.env.PROPOLIS_BASE_URL ||
   'https://demotruk.github.io/HiveAccessibleAnywhere';
 
-const LOCALES = ['en', 'zh'];
+const LOCALES = ['en', 'zh', 'ar', 'fa', 'ru', 'tr', 'vi'];
 const OUTPUT_DIR = resolve(import.meta.dirname, '..', 'docs', 'qr');
 
 const QR_OPTIONS = {
