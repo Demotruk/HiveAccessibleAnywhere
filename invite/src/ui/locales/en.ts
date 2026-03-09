@@ -40,11 +40,11 @@ export const t = {
   username_continue: 'Continue',
 
   // Key Backup
-  backup_title: 'Save Your Key Backup',
-  backup_desc: 'Your account keys have been generated and encrypted with your gift card PIN. Print or screenshot the QR code below to save your backup.',
+  backup_title: 'Important — Take a Screenshot Now',
+  backup_desc: 'This QR code is the backup for your account keys. Without it, you could lose access to your account permanently.',
   backup_pin_warning: 'Keep your gift card or PIN somewhere safe — you will need it together with this QR code to recover your keys.',
   backup_qr_label: 'Encrypted Key Backup',
-  backup_qr_info: 'Print or screenshot this QR code now. You can restore your keys by scanning it and entering your gift card PIN.',
+  backup_qr_info: 'Screenshot or print this QR code before continuing. You can restore your keys by scanning it and entering your gift card PIN.',
   backup_print: 'Print Backup',
   backup_print_title: 'Hive Account Key Backup',
   backup_print_account: 'Account: @%1',

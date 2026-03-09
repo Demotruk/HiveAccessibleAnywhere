@@ -71,8 +71,10 @@ export const KeyBackupScreen: ScreenFn = async (container, state, advance) => {
   } catch { /* ignore storage errors */ }
 
   container.innerHTML = `<div class="ct">
-    <h1>${t.backup_title}</h1>
-    <p class="sm mb">${t.backup_desc}</p>
+    <div class="screenshot-banner">
+      <h1>${t.backup_title}</h1>
+      <p>${t.backup_desc}</p>
+    </div>
 
     <div class="card qr-backup">
       <label>${t.backup_qr_label}</label>
