@@ -98,9 +98,22 @@ describe('PIN encryption / decryption', () => {
     expect(decrypted.promiseParams).toEqual({ amount: '10.000 HIVE' });
   });
 
-  it('produces base64url-encoded output (no +, /, or =)', () => {
+  it('produces compressed output with c1: prefix', () => {
     const blob = encryptPayload(testPayload, 'TESTPIN');
-    expect(blob).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(blob.startsWith('c1:')).toBe(true);
+    // After the prefix, the rest should be base64url
+    const encoded = blob.slice(3);
+    expect(encoded).toMatch(/^[A-Za-z0-9_-]+$/);
+  });
+
+  it('produces smaller output than uncompressed JSON', () => {
+    const blob = encryptPayload(testPayload, 'TESTPIN');
+    // The uncompressed JSON is ~300 bytes; with short keys + deflate it should be notably shorter
+    const jsonSize = JSON.stringify(testPayload).length;
+    // blob includes c1: prefix + base64url overhead + 44 bytes encryption overhead
+    // but should still be smaller than base64url(salt+iv+tag+uncompressed_json)
+    const rawEncryptedSize = Math.ceil((44 + jsonSize) * 4 / 3); // rough base64url size
+    expect(blob.length).toBeLessThan(rawEncryptedSize);
   });
 
   it('throws on wrong PIN', () => {
@@ -122,6 +135,34 @@ describe('PIN encryption / decryption', () => {
     const blob1 = encryptPayload(testPayload, 'SAMEPIN');
     const blob2 = encryptPayload(testPayload, 'SAMEPIN');
     expect(blob1).not.toBe(blob2); // Different salt and IV each time
+  });
+
+  it('decrypts legacy uncompressed blobs (backward compatibility)', () => {
+    // Simulate a legacy blob: encrypt without compression/short keys
+    const { createCipheriv, randomBytes, pbkdf2Sync } = require('node:crypto');
+    const plaintext = Buffer.from(JSON.stringify(testPayload), 'utf-8');
+    const salt = randomBytes(16);
+    const iv = randomBytes(12);
+    const key = pbkdf2Sync('LEGACY', salt, 100_000, 32, 'sha256');
+    const cipher = createCipheriv('aes-256-gcm', key, iv);
+    const encrypted = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+    const authTag = cipher.getAuthTag();
+    const packed = Buffer.concat([salt, iv, authTag, encrypted]);
+    const legacyBlob = packed.toString('base64url'); // No c1: prefix
+
+    const decrypted = decryptPayload(legacyBlob, 'LEGACY');
+    expect(decrypted.token).toBe(testPayload.token);
+    expect(decrypted.provider).toBe(testPayload.provider);
+  });
+
+  it('roundtrips payload with merkleProof', () => {
+    const proofPayload: GiftCardPayload = {
+      ...testPayload,
+      merkleProof: 'L' + 'a'.repeat(64) + 'R' + 'b'.repeat(64),
+    };
+    const blob = encryptPayload(proofPayload, 'PROOF1');
+    const decrypted = decryptPayload(blob, 'PROOF1');
+    expect(decrypted.merkleProof).toBe(proofPayload.merkleProof);
   });
 });
 

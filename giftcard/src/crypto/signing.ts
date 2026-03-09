@@ -4,6 +4,7 @@
  */
 
 import { createHash, randomBytes, pbkdf2Sync, createCipheriv, createDecipheriv } from 'node:crypto';
+import { deflateRawSync, inflateRawSync } from 'node:zlib';
 import { Signature, PublicKey, PrivateKey } from 'hive-tx';
 
 // -- Authenticity Signing --
@@ -224,6 +225,48 @@ const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
 
 /**
+ * Version prefix for compressed+short-keyed payloads.
+ * Blobs without this prefix are legacy uncompressed format.
+ */
+const COMPRESSED_PREFIX = 'c1:';
+
+/** Maps full GiftCardPayload keys to short keys for smaller JSON. */
+const LONG_TO_SHORT: Record<string, string> = {
+  token: 't',
+  provider: 'p',
+  serviceUrl: 's',
+  endpoints: 'e',
+  batchId: 'b',
+  expires: 'x',
+  signature: 'g',
+  promiseType: 'y',
+  promiseParams: 'pp',
+  merkleProof: 'm',
+};
+
+const SHORT_TO_LONG: Record<string, string> = Object.fromEntries(
+  Object.entries(LONG_TO_SHORT).map(([k, v]) => [v, k]),
+);
+
+function toShortKeys(payload: GiftCardPayload): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(payload)) {
+    if (value !== undefined) {
+      result[LONG_TO_SHORT[key] || key] = value;
+    }
+  }
+  return result;
+}
+
+function fromShortKeys(obj: Record<string, unknown>): GiftCardPayload {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    result[SHORT_TO_LONG[key] || key] = value;
+  }
+  return result as GiftCardPayload;
+}
+
+/**
  * Encrypted blob payload contents.
  *
  * promiseType identifies what the card promises (e.g. 'account-creation',
@@ -248,10 +291,16 @@ export interface GiftCardPayload {
  * Encrypt a gift card payload with a PIN using AES-256-GCM.
  * Returns a base64url-encoded string suitable for use in a URL fragment.
  *
- * Format: salt(16) || iv(12) || authTag(16) || ciphertext
+ * Uses short JSON keys and deflate compression to minimise QR code size.
+ * Output is prefixed with 'c1:' to distinguish from legacy uncompressed blobs.
+ *
+ * Format: 'c1:' + base64url( salt(16) || iv(12) || authTag(16) || ciphertext )
  */
 export function encryptPayload(payload: GiftCardPayload, pin: string): string {
-  const plaintext = Buffer.from(JSON.stringify(payload), 'utf-8');
+  // Short keys + deflate for smaller output
+  const json = Buffer.from(JSON.stringify(toShortKeys(payload)), 'utf-8');
+  const plaintext = deflateRawSync(json);
+
   const salt = randomBytes(SALT_LENGTH);
   const iv = randomBytes(IV_LENGTH);
 
@@ -266,15 +315,19 @@ export function encryptPayload(payload: GiftCardPayload, pin: string): string {
   // Pack: salt || iv || authTag || ciphertext
   const packed = Buffer.concat([salt, iv, authTag, encrypted]);
 
-  return packed.toString('base64url');
+  return COMPRESSED_PREFIX + packed.toString('base64url');
 }
 
 /**
  * Decrypt a gift card payload using the PIN.
+ * Handles both compressed (c1: prefix) and legacy uncompressed blobs.
  * Returns the parsed payload, or throws on failure (wrong PIN, corrupted data).
  */
 export function decryptPayload(blob: string, pin: string): GiftCardPayload {
-  const packed = Buffer.from(blob, 'base64url');
+  const isCompressed = blob.startsWith(COMPRESSED_PREFIX);
+  const encoded = isCompressed ? blob.slice(COMPRESSED_PREFIX.length) : blob;
+
+  const packed = Buffer.from(encoded, 'base64url');
 
   const minLength = SALT_LENGTH + IV_LENGTH + AUTH_TAG_LENGTH;
   if (packed.length < minLength) {
@@ -294,6 +347,11 @@ export function decryptPayload(blob: string, pin: string): GiftCardPayload {
   decipher.setAuthTag(authTag);
 
   const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+
+  if (isCompressed) {
+    const inflated = inflateRawSync(decrypted);
+    return fromShortKeys(JSON.parse(inflated.toString('utf-8')));
+  }
   return JSON.parse(decrypted.toString('utf-8')) as GiftCardPayload;
 }
 
