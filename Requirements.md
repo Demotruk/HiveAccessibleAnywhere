@@ -393,6 +393,28 @@ This creates a verifiable chain: batch declaration (merkle root + count + promis
 - **HiveSigner username pre-fill limitation**: HiveSigner does not currently read a `username` URL parameter (confirmed by source code review, March 2026). Since HiveSigner is open source (MIT, `ecency/hivesigner-ui`), a PR can be submitted to add this trivial feature. PeakLock likewise has no URL-based pre-fill (closed source, feature request made to @asgarth)
 - **TLS certificate acceptance for LAN deployments:** When the gift card service runs on a local network (e.g. internet café, community centre, offline kiosk) rather than behind a public domain with a valid certificate, the invite app's `fetch()` requests to the service will silently fail unless the user has previously accepted the self-signed certificate warning by visiting the service URL directly. This is a browser security constraint — `fetch()` to an untrusted HTTPS origin is rejected without user interaction, and the invite app cannot trigger the browser's certificate acceptance UI programmatically. A future UX improvement could detect LAN/IP-based service URLs and prompt the user to verify the connection (opening the service health endpoint in a new tab) before attempting the claim. This is not an issue for public deployments with valid TLS certificates (e.g. Let's Encrypt)
 
+**User testing observations (March 2026):**
+
+Initial user testing with two participants (standard invite flow, QR-based) revealed several pain points. Neither tester completed the full flow to reaching peakd.com.
+
+| Step | Tester A | Tester B |
+|---|---|---|
+| Scanned QR successfully | No | Yes |
+| Invite validated | Yes | Yes |
+| Reached key saving screen | Yes | Yes |
+| Saved screenshot | Yes | No |
+| Account created | Yes | No |
+| Proceeded to HiveSigner | Yes | No |
+| Logged in with HiveSigner | No | No |
+| Reached peakd.com | No | No |
+
+Key pain points identified:
+- **QR scanning unreliable:** Tester A's phone camera failed to scan the QR code initially, requiring a workaround. QR codes must be tested across a range of devices and camera apps.
+- **Key backup screenshot not taken:** Tester B did not save the screenshot at the key backup step and could not proceed to account creation. The screenshot step needs to be more prominent or enforced — the current emphasis (commit `014df33`) may help but was not yet deployed during this test.
+- **Account creation slow:** Account creation was consistently slow for all testers who reached that step. This is likely due to the on-chain `create_claimed_account` transaction latency (3-second block times + confirmation). The UX should set expectations with a progress indicator and estimated wait time.
+- **HiveSigner handoff incomplete:** Tester A created an account and proceeded to HiveSigner but did not complete login. The multi-step handoff (copy username, copy key, navigate to HiveSigner, paste credentials) is too many steps for a first-time user with no blockchain experience. Reducing friction here (e.g. `&username=` URL parameter PR, pre-authorization of peakd.app) remains a priority.
+- **Overall flow too clunky:** The end-to-end process has too many discrete steps requiring user action. Each step is a drop-off point. The flow should be streamlined to minimise the number of user decisions and manual actions between scanning the QR and reaching a usable Hive experience.
+
 ### 2.5 Onboarding Service (General)
 
 The gift card system (section 2.4) is the primary onboarding mechanism. This section describes the general onboarding service capabilities that support gift card onboarding and may also support other onboarding channels in the future (e.g. web-based signup, Telegram bot, invite system).
