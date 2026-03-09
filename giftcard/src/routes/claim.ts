@@ -227,7 +227,7 @@ async function handleAccountCreation(
     return;
   }
 
-  // Create account, delegate, enroll
+  // Create account and delegate
   try {
     const hash = tokenHash(body.token);
     const result = await createAccountFull(config, body.username, body.keys, hash);
@@ -244,7 +244,6 @@ async function handleAccountCreation(
       `Mode: ${validated.mode} | ` +
       `TX: ${result.tx_id.slice(0, 12)}... | ` +
       `Delegation: ${result.delegationOk ? 'OK' : 'FAILED'} | ` +
-      `Enrollment: ${result.enrollmentOk ? 'OK' : 'FAILED'} | ` +
       `IP: ${ip}`
     );
 

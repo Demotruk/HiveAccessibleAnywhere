@@ -167,10 +167,9 @@ export async function isUsernameAvailable(
  * Execute the full account creation flow:
  * 1. Create account
  * 2. Delegate HP (after 3s delay)
- * 3. Enroll in endpoint feed (after 3s delay)
  *
  * If account creation fails, throws immediately.
- * If delegation or enrollment fails, logs the error but does not throw
+ * If delegation fails, logs the error but does not throw
  * (the account already exists and the user can use it).
  */
 export async function createAccountFull(
@@ -178,7 +177,7 @@ export async function createAccountFull(
   username: string,
   keys: PublicKeys,
   tokenHash?: string,
-): Promise<{ tx_id: string; delegationOk: boolean; enrollmentOk: boolean }> {
+): Promise<{ tx_id: string; delegationOk: boolean }> {
   // Step 1: Create the account — this must succeed
   const result = await createAccount(config, username, keys, tokenHash);
 
@@ -192,15 +191,5 @@ export async function createAccountFull(
     console.error(`[DELEGATION FAILED] @${username}: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  // Step 3: Enroll in feed — log failure but continue
-  let enrollmentOk = true;
-  try {
-    await delay(3000);
-    await enrollInFeed(config, username);
-  } catch (err) {
-    enrollmentOk = false;
-    console.error(`[ENROLLMENT FAILED] @${username}: ${err instanceof Error ? err.message : String(err)}`);
-  }
-
-  return { tx_id: result.tx_id, delegationOk, enrollmentOk };
+  return { tx_id: result.tx_id, delegationOk };
 }
