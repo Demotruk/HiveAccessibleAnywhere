@@ -393,10 +393,9 @@ async function main() {
       invitePdf: `cards/${prefix}-invite.pdf`,
     });
 
-    // Progress indicator for large batches
-    if ((i + 1) % 10 === 0 || i === cards.length - 1) {
-      process.stdout.write(`  ${i + 1}/${cards.length} cards\r`);
-    }
+    // Debug: log QR details for each card
+    const format = encryptedBlob.startsWith('c1:') ? 'compressed (c1)' : 'legacy';
+    console.log(`  [${i + 1}/${cards.length}] ${prefix}  blob=${encryptedBlob.length}ch (${format})  url=${qrUrl.length}ch  png=${png.length}B`);
   }
   console.log(`  Generated ${cards.length} QR code pairs (PNG + SVG) + invite PDFs`);
   console.log('');
