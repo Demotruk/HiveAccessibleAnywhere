@@ -78,6 +78,8 @@ export const ClaimingScreen: ScreenFn = async (container, state, advance) => {
   statusEl.textContent = fmt(t.claiming_progress, state.username!);
 
   try {
+    const claimCtrl = new AbortController();
+    const claimTimer = setTimeout(() => claimCtrl.abort(), 60_000);
     const response = await fetch(`${payload.serviceUrl}/claim`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -93,7 +95,9 @@ export const ClaimingScreen: ScreenFn = async (container, state, advance) => {
         promiseParams: payload.promiseParams,
         merkleProof: payload.merkleProof,
       }),
+      signal: claimCtrl.signal,
     });
+    clearTimeout(claimTimer);
 
     const data = await response.json() as {
       success: boolean;
@@ -111,7 +115,11 @@ export const ClaimingScreen: ScreenFn = async (container, state, advance) => {
     } else {
       showError(data.error || t.claiming_failed);
     }
-  } catch {
-    showError(t.err_service_down);
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      showError(t.claiming_timeout);
+    } else {
+      showError(t.err_service_down);
+    }
   }
 };

@@ -69,6 +69,7 @@ export const t = {
   claiming_connecting: 'Connecting to account service...',
   claiming_progress: 'Setting up @%1 on the Hive blockchain...',
   claiming_failed: 'Account creation failed. Please try again.',
+  claiming_timeout: 'The request timed out. Your gift card is still valid — tap Retry.',
   claiming_retry: 'Retry',
 
   // Success
