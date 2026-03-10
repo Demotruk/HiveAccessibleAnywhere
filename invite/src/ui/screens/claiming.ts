@@ -1,7 +1,7 @@
 /**
  * Claiming screen — creates the Hive account via the gift card service.
  *
- * 1. Polls /health until the service is warm (Fly.io cold start mitigation)
+ * 1. Polls /validate until the service is warm (Fly.io cold start mitigation)
  * 2. POST /claim with token + username + public keys
  */
 
@@ -10,7 +10,9 @@ import { t, fmt } from '../locale';
 import { getPublicKeys } from '../../crypto/keygen';
 
 /**
- * Poll the service health endpoint until it responds with 200.
+ * Poll the service until it responds. Uses POST /validate instead of
+ * GET /health because a simple health check may not wake a stopped
+ * Fly.io machine — /validate exercises the full app pipeline.
  * Returns true if warm, false if timed out.
  */
 async function waitForService(serviceUrl: string, timeoutMs: number): Promise<boolean> {
@@ -19,9 +21,15 @@ async function waitForService(serviceUrl: string, timeoutMs: number): Promise<bo
     try {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 8_000);
-      const res = await fetch(`${serviceUrl}/health`, { signal: ctrl.signal });
+      const res = await fetch(`${serviceUrl}/validate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{"token":"wake"}',
+        signal: ctrl.signal,
+      });
       clearTimeout(timer);
-      if (res.ok) return true;
+      // Any response (including 400) means the service is up
+      if (res.status < 500) return true;
     } catch { /* retry */ }
     const remaining = deadline - Date.now();
     if (remaining <= 0) break;

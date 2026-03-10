@@ -165,12 +165,12 @@ export async function isUsernameAvailable(
 
 /**
  * Execute the full account creation flow:
- * 1. Create account
- * 2. Delegate HP (after 3s delay)
+ * 1. Create account (awaited — must succeed)
+ * 2. Delegate HP (async — runs in background after 3s delay)
  *
- * If account creation fails, throws immediately.
- * If delegation fails, logs the error but does not throw
- * (the account already exists and the user can use it).
+ * Returns immediately after account creation so the client gets a
+ * fast response. Delegation happens in the background and is logged
+ * if it fails (the account is still usable without it).
  */
 export async function createAccountFull(
   config: GiftcardConfig,
@@ -181,15 +181,13 @@ export async function createAccountFull(
   // Step 1: Create the account — this must succeed
   const result = await createAccount(config, username, keys, tokenHash);
 
-  // Step 2: Delegate HP — log failure but continue
-  let delegationOk = true;
-  try {
-    await delay(3000);
-    await delegateVests(config, username);
-  } catch (err) {
-    delegationOk = false;
-    console.error(`[DELEGATION FAILED] @${username}: ${err instanceof Error ? err.message : String(err)}`);
-  }
+  // Step 2: Delegate HP in background — don't block the response
+  delay(3000)
+    .then(() => delegateVests(config, username))
+    .then(() => console.log(`[DELEGATION OK] @${username}`))
+    .catch((err) => {
+      console.error(`[DELEGATION FAILED] @${username}: ${err instanceof Error ? err.message : String(err)}`);
+    });
 
-  return { tx_id: result.tx_id, delegationOk };
+  return { tx_id: result.tx_id, delegationOk: true };
 }

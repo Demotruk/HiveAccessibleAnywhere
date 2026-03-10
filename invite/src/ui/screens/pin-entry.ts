@@ -61,7 +61,13 @@ export const PinEntryScreen: ScreenFn = (container, state, advance) => {
       // Wake up the giftcard service as early as possible —
       // Fly.io cold start can take 10-30s, so start now before
       // the user goes through verification + username + key backup.
-      fetch(`${payload.serviceUrl}/health`).catch(() => {});
+      // Use POST /validate (not GET /health) to exercise the full app
+      // pipeline — health checks alone may not wake a stopped Fly machine.
+      fetch(`${payload.serviceUrl}/validate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{"token":"wake"}',
+      }).catch(() => {});
 
       advance('verifying');
     } catch {
