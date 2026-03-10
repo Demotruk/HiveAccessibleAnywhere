@@ -32,9 +32,10 @@ import 'dotenv/config';
  *   GIFTCARD_ACTIVE_KEY        - Provider's active key (WIF)
  *   GIFTCARD_MEMO_KEY          - Provider's memo key (WIF)
  *   HAA_SERVICE_ACCOUNT        - Feed service account
+ *   GIFTCARD_OUTPUT_DIR        - Output directory (default: scripts/giftcard-output)
  *
  * Output:
- *   scripts/giftcard-output/<batch-id>/
+ *   <GIFTCARD_OUTPUT_DIR>/<batch-id>/
  *     manifest.json        — Full batch manifest (SENSITIVE — contains PINs)
  *     cards/
  *       <token-prefix>-qr.png    — QR code (PNG, 512px)
@@ -300,7 +301,10 @@ async function main() {
   }
 
   // 5. Generate QR codes
-  const outputDir = resolve(import.meta.dirname, 'giftcard-output', batchId);
+  const outputBase = process.env.GIFTCARD_OUTPUT_DIR
+    ? resolve(process.env.GIFTCARD_OUTPUT_DIR)
+    : resolve(import.meta.dirname, 'giftcard-output');
+  const outputDir = resolve(outputBase, batchId);
   const cardsDir = resolve(outputDir, 'cards');
   mkdirSync(cardsDir, { recursive: true });
 

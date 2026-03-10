@@ -30,7 +30,7 @@
  *     deploy.ps1 / deploy.sh      Deploy to Fly.io (forwards args)
  */
 
-import { cpSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { cpSync, mkdirSync, writeFileSync, existsSync, readdirSync, rmSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { execSync } from 'node:child_process';
 
@@ -38,13 +38,18 @@ const repoRoot = resolve(import.meta.dirname, '..');
 const defaultTarget = resolve(repoRoot, '..', 'giftcard-isolated');
 const target = process.argv[2] ? resolve(process.argv[2]) : defaultTarget;
 
+// If the target already exists, clean everything except .env and node_modules
+// so we can re-deploy updated source without losing secrets or slow reinstalls.
 if (existsSync(target)) {
-  console.error(`Target already exists: ${target}`);
-  console.error('Delete it first or choose a different path.');
-  process.exit(1);
+  const preserve = new Set(['.env', 'node_modules']);
+  for (const entry of readdirSync(target)) {
+    if (preserve.has(entry)) continue;
+    rmSync(join(target, entry), { recursive: true, force: true });
+  }
+  console.log(`Cleaned existing workspace (preserved .env + node_modules):\n  ${target}\n`);
+} else {
+  console.log(`Setting up isolated giftcard workspace at:\n  ${target}\n`);
 }
-
-console.log(`Setting up isolated giftcard workspace at:\n  ${target}\n`);
 
 // -- 1. Giftcard service source --
 mkdirSync(target, { recursive: true });
@@ -111,8 +116,12 @@ if (existsSync(join(srcCerts, 'dev-cert.pem'))) {
 mkdirSync(join(target, 'data'), { recursive: true });
 console.log('✓ Created data/ directory');
 
-// -- 6. .env --
-const envContent = `# Giftcard Isolated Workspace — Environment Variables
+// -- 6. .env (skip if already exists — preserves configured secrets) --
+const envPath = join(target, '.env');
+if (existsSync(envPath)) {
+  console.log('✓ .env already exists — skipping (secrets preserved)');
+} else {
+  const envContent = `# Giftcard Isolated Workspace — Environment Variables
 # Fill in the REPLACE_ME values before running anything.
 
 # Hive account that owns claimed account tokens
@@ -143,11 +152,16 @@ COVER_SITE_THEME=tech
 GIFTCARD_TLS_CERT=../certs/dev-cert.pem
 GIFTCARD_TLS_KEY=../certs/dev-key.pem
 
+# Gift card output directory (where generated cards are saved)
+# Keep this outside the workspace so cards persist across re-deployments.
+GIFTCARD_OUTPUT_DIR=D:\\HiveGiftCards
+
 # Hive API nodes (comma-separated, optional — defaults to public nodes)
 # HIVE_NODES=https://api.hive.blog,https://api.deathwing.me
 `;
-writeFileSync(join(target, '.env'), envContent);
-console.log('✓ Created .env (edit REPLACE_ME values before running)');
+  writeFileSync(envPath, envContent);
+  console.log('✓ Created .env (edit REPLACE_ME values before running)');
+}
 
 // -- 7. Start scripts (service) --
 // Run from giftcard/ so tsx resolves from giftcard/node_modules.
@@ -246,9 +260,12 @@ ${'='.repeat(56)}
     generate.ps1      ← Generate gift cards (forwards all args)
     deploy.ps1        ← Deploy service to Fly.io
     giftcard/         ← Service source code + Dockerfile
-    scripts/          ← Generation + deploy scripts + output
+    scripts/          ← Generation + deploy scripts
     certs/            ← Self-signed TLS certs for LAN dev
     data/             ← SQLite DB (created at runtime)
+
+  Gift card output:   GIFTCARD_OUTPUT_DIR (default: D:\\HiveGiftCards)
+    Cards are saved outside the workspace so they persist across updates.
 
   Quick start:
     1. Edit .env — set GIFTCARD_PROVIDER_ACCOUNT, GIFTCARD_ACTIVE_KEY, GIFTCARD_MEMO_KEY
