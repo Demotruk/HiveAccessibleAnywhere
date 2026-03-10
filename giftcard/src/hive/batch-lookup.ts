@@ -72,19 +72,35 @@ async function scanAccountHistory(
   providerAccount: string,
   hiveNodes: string[],
 ): Promise<void> {
-  const node = hiveNodes[0];
   const PAGE_SIZE = 1000;
   let start = -1;
+  let lastError: Error | null = null;
 
   // Walk backwards through account history
   while (true) {
-    const history = await rpcCall<[number, AccountHistoryOp][]>(
-      node,
-      'condenser_api.get_account_history',
-      [providerAccount, start, PAGE_SIZE],
-    );
+    // Hive API requires start >= limit - 1 (when start != -1).
+    // Cap limit so we don't overshoot on small accounts or final pages.
+    const limit = start === -1 ? PAGE_SIZE : Math.min(PAGE_SIZE, start + 1);
 
-    if (!history || history.length === 0) break;
+    // Try each node in order until one succeeds
+    let history: [number, AccountHistoryOp][] | null = null;
+    for (const node of hiveNodes) {
+      try {
+        history = await rpcCall<[number, AccountHistoryOp][]>(
+          node,
+          'condenser_api.get_account_history',
+          [providerAccount, start, limit],
+        );
+        break;
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+      }
+    }
+
+    if (!history || history.length === 0) {
+      if (!history && lastError) throw lastError;
+      break;
+    }
 
     for (const [, entry] of history) {
       const [opType, opData] = entry.op;
@@ -117,7 +133,7 @@ async function scanAccountHistory(
     }
 
     // If we got fewer entries than requested, we've reached the beginning
-    if (history.length < PAGE_SIZE) break;
+    if (history.length < limit) break;
 
     // Move the cursor backward (earliest entry index minus 1)
     const earliest = history[0][0];
