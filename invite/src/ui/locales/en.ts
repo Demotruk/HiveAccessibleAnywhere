@@ -66,6 +66,7 @@ export const t = {
 
   // Claiming
   claiming_title: 'Creating Your Account',
+  claiming_connecting: 'Connecting to account service...',
   claiming_progress: 'Setting up @%1 on the Hive blockchain...',
   claiming_failed: 'Account creation failed. Please try again.',
   claiming_retry: 'Retry',

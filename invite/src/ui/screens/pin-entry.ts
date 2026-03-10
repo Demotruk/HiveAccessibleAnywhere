@@ -57,6 +57,12 @@ export const PinEntryScreen: ScreenFn = (container, state, advance) => {
       const payload = await decryptPayload(state.encryptedBlob!, pin);
       state.pin = pin;
       state.payload = payload;
+
+      // Wake up the giftcard service as early as possible —
+      // Fly.io cold start can take 10-30s, so start now before
+      // the user goes through verification + username + key backup.
+      fetch(`${payload.serviceUrl}/health`).catch(() => {});
+
       advance('verifying');
     } catch {
       errEl.textContent = t.pin_error;

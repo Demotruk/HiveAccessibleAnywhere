@@ -44,11 +44,6 @@ export const VerifyingScreen: ScreenFn = async (container, state, advance) => {
 
   const payload = state.payload!;
 
-  // Wake up the giftcard service early — Fly.io cold start can take 10-30s.
-  // By the time the user gets through username selection + key backup,
-  // the machine should be warm and ready for the /claim request.
-  fetch(`${payload.serviceUrl}/health`).catch(() => {});
-
   // Check expiry
   if (isExpired(payload)) {
     showError(t.verifying_expired);
