@@ -174,7 +174,7 @@ export function claimHandler(db: Database.Database, config: GiftcardConfig) {
     // 3. Dispatch to promise-type-specific handler
     switch (validated.promiseType) {
       case 'account-creation':
-        await handleAccountCreation(db, config, body, validated, ip, res);
+        await handleAccountCreation(db, config, body, validated, ip, res, reqStart);
         break;
 
       default:
@@ -200,6 +200,7 @@ async function handleAccountCreation(
   validated: ValidatedToken,
   ip: string,
   res: Response,
+  reqStart: number,
 ): Promise<void> {
   // Validate account-creation-specific fields
   if (!body.username || !body.keys) {

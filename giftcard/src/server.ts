@@ -29,17 +29,18 @@ import { claimHandler } from './routes/claim.js';
 import { validateHandler } from './routes/validate.js';
 import { loadConfig } from './config.js';
 import { initDatabase } from './db.js';
-import { fetchBatchDeclaration } from './hive/batch-lookup.js';
+import { warmBatchCache } from './hive/batch-lookup.js';
 
 const config = loadConfig();
 const db = initDatabase(config.dbPath);
 
 // Pre-warm the batch declaration cache at startup.
-// This scans the provider's account history so the first /claim or /validate
-// request doesn't have to wait for potentially slow Hive RPC calls.
+// Scans the most recent 10k entries of provider history to cache any
+// batch declarations. This runs async so it doesn't block server start,
+// and ensures the first /claim doesn't have to wait for Hive RPC calls.
 console.log(`[STARTUP] Pre-warming batch cache for @${config.providerAccount}...`);
 const warmStart = Date.now();
-fetchBatchDeclaration(config.providerAccount, '__warmup__', config.hiveNodes)
+warmBatchCache(config.providerAccount, config.hiveNodes)
   .then(() => console.log(`[STARTUP] Batch cache warm in ${Date.now() - warmStart}ms`))
   .catch((err) => console.error(`[STARTUP] Batch cache warm-up failed after ${Date.now() - warmStart}ms: ${err instanceof Error ? err.message : String(err)}`));
 

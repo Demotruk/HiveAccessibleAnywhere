@@ -5,6 +5,10 @@
  * history by scanning for custom_json operations with the
  * 'propolis_giftcard_batch' ID.
  *
+ * Scans from newest to oldest and stops early once the target batch is
+ * found. A full scan is only performed on explicit warm-up or when a
+ * batch isn't found in recent history.
+ *
  * Results are cached in memory — batch declarations are immutable once
  * published on-chain, so cache entries never expire.
  */
@@ -30,14 +34,14 @@ interface AccountHistoryOp {
 // -- Cache --
 
 const cache = new Map<string, BatchDeclaration>();
-let fullScanDone = false;
+let scanHighWaterMark = -1; // lowest history index we've scanned so far
 
 /**
  * Clear the in-memory cache. Mainly useful for testing.
  */
 export function clearBatchCache(): void {
   cache.clear();
-  fullScanDone = false;
+  scanHighWaterMark = -1;
 }
 
 // -- Helpers --
@@ -69,24 +73,74 @@ async function rpcCall<T>(
 }
 
 /**
- * Scan the provider's account history for batch declarations and populate
- * the cache. Uses pagination to walk backwards through history.
+ * Extract batch declarations from a page of account history entries.
+ * Returns the number of new batches found.
+ */
+function extractBatches(
+  history: [number, AccountHistoryOp][],
+  providerAccount: string,
+): number {
+  let found = 0;
+  for (const [, entry] of history) {
+    const [opType, opData] = entry.op;
+
+    if (opType !== 'custom_json') continue;
+    if (opData.id !== 'propolis_giftcard_batch') continue;
+
+    const requiredAuths = opData.required_auths as string[] | undefined;
+    if (!requiredAuths || !requiredAuths.includes(providerAccount)) continue;
+
+    try {
+      const json = JSON.parse(opData.json as string) as Record<string, unknown>;
+      const batchId = json.batch_id as string;
+
+      if (batchId && !cache.has(batchId)) {
+        cache.set(batchId, {
+          batchId,
+          count: json.count as number,
+          expires: json.expires as string,
+          merkleRoot: json.merkle_root as string,
+          promiseType: (json.promise_type as string) || 'account-creation',
+          promiseParams: json.promise_params as Record<string, unknown> | undefined,
+          txId: entry.trx_id,
+        });
+        found++;
+      }
+    } catch {
+      // Malformed JSON — skip
+    }
+  }
+  return found;
+}
+
+/**
+ * Scan the provider's account history for batch declarations.
+ *
+ * Walks backwards from the most recent entry. If `targetBatchId` is
+ * provided, stops as soon as that batch is found (fast path for claims).
+ * If `maxPages` is provided, limits the scan depth.
+ *
+ * Updates `scanHighWaterMark` to track how far back we've scanned,
+ * so subsequent calls can resume from where the last scan stopped.
  */
 async function scanAccountHistory(
   providerAccount: string,
   hiveNodes: string[],
+  targetBatchId?: string,
+  maxPages?: number,
 ): Promise<void> {
   const PAGE_SIZE = 1000;
-  let start = -1;
+  let start = scanHighWaterMark > 0 ? scanHighWaterMark - 1 : -1;
   let lastError: Error | null = null;
+  let pages = 0;
 
-  // Walk backwards through account history
+  // If we've already scanned some history, start from where we left off.
+  // But if start is already 0, there's nothing left to scan.
+  if (start === 0) return;
+
   while (true) {
-    // Hive API requires start >= limit - 1 (when start != -1).
-    // Cap limit so we don't overshoot on small accounts or final pages.
     const limit = start === -1 ? PAGE_SIZE : Math.min(PAGE_SIZE, start + 1);
 
-    // Try each node in order until one succeeds
     let history: [number, AccountHistoryOp][] | null = null;
     for (const node of hiveNodes) {
       try {
@@ -109,46 +163,34 @@ async function scanAccountHistory(
       break;
     }
 
-    for (const [, entry] of history) {
-      const [opType, opData] = entry.op;
+    pages++;
+    extractBatches(history, providerAccount);
 
-      if (opType !== 'custom_json') continue;
-      if (opData.id !== 'propolis_giftcard_batch') continue;
-
-      // Verify the declaration was signed by the provider's active key
-      const requiredAuths = opData.required_auths as string[] | undefined;
-      if (!requiredAuths || !requiredAuths.includes(providerAccount)) continue;
-
-      try {
-        const json = JSON.parse(opData.json as string) as Record<string, unknown>;
-        const batchId = json.batch_id as string;
-
-        if (batchId && !cache.has(batchId)) {
-          cache.set(batchId, {
-            batchId,
-            count: json.count as number,
-            expires: json.expires as string,
-            merkleRoot: json.merkle_root as string,
-            promiseType: (json.promise_type as string) || 'account-creation',
-            promiseParams: json.promise_params as Record<string, unknown> | undefined,
-            txId: entry.trx_id,
-          });
-        }
-      } catch {
-        // Malformed JSON — skip
-      }
+    // Track how far back we've scanned
+    const earliest = history[0][0];
+    if (scanHighWaterMark < 0 || earliest < scanHighWaterMark) {
+      scanHighWaterMark = earliest;
     }
 
-    // If we got fewer entries than requested, we've reached the beginning
-    if (history.length < limit) break;
+    // Early exit: found the target batch
+    if (targetBatchId && cache.has(targetBatchId)) {
+      console.log(`[BATCH] Found target batch ${targetBatchId} after ${pages} page(s)`);
+      return;
+    }
 
-    // Move the cursor backward (earliest entry index minus 1)
-    const earliest = history[0][0];
+    // Page limit reached
+    if (maxPages && pages >= maxPages) {
+      console.log(`[BATCH] Reached max pages (${maxPages}), scanned down to index ${earliest}`);
+      return;
+    }
+
+    // Reached the beginning of history
+    if (history.length < limit) break;
     if (earliest <= 0) break;
     start = earliest - 1;
   }
 
-  fullScanDone = true;
+  console.log(`[BATCH] Full scan complete: ${pages} page(s), ${cache.size} batch(es) cached`);
 }
 
 // -- Public API --
@@ -156,10 +198,12 @@ async function scanAccountHistory(
 /**
  * Fetch a batch declaration by ID.
  *
- * First checks the in-memory cache. If not cached, scans the provider's
- * account history on-chain and caches all found declarations.
+ * 1. Check the in-memory cache.
+ * 2. Scan recent history (up to 10 pages / 10k entries) looking for the
+ *    specific batch — enough to cover any recently-published batches.
+ * 3. If still not found, do a full scan of all remaining history.
  *
- * Returns null if the batch was not found after a full scan.
+ * Returns null if the batch was not found after a complete scan.
  */
 export async function fetchBatchDeclaration(
   providerAccount: string,
@@ -170,11 +214,26 @@ export async function fetchBatchDeclaration(
   const cached = cache.get(batchId);
   if (cached) return cached;
 
-  // If we've already done a full scan and didn't find it, it's not there
-  if (fullScanDone) return null;
+  // Quick scan of recent history (batch declarations are typically recent)
+  await scanAccountHistory(providerAccount, hiveNodes, batchId, 10);
+  const found = cache.get(batchId);
+  if (found) return found;
 
-  // Scan account history (populates cache for all found batches)
-  await scanAccountHistory(providerAccount, hiveNodes);
-
+  // Full scan of remaining history (continues from where quick scan stopped)
+  await scanAccountHistory(providerAccount, hiveNodes, batchId);
   return cache.get(batchId) ?? null;
+}
+
+/**
+ * Pre-warm the cache by scanning recent account history.
+ * Scans up to `maxPages` pages (default 10 = ~10k entries) to cache
+ * any batch declarations found in recent history. Does not do a full
+ * scan — this is meant to be fast at startup.
+ */
+export async function warmBatchCache(
+  providerAccount: string,
+  hiveNodes: string[],
+  maxPages = 10,
+): Promise<void> {
+  await scanAccountHistory(providerAccount, hiveNodes, undefined, maxPages);
 }
