@@ -90,14 +90,17 @@ async function scanAccountHistory(
     let history: [number, AccountHistoryOp][] | null = null;
     for (const node of hiveNodes) {
       try {
+        const t0 = Date.now();
         history = await rpcCall<[number, AccountHistoryOp][]>(
           node,
           'condenser_api.get_account_history',
           [providerAccount, start, limit],
         );
+        console.log(`[BATCH] get_account_history(start=${start}, limit=${limit}) from ${node} → ${history?.length ?? 0} entries (${Date.now() - t0}ms)`);
         break;
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
+        console.warn(`[BATCH] get_account_history(start=${start}) from ${node} FAILED: ${lastError.message}`);
       }
     }
 

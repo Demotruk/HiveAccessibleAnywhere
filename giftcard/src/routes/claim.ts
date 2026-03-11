@@ -67,6 +67,9 @@ export function claimHandler(db: Database.Database, config: GiftcardConfig) {
   return async (req: Request, res: Response): Promise<void> => {
     const body = req.body as ClaimRequest;
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    const reqStart = Date.now();
+
+    console.log(`[CLAIM START] Token: ${body.token?.slice(0, 8) || '(none)'}... | Username: ${body.username || '(none)'} | Mode: ${body.merkleProof ? 'merkle' : 'db'} | IP: ${ip}`);
 
     // 1. Validate token is present
     if (!body.token) {
@@ -98,9 +101,11 @@ export function claimHandler(db: Database.Database, config: GiftcardConfig) {
       // Fetch batch declaration from chain
       let declaration;
       try {
+        console.log(`[CLAIM] Fetching batch declaration: ${body.batchId} (${Date.now() - reqStart}ms)`);
         declaration = await fetchBatchDeclaration(config.providerAccount, body.batchId, config.hiveNodes);
+        console.log(`[CLAIM] Batch lookup complete: ${declaration ? 'found' : 'not found'} (${Date.now() - reqStart}ms)`);
       } catch (err) {
-        console.error(`[CLAIM ERROR] Batch lookup failed: ${err instanceof Error ? err.message : String(err)}`);
+        console.error(`[CLAIM ERROR] Batch lookup failed after ${Date.now() - reqStart}ms: ${err instanceof Error ? err.message : String(err)}`);
         res.status(500).json({ success: false, error: 'Could not verify batch declaration' });
         return;
       }
@@ -215,14 +220,17 @@ async function handleAccountCreation(
   }
 
   // Check username availability on-chain
+  const usernameStart = Date.now();
+  console.log(`[CLAIM] Checking username availability: @${body.username} (${usernameStart - reqStart}ms)`);
   try {
     const available = await isUsernameAvailable(config, body.username);
+    console.log(`[CLAIM] Username check complete: ${available ? 'available' : 'taken'} (${Date.now() - reqStart}ms)`);
     if (!available) {
       res.status(400).json({ success: false, error: 'Username already taken' });
       return;
     }
   } catch (err) {
-    console.error(`[CLAIM ERROR] Username check failed: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`[CLAIM ERROR] Username check failed after ${Date.now() - reqStart}ms: ${err instanceof Error ? err.message : String(err)}`);
     res.status(500).json({ success: false, error: 'Could not verify username availability' });
     return;
   }
@@ -230,6 +238,7 @@ async function handleAccountCreation(
   // Create account and delegate
   try {
     const hash = tokenHash(body.token);
+    console.log(`[CLAIM] Creating account @${body.username} (${Date.now() - reqStart}ms)`);
     const result = await createAccountFull(config, body.username, body.keys, hash);
 
     // Mark token as spent using the appropriate method

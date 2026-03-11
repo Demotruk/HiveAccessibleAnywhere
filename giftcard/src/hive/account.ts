@@ -148,6 +148,7 @@ export async function isUsernameAvailable(
 ): Promise<boolean> {
   for (const node of config.hiveNodes) {
     try {
+      const t0 = Date.now();
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 10_000);
       const response = await fetch(node, {
@@ -164,9 +165,12 @@ export async function isUsernameAvailable(
       clearTimeout(timer);
 
       const data = await response.json() as any;
-      return !data.result || data.result.length === 0;
-    } catch {
-      // Try next node
+      const available = !data.result || data.result.length === 0;
+      console.log(`[USERNAME] @${username} check via ${node} → ${available ? 'available' : 'taken'} (${Date.now() - t0}ms)`);
+      return available;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[USERNAME] @${username} check via ${node} FAILED: ${msg}`);
     }
   }
   throw new Error('All Hive nodes failed for username check');
@@ -188,7 +192,11 @@ export async function createAccountFull(
   tokenHash?: string,
 ): Promise<{ tx_id: string; delegationOk: boolean }> {
   // Step 1: Create the account — this must succeed
+  const t0 = Date.now();
+  console.log(`[ACCOUNT] Broadcasting create_claimed_account for @${username}`);
   const result = await createAccount(config, username, keys, tokenHash);
+  console.log(`[ACCOUNT] Account @${username} created in ${Date.now() - t0}ms (tx: ${result.tx_id.slice(0, 12)}...)`);
+
 
   // Step 2: Delegate HP in background — don't block the response
   delay(3000)

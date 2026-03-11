@@ -32,6 +32,9 @@ export function validateHandler(db: Database.Database, config: GiftcardConfig) {
 
   return async (req: Request, res: Response): Promise<void> => {
     const body = req.body as ValidateRequest;
+    const reqStart = Date.now();
+
+    console.log(`[VALIDATE] Token: ${body.token?.slice(0, 8) || '(none)'}... | Mode: ${body.merkleProof ? 'merkle' : 'db'}`);
 
     if (!body.token || typeof body.token !== 'string') {
       res.status(400).json({ valid: false, reason: 'Missing token' });
@@ -54,8 +57,11 @@ export function validateHandler(db: Database.Database, config: GiftcardConfig) {
 
       let declaration;
       try {
+        console.log(`[VALIDATE] Fetching batch declaration: ${body.batchId} (${Date.now() - reqStart}ms)`);
         declaration = await fetchBatchDeclaration(config.providerAccount, body.batchId, config.hiveNodes);
-      } catch {
+        console.log(`[VALIDATE] Batch lookup complete: ${declaration ? 'found' : 'not found'} (${Date.now() - reqStart}ms)`);
+      } catch (err) {
+        console.error(`[VALIDATE ERROR] Batch lookup failed after ${Date.now() - reqStart}ms: ${err instanceof Error ? err.message : String(err)}`);
         res.status(500).json({ valid: false, reason: 'Could not verify batch declaration' });
         return;
       }
