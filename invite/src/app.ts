@@ -14,6 +14,7 @@ import { UsernameScreen } from './ui/screens/username';
 import { KeyBackupScreen } from './ui/screens/key-backup';
 import { ClaimingScreen } from './ui/screens/claiming';
 import { SuccessScreen } from './ui/screens/success';
+import { renderProgressBar } from './ui/progress-bar';
 
 const SCREENS: Record<ScreenName, ScreenFn> = {
   landing: LandingScreen,
@@ -58,9 +59,18 @@ export class InviteApp {
 
   showScreen(name: ScreenName): void {
     this.container.innerHTML = '';
+
+    // Progress indicator (shown for all screens except landing)
+    const bar = renderProgressBar(name);
+    if (bar) this.container.appendChild(bar);
+
+    // Screen content goes into a wrapper so it doesn't clobber the progress bar
+    const screenEl = document.createElement('div');
+    this.container.appendChild(screenEl);
+
     const screen = SCREENS[name];
     if (screen) {
-      screen(this.container, this.state, (next) => this.showScreen(next));
+      screen(screenEl, this.state, (next) => this.showScreen(next));
     }
   }
 }

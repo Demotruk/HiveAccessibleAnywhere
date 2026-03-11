@@ -8,50 +8,44 @@ import { t } from '../locale';
 import { decryptPayload } from '../../crypto/decrypt';
 
 export const PinEntryScreen: ScreenFn = (container, state, advance) => {
-  container.innerHTML = `<div class="ct">
+  container.innerHTML = `<div class="ct center" style="padding-top:15vh">
     <h1>${t.pin_title}</h1>
     <p class="sm mt mb">${t.pin_desc}</p>
     <input type="text" id="pin" class="pin-input" maxlength="6"
            placeholder="${t.pin_placeholder}" autocomplete="off"
            autocapitalize="characters" spellcheck="false">
-    <button id="submit" disabled>${t.pin_submit}</button>
     <p class="err hidden" id="err"></p>
   </div>`;
 
   const pinInput = container.querySelector('#pin') as HTMLInputElement;
-  const submitBtn = container.querySelector('#submit') as HTMLButtonElement;
   const errEl = container.querySelector('#err') as HTMLElement;
+  let submitting = false;
 
   // Restrict to valid PIN characters and auto-uppercase
   pinInput.addEventListener('input', () => {
     pinInput.value = pinInput.value.toUpperCase().replace(/[^A-Z2-9]/g, '');
-    submitBtn.disabled = pinInput.value.length !== 6;
     errEl.classList.add('hidden');
   });
 
   // Auto-submit when 6 chars entered
   pinInput.addEventListener('input', () => {
     if (pinInput.value.length === 6) {
-      submitBtn.click();
+      doSubmit();
     }
   });
 
   const doSubmit = async () => {
     const pin = pinInput.value;
-    if (pin.length !== 6) {
-      errEl.textContent = t.pin_invalid;
-      errEl.classList.remove('hidden');
-      return;
-    }
+    if (pin.length !== 6 || submitting) return;
 
-    submitBtn.disabled = true;
+    submitting = true;
     errEl.classList.add('hidden');
 
     try {
       if (!crypto?.subtle) {
         errEl.textContent = 'Web Crypto not available — HTTPS required. This page must be served over HTTPS or localhost.';
         errEl.classList.remove('hidden');
-        submitBtn.disabled = false;
+        submitting = false;
         return;
       }
       const payload = await decryptPayload(state.encryptedBlob!, pin);
@@ -73,13 +67,12 @@ export const PinEntryScreen: ScreenFn = (container, state, advance) => {
     } catch {
       errEl.textContent = t.pin_error;
       errEl.classList.remove('hidden');
-      submitBtn.disabled = false;
+      submitting = false;
       pinInput.value = '';
       pinInput.focus();
     }
   };
 
-  submitBtn.addEventListener('click', doSubmit);
   pinInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && pinInput.value.length === 6) doSubmit();
   });
