@@ -47,11 +47,15 @@ async function rpcCall<T>(
   method: string,
   params: unknown[],
 ): Promise<T> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 10_000);
   const response = await fetch(node, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', method, params, id: 1 }),
+    signal: ctrl.signal,
   });
+  clearTimeout(timer);
 
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);

@@ -146,21 +146,30 @@ export async function isUsernameAvailable(
   config: GiftcardConfig,
   username: string,
 ): Promise<boolean> {
-  const node = config.hiveNodes[0];
+  for (const node of config.hiveNodes) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 10_000);
+      const response = await fetch(node, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'condenser_api.get_accounts',
+          params: [[username]],
+          id: 1,
+        }),
+        signal: ctrl.signal,
+      });
+      clearTimeout(timer);
 
-  const response = await fetch(node, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      method: 'condenser_api.get_accounts',
-      params: [[username]],
-      id: 1,
-    }),
-  });
-
-  const data = await response.json() as any;
-  return !data.result || data.result.length === 0;
+      const data = await response.json() as any;
+      return !data.result || data.result.length === 0;
+    } catch {
+      // Try next node
+    }
+  }
+  throw new Error('All Hive nodes failed for username check');
 }
 
 /**
