@@ -34,9 +34,17 @@ export class HiveClient {
     this.timeout = timeoutMs;
   }
 
-  private async send(endpoint: string, request: JsonRpcRequest): Promise<JsonRpcResponse> {
+  private async send(
+    endpoint: string,
+    request: JsonRpcRequest,
+    externalSignal?: AbortSignal,
+  ): Promise<JsonRpcResponse> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeout);
+
+    // If an external signal fires (e.g. race winner cancels losers), abort too
+    const onExternal = () => controller.abort();
+    externalSignal?.addEventListener('abort', onExternal);
 
     try {
       const response = await fetch(endpoint, {
@@ -53,15 +61,19 @@ export class HiveClient {
       return await response.json() as JsonRpcResponse;
     } finally {
       clearTimeout(timer);
+      externalSignal?.removeEventListener('abort', onExternal);
     }
   }
 
   async call<T = unknown>(method: string, params: unknown[] = []): Promise<T> {
-    const maxAttempts = this.endpoints.length;
-    let lastError: Error | undefined;
+    // Race all endpoints in parallel — use whichever responds first.
+    // This avoids waiting on a slow/unresponsive node before trying the next.
+    const controllers: AbortController[] = [];
 
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const endpoint = this.endpoints[(this.currentIndex + attempt) % this.endpoints.length];
+    const racePromises = this.endpoints.map((endpoint, i) => {
+      const controller = new AbortController();
+      controllers.push(controller);
+
       const request: JsonRpcRequest = {
         jsonrpc: '2.0',
         method,
@@ -69,19 +81,28 @@ export class HiveClient {
         id: this.requestId++,
       };
 
-      try {
-        const response = await this.send(endpoint, request);
-        if (response.error) {
-          throw new Error(`RPC error ${response.error.code}: ${response.error.message}`);
-        }
-        this.currentIndex = (this.currentIndex + attempt) % this.endpoints.length;
-        return response.result as T;
-      } catch (err) {
-        lastError = err instanceof Error ? err : new Error(String(err));
-      }
-    }
+      return this.send(endpoint, request, controller.signal)
+        .then((response) => {
+          if (response.error) {
+            throw new Error(`RPC error ${response.error.code}: ${response.error.message}`);
+          }
+          // Remember fastest endpoint for future sequential use
+          this.currentIndex = i;
+          return { result: response.result as T, index: i };
+        });
+    });
 
-    throw new Error(`All RPC endpoints failed. Last error: ${lastError?.message}`);
+    try {
+      const winner = await Promise.any(racePromises);
+      // Abort remaining in-flight requests
+      controllers.forEach((c) => c.abort());
+      return winner.result;
+    } catch (err) {
+      // All endpoints failed — AggregateError from Promise.any
+      const aggregate = err instanceof AggregateError ? err : undefined;
+      const lastMsg = aggregate?.errors?.at(-1)?.message ?? String(err);
+      throw new Error(`All RPC endpoints failed. Last error: ${lastMsg}`);
+    }
   }
 
   async getAccounts(accounts: string[]): Promise<HiveAccount[]> {
