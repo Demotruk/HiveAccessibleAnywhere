@@ -331,6 +331,27 @@ The gift card service is a **separate service from the RPC proxy**, deployed ind
 1. **Security isolation.** The gift card service holds sensitive keys — either the provider's active key or account creation token authority — needed to create Hive accounts. The proxy holds no such keys.
 2. **Multi-operator support.** Any Hive account with sufficient account creation tokens can run their own gift card service independently. This enables Hive whales to operate their own gift card programs, potentially earning a return on their Hive Power by selling account creation as a service.
 
+**Multi-provider accounts:**
+A single gift card service instance supports multiple provider accounts. Other Hive users can request to be added as providers on an existing gift card service. The workflow is:
+
+1. A Hive user submits a request to the gift card service operator to be added as a provider
+2. The operator reviews and approves the request
+3. The approved provider delegates their account's active key authority to the gift card service's `invite-authority` active key (via `update_account` to add the service's public active key to their account's active authority list)
+4. The gift card service can now broadcast `create_claimed_account` transactions on behalf of the provider, consuming the provider's own account creation tokens
+
+This enables providers who do not want to run their own infrastructure to participate in gift card distribution by leveraging an existing service operator's deployment. The provider supplies the account creation tokens (earned through Hive Power), and the service operator supplies the infrastructure.
+
+**Trust and security considerations for delegating providers:**
+Delegating active key authority to a third-party service is a significant trust decision. The active key controls account creation tokens, token transfers, and other high-value operations. Providers considering this delegation should be aware of the following:
+
+- They are trusting the service operator not to misuse their active key authority (e.g. transferring funds, changing account settings)
+- They should set up **key monitoring** on their account to detect any unexpected operations — anything other than `create_claimed_account` and `delegate_vesting_shares` (the only operations the gift card service should perform). Hive ecosystem tools exist for this (e.g. account history watchers, custom_json monitors)
+- They can **revoke the delegation at any time** by removing the service's public key from their active authority (via Peakd, Hive Keychain, or any wallet that supports `update_account`)
+- They should consider starting with a small allocation of account creation tokens to limit exposure while building trust with the operator
+- The service operator should clearly communicate the scope of operations the service will perform on their behalf
+
+The gift card service itself has no obligation beyond making providers aware of the trust implications at onboarding time. Key monitoring, risk management, and revocation decisions are the provider's responsibility.
+
 **On-chain service discovery:**
 Gift card providers register their service URL on-chain so the invite app can discover it from the provider account name. Registration is via `custom_json` on the provider's account or via a transfer memo to a known discovery account. This enables the invite app to look up the service URL at redemption time without the QR needing to embed a domain that might change.
 
@@ -565,3 +586,43 @@ The architecture must support all phases without structural changes. The transit
 - Safari on iOS (iPhones are widely used in China)
 
 Phase 2 browser testing is deferred until the proxy infrastructure exists to actually serve users in those regions.
+
+---
+
+## Future Considerations
+
+### Optional Email Collection During Onboarding
+
+The invite app should support a lightweight mechanism for collecting user contact details to enable follow-up communication. To avoid adding friction to the onboarding flow, this should be presented **during the account creation wait** — while the spinner is displayed and the user is already waiting for the on-chain operation to complete. This is otherwise idle time from the user's perspective, making it a natural moment to ask.
+
+The prompt should:
+- Ask for an email address (and/or other contact method)
+- Make it **explicitly clear that this is optional** — the user can dismiss or ignore it without any impact on account creation
+- Explain briefly why it's useful (e.g. "so we can send you tips on getting started with Hive")
+- Not block or delay the account creation flow in any way
+
+**Data protection considerations:** Collecting and storing email addresses introduces obligations under GDPR, CCPA, and other data protection regulations. Before implementing this feature, the following must be addressed:
+- Legal basis for processing (likely legitimate interest or consent)
+- What data is stored, where, and for how long
+- User rights (access, deletion, portability)
+- Privacy policy and disclosure requirements
+- Whether the gift card service operator (who may vary) is the data controller
+- Cross-border data transfer implications, given the target user base spans multiple jurisdictions
+- Minimisation — collect only what is needed and retain only as long as necessary
+
+### Active User Follow-Up and Key Migration
+
+For users who actually become active on-chain after onboarding, the system should provide a follow-up pathway that helps them:
+
+1. **Migrate their keys into Hive Keychain** — the invite app's initial handoff (via HiveSigner or PeakLock) gets the user active quickly, but these are not the ideal long-term key management solutions. Active users should be guided toward installing Hive Keychain (mobile app or browser extension), which provides non-custodial key storage, multi-app support, and better security. The follow-up should include clear, step-by-step instructions appropriate for users who may have no prior blockchain or extension-management experience.
+
+2. **Understand the importance of backing up account keys** — new users often do not appreciate that Hive keys cannot be recovered if lost (there is no "forgot password" flow). The follow-up should clearly explain the risk, guide the user through securely backing up their owner key and master password, and emphasise that losing these keys means permanent loss of account access.
+
+**Detection of active users:** Activity can be detected on-chain by monitoring for transactions from accounts created through the gift card system (the gift card service already knows which accounts it created). Relevant signals include posting, voting, transfers, or staking operations. This monitoring can be done passively via account history lookups — no cooperation from the user is required.
+
+**Follow-up delivery mechanisms** (to be evaluated):
+- On-chain memo transfers (as already planned for Stage 2 follow-up — small HBD transfer with a memo linking to setup instructions)
+- Email (if collected during onboarding — see above)
+- In-app prompts if the user returns to the invite app or wallet
+
+The follow-up should be non-intrusive and timed appropriately — e.g. after the user has made a few posts or transactions, rather than immediately after account creation.
