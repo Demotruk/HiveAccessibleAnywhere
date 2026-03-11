@@ -3,7 +3,7 @@
  *
  * Each card produces a 2-page A6 landscape PDF:
  *   Page 1 (front): Hive logo, large QR code (hero element), invitation text
- *   Page 2 (back):  "From:" line, PIN display, instruction text
+ *   Page 2 (back):  "To:"/"From:" lines, PIN display, instruction text
  *
  * Uses pdf-lib to build PDFs from scratch — no template file required.
  * The Hive logo is embedded from a PNG asset for crisp, correct rendering.
@@ -88,6 +88,7 @@ function wrapText(
  *
  * Page 2 layout (back):
  *   ┌─────────────────────────────────┐
+ *   │  To:   ________________________ │
  *   │  From: ________________________ │
  *   │                                 │
  *   │                                 │
@@ -198,24 +199,56 @@ export async function generateInvitePdf(options: InviteCardOptions): Promise<Uin
     color: rgb(0.35, 0.35, 0.35),
   });
 
+  // -- "See PIN on back" hint (top-right corner) --
+  const flipHint = '>> See PIN on back';
+  const flipHintSize = 8.5;
+  const flipHintWidth = helveticaBold.widthOfTextAtSize(flipHint, flipHintSize);
+  front.drawText(flipHint, {
+    x: A6_WIDTH - flipHintWidth - 18,
+    y: A6_HEIGHT - 20,
+    size: flipHintSize,
+    font: helveticaBold,
+    color: rgb(0.15, 0.15, 0.15),
+  });
+
   // ---- Page 2: Back ----
   const back = doc.addPage([A6_WIDTH, A6_HEIGHT]);
 
-  // -- "From:" line at top (for handwritten personal note) --
-  const fromY = A6_HEIGHT - 50;
+  // -- "To:" and "From:" lines at top (for handwritten personal note) --
+  const labelColor = rgb(0.2, 0.2, 0.2);
+  const lineColor = rgb(0.4, 0.4, 0.4);
+  const labelSize = 12;
+  const lineStartX = 72;
+  const lineEndX = 280;
+
+  const toY = A6_HEIGHT - 40;
+  back.drawText('To:', {
+    x: 40,
+    y: toY,
+    size: labelSize,
+    font: helvetica,
+    color: labelColor,
+  });
+  back.drawLine({
+    start: { x: lineStartX, y: toY - 2 },
+    end: { x: lineEndX, y: toY - 2 },
+    thickness: 0.5,
+    color: lineColor,
+  });
+
+  const fromY = toY - 28;
   back.drawText('From:', {
     x: 40,
     y: fromY,
-    size: 12,
+    size: labelSize,
     font: helvetica,
-    color: rgb(0.2, 0.2, 0.2),
+    color: labelColor,
   });
-  // Underline for handwriting
   back.drawLine({
-    start: { x: 82, y: fromY - 2 },
-    end: { x: 280, y: fromY - 2 },
+    start: { x: lineStartX + 10, y: fromY - 2 },
+    end: { x: lineEndX, y: fromY - 2 },
     thickness: 0.5,
-    color: rgb(0.4, 0.4, 0.4),
+    color: lineColor,
   });
 
   // -- "Your Invite PIN" heading (vertically centered area) --
