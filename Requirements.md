@@ -626,3 +626,14 @@ For users who actually become active on-chain after onboarding, the system shoul
 - In-app prompts if the user returns to the invite app or wallet
 
 The follow-up should be non-intrusive and timed appropriately — e.g. after the user has made a few posts or transactions, rather than immediately after account creation.
+
+### Gift Card Purchases via Transfer
+
+Allow users to purchase gift cards by transferring Hive or HBD to the gift card provider account. If the transfer amount meets a configurable price threshold and the memo contains an email address, the gift card service produces a gift card and emails it to that address. The gift card is redeemable by the main gift card provider account.
+
+To support this, the gift card service may also need to claim accounts using the alternative method that consumes Hive tokens (via `account_create` or the fee-based path), rather than relying solely on RC-based `claim_account` tokens.
+
+**Later enhancements:**
+- Accept additional arguments in the transfer memo beyond the email address, such as:
+  - A chosen number of cards (e.g. bulk purchase)
+  - A specific card design or template
