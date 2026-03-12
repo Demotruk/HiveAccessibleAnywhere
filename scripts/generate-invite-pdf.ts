@@ -17,6 +17,9 @@
  */
 
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import QRCode from 'qrcode';
+
+const RESTORE_URL = 'https://demotruk.github.io/HiveAccessibleAnywhere/restore/';
 
 // A6 landscape in points (148mm × 105mm)
 const A6_WIDTH = 419.53;
@@ -91,16 +94,16 @@ function wrapText(
  *   │  To:   ________________________ │
  *   │  From: ________________________ │
  *   │                                 │
- *   │                                 │
  *   │       Your Invite PIN           │
- *   │                                 │
  *   │      ┌──────────────┐           │
  *   │      │   ABC123     │           │
  *   │      └──────────────┘           │
- *   │                                 │
  *   │  Enter this PIN when prompted   │
  *   │  after scanning the QR code.    │
  *   │                                 │
+ *   │   ┌─────┐  Restore your backup  │
+ *   │   │ QR  │  Scan to recover your │
+ *   │   └─────┘  keys from backup.    │
  *   └─────────────────────────────────┘
  */
 export async function generateInvitePdf(options: InviteCardOptions): Promise<Uint8Array> {
@@ -251,14 +254,12 @@ export async function generateInvitePdf(options: InviteCardOptions): Promise<Uin
     color: lineColor,
   });
 
-  // -- "Your Invite PIN" heading (vertically centered area) --
-  const pinSectionCenterY = A6_HEIGHT / 2 + 10;
+  // -- "Your Invite PIN" heading (moved up to make room for restore QR) --
   const pinHeading = 'Your Invite PIN';
   const pinHeadingFontSize = 20;
   const pinHeadingWidth = helveticaBold.widthOfTextAtSize(pinHeading, pinHeadingFontSize);
 
-  // Heading positioned above center
-  const pinHeadingY = pinSectionCenterY + 30;
+  const pinHeadingY = fromY - 35;
   back.drawText(pinHeading, {
     x: centerX - pinHeadingWidth / 2,
     y: pinHeadingY,
@@ -267,7 +268,7 @@ export async function generateInvitePdf(options: InviteCardOptions): Promise<Uin
     color: rgb(0.1, 0.1, 0.1),
   });
 
-  // -- PIN box (below heading with clear separation) --
+  // -- PIN box (below heading) --
   const pinFontSize = 30;
   const pinWidth = helveticaBold.widthOfTextAtSize(pin, pinFontSize);
   const boxPadX = 28;
@@ -275,10 +276,8 @@ export async function generateInvitePdf(options: InviteCardOptions): Promise<Uin
   const boxW = pinWidth + boxPadX * 2;
   const boxH = pinFontSize + boxPadY * 2;
   const boxX = centerX - boxW / 2;
-  // Leave 20pt gap between heading baseline and box top
-  const boxY = pinHeadingY - 20 - boxH;
+  const boxY = pinHeadingY - 18 - boxH;
 
-  // Box with light background and border
   back.drawRectangle({
     x: boxX,
     y: boxY,
@@ -289,7 +288,6 @@ export async function generateInvitePdf(options: InviteCardOptions): Promise<Uin
     color: rgb(0.97, 0.97, 0.97),
   });
 
-  // PIN text centered in box
   back.drawText(pin, {
     x: centerX - pinWidth / 2,
     y: boxY + boxPadY,
@@ -299,7 +297,7 @@ export async function generateInvitePdf(options: InviteCardOptions): Promise<Uin
   });
 
   // -- Instruction text (below PIN box) --
-  const instructionY = boxY - 25;
+  const instructionY = boxY - 20;
   const instruction = 'Enter this PIN when prompted after scanning the QR code on the front.';
   const instrMaxWidth = A6_WIDTH - 80;
 
@@ -314,6 +312,54 @@ export async function generateInvitePdf(options: InviteCardOptions): Promise<Uin
       color: rgb(0.35, 0.35, 0.35),
     });
   }
+
+  // -- Restore backup QR code (bottom section) --
+  const restoreQrPng = await QRCode.toBuffer(RESTORE_URL, {
+    errorCorrectionLevel: 'M',
+    margin: 1,
+    width: 256,
+  });
+  const restoreQrImage = await doc.embedPng(new Uint8Array(restoreQrPng));
+
+  const restoreQrSize = 60;
+  const restoreQrX = 40;
+  const restoreQrY = 18;
+
+  back.drawImage(restoreQrImage, {
+    x: restoreQrX,
+    y: restoreQrY,
+    width: restoreQrSize,
+    height: restoreQrSize,
+  });
+
+  // Label text next to the restore QR
+  const restoreLabelX = restoreQrX + restoreQrSize + 10;
+  const restoreLabelY = restoreQrY + restoreQrSize - 12;
+  const restoreLabelSize = 9;
+
+  back.drawText('Restore your backup', {
+    x: restoreLabelX,
+    y: restoreLabelY,
+    size: restoreLabelSize,
+    font: helveticaBold,
+    color: rgb(0.2, 0.2, 0.2),
+  });
+
+  back.drawText('Scan to recover your keys', {
+    x: restoreLabelX,
+    y: restoreLabelY - 13,
+    size: 8,
+    font: helvetica,
+    color: rgb(0.4, 0.4, 0.4),
+  });
+
+  back.drawText('from backup.', {
+    x: restoreLabelX,
+    y: restoreLabelY - 23,
+    size: 8,
+    font: helvetica,
+    color: rgb(0.4, 0.4, 0.4),
+  });
 
   return doc.save();
 }
