@@ -64,6 +64,11 @@ label{display:block;font-size:.85rem;color:var(--tm);margin-bottom:4px}
 .avail.err{color:var(--er)}
 .avail.checking{color:var(--tm)}
 
+/* Username suggestions */
+.suggestions{margin-bottom:12px}
+.sug-chip{display:inline-block;width:auto;padding:6px 14px;margin:0 6px 6px 0;font-size:.85rem;background:var(--sf);border:1px solid var(--bd);border-radius:20px;cursor:pointer;color:var(--tx)}
+.sug-chip:hover{border-color:var(--ok);background:rgba(78,204,163,.12)}
+
 /* Toggle link */
 .toggle-link{color:var(--tm);font-size:.85rem;cursor:pointer;text-decoration:underline;background:none;border:none;width:auto;padding:0;margin-bottom:12px}
 .toggle-link:hover{color:var(--tx)}

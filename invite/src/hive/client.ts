@@ -108,4 +108,15 @@ export class HiveClient {
   async getAccounts(accounts: string[]): Promise<HiveAccount[]> {
     return this.call<HiveAccount[]>('condenser_api.get_accounts', [accounts]);
   }
+
+  /**
+   * Batch-check which usernames from a list are available.
+   * Returns only the names that do NOT exist on-chain.
+   */
+  async getAvailableUsernames(candidates: string[]): Promise<string[]> {
+    if (candidates.length === 0) return [];
+    const existing = await this.getAccounts(candidates);
+    const taken = new Set(existing.map((a) => a.name));
+    return candidates.filter((c) => !taken.has(c));
+  }
 }

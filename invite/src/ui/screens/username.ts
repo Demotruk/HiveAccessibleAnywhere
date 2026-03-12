@@ -5,7 +5,7 @@
 
 import type { ScreenFn } from '../../types';
 import { t } from '../locale';
-import { isValidUsername } from '../../hive/username';
+import { isValidUsername, generateSuggestions } from '../../hive/username';
 import { HiveClient } from '../../hive/client';
 
 const PUBLIC_NODES = [
@@ -23,6 +23,7 @@ export const UsernameScreen: ScreenFn = (container, state, advance) => {
            autocomplete="off" autocapitalize="none" spellcheck="false"
            maxlength="16">
     <p class="avail hidden" id="avail"></p>
+    <div class="suggestions hidden" id="suggestions"></div>
     <button id="submit" disabled>${t.username_continue}</button>
     <p class="err hidden" id="err"></p>
   </div>`;
@@ -31,6 +32,7 @@ export const UsernameScreen: ScreenFn = (container, state, advance) => {
   const availEl = container.querySelector('#avail') as HTMLElement;
   const submitBtn = container.querySelector('#submit') as HTMLButtonElement;
   const errEl = container.querySelector('#err') as HTMLElement;
+  const suggestionsEl = container.querySelector('#suggestions') as HTMLElement;
 
   const endpoints = [...state.payload!.endpoints, ...PUBLIC_NODES];
   const client = new HiveClient(endpoints);
@@ -47,6 +49,44 @@ export const UsernameScreen: ScreenFn = (container, state, advance) => {
 
   const hideAvail = () => {
     availEl.classList.add('hidden');
+    hideSuggestions();
+  };
+
+  const hideSuggestions = () => {
+    suggestionsEl.classList.add('hidden');
+    suggestionsEl.innerHTML = '';
+  };
+
+  const showSuggestions = async (name: string) => {
+    const candidates = generateSuggestions(name);
+    if (candidates.length === 0) { hideSuggestions(); return; }
+
+    try {
+      const available = await client.getAvailableUsernames(candidates);
+      // Stale check — user may have typed something else
+      if (name !== usernameInput.value.trim().toLowerCase()) return;
+      if (available.length === 0) { hideSuggestions(); return; }
+
+      const chips = available.slice(0, 4);
+      suggestionsEl.innerHTML =
+        `<p class="sm mt mb">${t.username_suggestions}</p>` +
+        chips.map((c) => `<button type="button" class="sug-chip">${c}</button>`).join('');
+      suggestionsEl.classList.remove('hidden');
+
+      suggestionsEl.querySelectorAll('.sug-chip').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const chosen = btn.textContent!;
+          usernameInput.value = chosen;
+          isAvailable = true;
+          lastChecked = chosen;
+          showAvail(t.username_available, 'ok');
+          hideSuggestions();
+          submitBtn.disabled = false;
+        });
+      });
+    } catch {
+      hideSuggestions();
+    }
   };
 
   const checkAvailability = async (name: string) => {
@@ -66,6 +106,7 @@ export const UsernameScreen: ScreenFn = (container, state, advance) => {
         isAvailable = false;
         showAvail(t.username_taken, 'err');
         submitBtn.disabled = true;
+        showSuggestions(name);
       }
     } catch {
       isAvailable = false;
@@ -80,6 +121,7 @@ export const UsernameScreen: ScreenFn = (container, state, advance) => {
     submitBtn.disabled = true;
     isAvailable = false;
     errEl.classList.add('hidden');
+    hideSuggestions();
 
     if (debounceTimer) clearTimeout(debounceTimer);
 

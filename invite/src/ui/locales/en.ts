@@ -37,6 +37,7 @@ export const t = {
   username_checking: 'Checking...',
   username_available: 'Available!',
   username_taken: 'Already taken.',
+  username_suggestions: 'Try one of these:',
   username_continue: 'Continue',
 
   // Key Backup

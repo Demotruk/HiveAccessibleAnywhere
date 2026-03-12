@@ -23,3 +23,41 @@ export function isValidUsername(name: string): string | null {
 
   return null;
 }
+
+/**
+ * Generate alternative username candidates when a desired name is taken.
+ * All returned candidates pass isValidUsername().
+ */
+export function generateSuggestions(base: string): string[] {
+  const candidates: string[] = [];
+
+  // Append single digits
+  for (const n of [1, 2, 3]) {
+    candidates.push(`${base}${n}`);
+  }
+
+  // Append double digits
+  candidates.push(`${base}12`);
+  candidates.push(`${base}01`);
+
+  // Hyphen + digit
+  candidates.push(`${base}-1`);
+
+  // Suffix
+  candidates.push(`${base}-hive`);
+
+  // If base is long, try truncated variants
+  if (base.length > 12) {
+    const short = base.slice(0, 12);
+    candidates.push(`${short}1`);
+    candidates.push(`${short}-1`);
+  }
+
+  // Deduplicate and filter to valid names only
+  const seen = new Set<string>();
+  return candidates.filter((c) => {
+    if (seen.has(c)) return false;
+    seen.add(c);
+    return isValidUsername(c) === null;
+  });
+}
