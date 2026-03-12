@@ -38,7 +38,7 @@ function fromShortKeys(obj: Record<string, unknown>): GiftCardPayload {
   for (const [key, value] of Object.entries(obj)) {
     result[SHORT_TO_LONG[key] || key] = value;
   }
-  return result as GiftCardPayload;
+  return result as unknown as GiftCardPayload;
 }
 
 /**
@@ -59,7 +59,8 @@ function base64urlDecode(s: string): Uint8Array {
 async function inflate(data: Uint8Array): Promise<Uint8Array> {
   const ds = new DecompressionStream('deflate-raw');
   const writer = ds.writable.getWriter();
-  writer.write(data);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  writer.write(data as any);
   writer.close();
 
   const reader = ds.readable.getReader();
