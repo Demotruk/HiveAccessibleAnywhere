@@ -11,6 +11,7 @@ import { resolve } from 'node:path';
 const ROOT = resolve(import.meta.dirname, '..');
 const WALLET_DIST = resolve(ROOT, 'wallet', 'dist');
 const INVITE_DIST = resolve(ROOT, 'invite', 'dist');
+const RESTORE_DIST = resolve(ROOT, 'restore', 'dist');
 const DOCS = resolve(ROOT, 'docs');
 
 const LOCALES = ['en', 'zh', 'ar', 'fa', 'ru', 'tr', 'vi'];
@@ -36,6 +37,17 @@ if (existsSync(inviteSrc)) {
   console.log('Copied: invite/index.html → docs/invite/');
 } else {
   console.warn('Warning: invite/dist/index.html not found — run "npm run build:invite" first');
+}
+
+// Copy restore app (single-file HTML)
+const restoreSrc = resolve(RESTORE_DIST, 'index.html');
+if (existsSync(restoreSrc)) {
+  const restoreDir = resolve(DOCS, 'restore');
+  mkdirSync(restoreDir, { recursive: true });
+  copyFileSync(restoreSrc, resolve(restoreDir, 'index.html'));
+  console.log('Copied: restore/index.html → docs/restore/');
+} else {
+  console.warn('Warning: restore/dist/index.html not found — run "npm run build:restore" first');
 }
 
 console.log('\nDone. Next steps:');

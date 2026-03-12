@@ -637,3 +637,30 @@ To support this, the gift card service may also need to claim accounts using the
 - Accept additional arguments in the transfer memo beyond the email address, such as:
   - A chosen number of cards (e.g. bulk purchase)
   - A specific card design or template
+
+### Backup Restore App
+
+A lightweight tool for restoring account keys from the encrypted QR backup generated during the invite app onboarding flow. The invite app's key backup screen encrypts the master password with the gift card PIN and encodes it as a QR code; the restore app reverses this process.
+
+**Core functionality:**
+- Scan or upload the encrypted backup QR code (from a screenshot or printed card)
+- Prompt the user for their 6-character PIN
+- Decrypt the backup and display the master password and derived keys
+- Provide copy-to-clipboard and key import options
+
+**Architecture:**
+- Can be a standalone single-page app, separate from both the wallet and the invite app
+- Should work fully offline after initial load (all crypto bundled inline)
+- Hosted on GitHub Pages alongside the invite app
+
+**Future concern — self-bootstrapping:** The restore app could be made self-bootstrapping using the same on-chain distribution mechanism as the Propolis wallet (section 1.2.1), ensuring it remains accessible even if GitHub Pages is blocked in a target region.
+
+### Backup App Link on Invite Card
+
+The physical/digital invite card design should include a small QR code linking to the backup restore app, printed on the same side as the PIN. This ensures the user always has a way to find the restore tool even if they lose the original invite app URL.
+
+**Design considerations:**
+- The QR code should be small and secondary to the main invite QR — it must not cause confusion about which QR to scan first
+- Label clearly (e.g. "Backup Restore" or "Key Recovery Tool") to distinguish from the main invite QR
+- The URL should be stable and long-lived (e.g. a GitHub Pages URL or a short redirect under a controlled domain)
+- Consider a brief text hint alongside the QR (e.g. "Lost your keys? Scan this QR with your PIN to recover them.")
