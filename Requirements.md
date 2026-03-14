@@ -48,7 +48,7 @@ Enable users to convert local currency to HBD and withdraw HBD back to local cur
 
 Phase 1 is split into two sub-phases. Phase 1a is the minimum viable release — ship this first. Phase 1b follows shortly after.
 
-**Phase 1a — Minimum viable release:**
+**Phase 1a — Minimum viable release:** ✅ **All items shipped and published on-chain (EN locale fully live; additional locales in progress — see On-Chain Publishing Status in MEMORY.md).**
 - Self-bootstrapping from a Hive post (sections 1.2, 1.2.1)
 - Bootstrap security: author filtering, hash manifest verification (section 1.2.1)
 - Local caching after first bootstrap (section 1.2.1)
@@ -440,11 +440,11 @@ Key pain points identified:
 
 **Additional UX improvements (standard invite flow):**
 
-- **Step progress indicator:** Users have no sense of where they are in the flow or how many steps remain. A simple step counter or progress bar (e.g. "Step 2 of 5") at the top of each screen would set expectations and reduce abandonment. The flow has 5 user-facing stages: PIN → Verifying → Username → Backup → Claiming/Success.
+- ~~**Step progress indicator:** Users have no sense of where they are in the flow or how many steps remain. A simple step counter or progress bar (e.g. "Step 2 of 5") at the top of each screen would set expectations and reduce abandonment. The flow has 5 user-facing stages: PIN → Verifying → Username → Backup → Claiming/Success.~~ ✅ **Done** — step progress bar implemented.
 - **Auto-copy posting key on HiveSigner redirect:** When the user clicks the HiveSigner login button on the success screen, auto-copy the posting key to clipboard before opening the tab. This eliminates the separate "Copy" step — the user only needs to paste.
 - **Estimated wait time on claiming/verifying screens:** Replace the bare spinner with an explicit time estimate (e.g. "This usually takes 10–20 seconds"). Users who see only a spinner with no time context assume the app is broken and abandon the flow.
 - **Timeout with actionable message:** Neither the verifying nor claiming screen has visible timeout handling. After ~30 seconds, show an actionable message: "This is taking longer than usual — your gift card is still valid. You can retry or try again later." rather than spinning indefinitely.
-- **Service warm-up at PIN entry:** The `/health` warm-up ping currently fires on the verifying screen. Moving it to the PIN entry screen gives Fly.io 2–3 additional screens of warm-up time (PIN entry + verifying + username selection) before the `/claim` request, further masking cold-start latency.
+- ~~**Service warm-up at PIN entry:** The `/health` warm-up ping currently fires on the verifying screen. Moving it to the PIN entry screen gives Fly.io 2–3 additional screens of warm-up time (PIN entry + verifying + username selection) before the `/claim` request, further masking cold-start latency.~~ ✅ **Done** — warm-up ping moved to PIN entry screen.
 - **Confirmation summary before claiming:** Show a brief confirmation ("You're about to create account **@username** on the Hive blockchain") before the irreversible claim step. Catches typos and gives the user a moment of intentionality before the point of no return.
 - **Username suggestions on collision:** When a chosen username is taken, suggest available variations (e.g. appending digits or hyphens). First-time users unfamiliar with Hive naming conventions may get stuck in trial-and-error.
 - **Back navigation:** There is currently no way to return to a previous screen. At minimum, the username and backup screens should allow going back. If a user picks a username and has second thoughts during backup, they are stuck.
