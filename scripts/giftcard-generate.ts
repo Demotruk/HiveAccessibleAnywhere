@@ -333,6 +333,7 @@ async function main() {
     qrPng: string;
     qrSvg: string;
     invitePdf: string;
+    inviteUrl: string;
   }> = [];
 
   for (let i = 0; i < cards.length; i++) {
@@ -395,6 +396,7 @@ async function main() {
       qrPng: `cards/${prefix}-qr.png`,
       qrSvg: `cards/${prefix}-qr.svg`,
       invitePdf: `cards/${prefix}-invite.pdf`,
+      inviteUrl: qrUrl,
     });
 
     // Debug: log QR details for each card

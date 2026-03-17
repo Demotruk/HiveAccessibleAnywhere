@@ -1,0 +1,28 @@
+# fly.toml app configuration file generated for haa-telegram-prod on 2026-03-16T22:12:02Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'haa-telegram-prod'
+primary_region = 'lhr'
+
+[build]
+
+[env]
+  DB_PATH = '/data/bot.db'
+  GIFTCARD_OUTPUT_DIR = '/app/giftcard-output'
+  GIFT_PRICE_HBD = '0.500'
+  PAYMENT_TIMEOUT_MINUTES = '30'
+
+[processes]
+  app = 'node --import tsx src/index.ts'
+
+[[mounts]]
+  source = 'telegram_bot_data'
+  destination = '/data'
+
+[[vm]]
+  cpu_kind = 'shared'
+  cpus = 1
+  memory_mb = 256
+  auto_stop_machines = 'off'

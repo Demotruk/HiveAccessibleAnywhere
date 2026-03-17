@@ -664,3 +664,52 @@ The physical/digital invite card design should include a small QR code linking t
 - Label clearly (e.g. "Backup Restore" or "Key Recovery Tool") to distinguish from the main invite QR
 - The URL should be stable and long-lived (e.g. a GitHub Pages URL or a short redirect under a controlled domain)
 - Consider a brief text hint alongside the QR (e.g. "Lost your keys? Scan this QR with your PIN to recover them.")
+
+### Telegram Gift Card Bot
+
+A Telegram bot that distributes Propolis gift cards within group chats. The bot operator (issuer) supplies gift cards to the bot, and group members can trigger delivery of cards to other users — either free (for the operator) or paid (for everyone else).
+
+**Core functionality:**
+
+- The bot operates within Telegram group chats
+- The operator can load gift cards into the bot (format TBD — likely the same PDF gift cards produced by the gift card service)
+- The operator can send a gift card to any user in the group via a command (e.g. `/gift @username`), free of charge
+- Other group members can also trigger sending a gift card to another user, but must pay first
+- When a gift card is sent, the bot delivers it to the recipient as a PDF via Telegram DM (or in-group, depending on privacy preferences)
+
+**Payment for non-operator users:**
+
+When a non-operator user triggers the bot, it must collect payment before releasing a gift card. Two payment methods should be supported:
+
+1. **HBD (Hive Backed Dollars)** — direct transfer to the operator's Hive account. The bot monitors for incoming transfers with a memo that matches the pending transaction, and releases the gift card once confirmed on-chain.
+
+2. **Bitcoin via v4v.app** — for users who hold Bitcoin but not HBD. The bot generates a v4v.app payment link/invoice that converts the BTC payment to HBD and delivers it to the operator's Hive account. The bot monitors for the resulting HBD transfer to confirm payment.
+
+**Pricing:**
+- The operator sets the gift card price (in HBD) via bot configuration
+- The BTC equivalent is calculated at the time of the payment request using the current exchange rate (via v4v.app)
+
+**Operator commands:**
+- `/gift @username` — send a gift card to a user (free, operator only)
+- `/load` — load gift cards into the bot (operator only, mechanism TBD — e.g. upload PDFs, or provide gift card codes)
+- `/stock` — check how many gift cards remain
+- `/setprice <amount>` — set the HBD price per gift card
+
+**User commands:**
+- `/buygift @username` — purchase and send a gift card to another user (triggers payment flow)
+- `/buygift` — purchase a gift card for yourself
+
+**Payment flow (non-operator):**
+1. User issues `/buygift @recipient`
+2. Bot responds with payment options: (a) send X HBD to `@operator-account` with memo `<unique-id>`, or (b) pay via Bitcoin using a v4v.app link
+3. Bot watches for payment confirmation
+4. Once confirmed, bot delivers the gift card PDF to the recipient via Telegram
+5. If payment is not received within a timeout period, the transaction is cancelled
+
+**Technical considerations:**
+- The bot needs a Telegram Bot API token (created via @BotFather)
+- For HBD payment monitoring, the bot watches the operator's Hive account transfer history
+- For v4v.app integration, the bot needs to generate payment links and monitor for completion callbacks or poll for status
+- Gift card inventory management (track which cards are available, assigned, or delivered)
+- Rate limiting and anti-abuse measures for group contexts
+- The bot should work in multiple groups simultaneously, all sharing the same operator and inventory
