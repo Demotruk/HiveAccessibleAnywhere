@@ -101,6 +101,18 @@ export function initDatabase(dbPath: string): Database.Database {
       added_at          TEXT NOT NULL DEFAULT (datetime('now')),
       note              TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS shared_links (
+      code              TEXT PRIMARY KEY,
+      card_id           INTEGER NOT NULL REFERENCES cards(id),
+      created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+      created_by        TEXT NOT NULL,
+      claimed_by        TEXT,
+      claimed_at        TEXT,
+      UNIQUE(card_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_shared_links_card ON shared_links(card_id);
   `);
 
   return db;
@@ -276,4 +288,48 @@ export function isTrustedUser(db: Database.Database, telegramUserId: string): bo
 
 export function getTrustedUsers(db: Database.Database): Array<{ telegram_user_id: string; added_at: string; note: string | null }> {
   return db.prepare('SELECT telegram_user_id, added_at, note FROM trusted_users ORDER BY added_at').all() as any[];
+}
+
+// -- Shared link operations --
+
+export interface SharedLinkRow {
+  code: string;
+  card_id: number;
+  created_at: string;
+  created_by: string;
+  claimed_by: string | null;
+  claimed_at: string | null;
+}
+
+export function createSharedLink(
+  db: Database.Database,
+  code: string,
+  cardId: number,
+  createdBy: string,
+): void {
+  db.prepare(
+    'INSERT INTO shared_links (code, card_id, created_by) VALUES (?, ?, ?)'
+  ).run(code, cardId, createdBy);
+}
+
+export function getSharedLink(db: Database.Database, code: string): (SharedLinkRow & { pdf_path: string; invite_url: string | null; status: string }) | null {
+  return (db.prepare(`
+    SELECT sl.*, c.pdf_path, c.invite_url, c.status
+    FROM shared_links sl
+    JOIN cards c ON sl.card_id = c.id
+    WHERE sl.code = ?
+  `).get(code) as (SharedLinkRow & { pdf_path: string; invite_url: string | null; status: string })) ?? null;
+}
+
+export function claimSharedLink(db: Database.Database, code: string, claimedBy: string): void {
+  db.prepare(
+    "UPDATE shared_links SET claimed_by = ?, claimed_at = datetime('now') WHERE code = ?"
+  ).run(claimedBy, code);
+}
+
+export function getUnclaimedLinkCount(db: Database.Database): number {
+  const row = db.prepare(
+    'SELECT COUNT(*) as count FROM shared_links WHERE claimed_by IS NULL'
+  ).get() as { count: number };
+  return row.count;
 }

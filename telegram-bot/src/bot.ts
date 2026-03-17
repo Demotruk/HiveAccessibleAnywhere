@@ -12,6 +12,8 @@ import { buygiftCommand } from './commands/buygift.js';
 import { setpriceCommand } from './commands/setprice.js';
 import { clearCommand } from './commands/clear.js';
 import { trustCommand, untrustCommand, trustedCommand } from './commands/trust.js';
+import { shareCommand } from './commands/share.js';
+import { handleDeepLink } from './deep-link.js';
 
 type CmdHandler = (ctx: CommandContext<Context>) => Promise<void>;
 
@@ -39,30 +41,44 @@ export function createBot(config: BotConfig, db: Database.Database): Bot {
   bot.command('trust', operatorOnly(config.operatorTelegramId, trustCommand(db)));
   bot.command('untrust', operatorOnly(config.operatorTelegramId, untrustCommand(db)));
   bot.command('trusted', operatorOnly(config.operatorTelegramId, trustedCommand(db)));
+  bot.command('share', operatorOnly(config.operatorTelegramId, shareCommand(db)));
 
   // Public commands (gift handles operator vs non-operator internally)
   bot.command('gift', giftCommand(db, config));
   bot.command('buygift', buygiftCommand(db, config));
 
-  // Help command
+  // Start command — handles deep links (gc_CODE) or shows help
   bot.command('start', async (ctx) => {
-    const isOperator = ctx.from?.id === config.operatorTelegramId;
-    let text = 'Hive Gift Card Bot\n\n';
-    text += 'Available commands:\n';
-    text += '/gift [@user] — Get a gift card (free from operator, HBD payment for others)\n';
-    text += '/buygift [@user] — Purchase a gift card (HBD payment required)\n';
+    if (!ctx.from) return;
 
-    if (isOperator) {
-      text += '\nOperator commands:\n';
-      text += '/load <batch-id> — Load cards from a batch\n';
-      text += '/stock — Check inventory\n';
-      text += '/setprice <amount> — Set HBD price\n';
-      text += '/trust @user — Allow a user to gift for free\n';
-      text += '/untrust @user — Revoke free gifting\n';
-      text += '/trusted — List trusted users\n';
+    // Check for deep link payload: /start gc_SHORTCODE
+    const text = ctx.message?.text || '';
+    const parts = text.split(/\s+/);
+    const payload = parts[1];
+
+    if (payload && payload.startsWith('gc_')) {
+      await handleDeepLink(ctx, db, payload.slice(3));
+      return;
     }
 
-    await ctx.reply(text);
+    const isOperator = ctx.from.id === config.operatorTelegramId;
+    let helpText = 'Hive Gift Card Bot\n\n';
+    helpText += 'Available commands:\n';
+    helpText += '/gift [@user] — Get a gift card (free from operator, HBD payment for others)\n';
+    helpText += '/buygift [@user] — Purchase a gift card (HBD payment required)\n';
+
+    if (isOperator) {
+      helpText += '\nOperator commands:\n';
+      helpText += '/load <batch-id> — Load cards from a batch\n';
+      helpText += '/stock — Check inventory\n';
+      helpText += '/setprice <amount> — Set HBD price\n';
+      helpText += '/share [count] — Generate shareable gift card links\n';
+      helpText += '/trust @user — Allow a user to gift for free\n';
+      helpText += '/untrust @user — Revoke free gifting\n';
+      helpText += '/trusted — List trusted users\n';
+    }
+
+    await ctx.reply(helpText);
   });
 
   bot.command('help', async (ctx) => {
@@ -77,6 +93,7 @@ export function createBot(config: BotConfig, db: Database.Database): Bot {
       text += '/load <batch-id> — Load cards from giftcard output directory\n';
       text += '/stock — View available/reserved/delivered counts\n';
       text += '/setprice <amount> — Set the HBD price per card (e.g. /setprice 5.000)\n';
+      text += '/share [count] — Generate shareable gift card links\n';
     }
 
     await ctx.reply(text);
