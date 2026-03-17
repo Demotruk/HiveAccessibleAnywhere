@@ -1,8 +1,12 @@
 /**
- * /buygift [@username] — Purchase a gift card (any user, requires HBD payment).
+ * /buygift [@username] — Purchase a gift card (any user, requires payment).
  *
- * If @username is provided, the card is sent to that user after payment.
- * If omitted, the card is sent to the buyer.
+ * Offers two payment methods:
+ *   (a) Send HBD directly to the operator's Hive account with a memo
+ *   (b) Pay via Bitcoin Lightning using a v4v.app invoice
+ *
+ * In both cases the operator receives HBD on Hive with the payment memo,
+ * so the existing transfer monitor confirms and delivers the card.
  */
 
 import { randomBytes } from 'node:crypto';
@@ -16,6 +20,7 @@ import {
   getConfigValue,
   getCardCounts,
 } from '../db.js';
+import { createV4vInvoice } from '../v4v.js';
 
 function generatePaymentId(): string {
   return randomBytes(4).toString('hex');
@@ -86,11 +91,37 @@ export function buygiftCommand(db: Database.Database, config: BotConfig) {
     const recipientLabel = recipientUsername ? `@${recipientUsername}` : 'yourself';
     const memo = `pay-${paymentId}`;
 
+    // Generate v4v.app Lightning invoice
+    let lightningSection = '';
+    try {
+      const invoice = await createV4vInvoice({
+        hiveAccount: config.hiveAccount,
+        amountHbd: price,
+        memo,
+        expirySeconds: config.paymentTimeoutMinutes * 60,
+      });
+
+      const satsLabel = invoice.amountSats > 0
+        ? ` (~${invoice.amountSats.toLocaleString()} sats)`
+        : '';
+
+      lightningSection =
+        `\n\nOption B — Pay with Bitcoin Lightning${satsLabel}:\n` +
+        `${invoice.paymentRequest}\n\n` +
+        `Copy the invoice above into any Lightning wallet to pay.`;
+    } catch (err) {
+      console.error('v4v.app invoice generation failed:', err);
+      lightningSection =
+        '\n\n(Bitcoin Lightning payment is temporarily unavailable.)';
+    }
+
     await ctx.reply(
-      `To purchase a gift card for ${recipientLabel}, send a payment:\n\n` +
+      `To purchase a gift card for ${recipientLabel}:\n\n` +
+      `Option A — Pay with HBD:\n` +
       `Send ${price} HBD to @${config.hiveAccount} on Hive\n` +
-      `Memo: ${memo}\n\n` +
-      `The gift card will be sent automatically once payment is confirmed on-chain.\n` +
+      `Memo: ${memo}` +
+      lightningSection +
+      `\n\nThe gift card will be sent automatically once payment is confirmed.\n` +
       `This offer expires in ${config.paymentTimeoutMinutes} minutes.`,
     );
   };

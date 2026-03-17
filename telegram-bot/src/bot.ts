@@ -65,7 +65,7 @@ export function createBot(config: BotConfig, db: Database.Database): Bot {
     let helpText = 'Hive Gift Card Bot\n\n';
     helpText += 'Available commands:\n';
     helpText += '/gift [@user] — Get a gift card (free from operator, HBD payment for others)\n';
-    helpText += '/buygift [@user] — Purchase a gift card (HBD payment required)\n';
+    helpText += '/buygift [@user] — Purchase a gift card (HBD or Bitcoin Lightning)\n';
 
     if (isOperator) {
       helpText += '\nOperator commands:\n';
@@ -86,7 +86,7 @@ export function createBot(config: BotConfig, db: Database.Database): Bot {
     let text = 'Hive Gift Card Bot\n\n';
     text += '/gift [@user] — Get a gift card. Free for the operator, requires HBD payment for others.\n';
     text += '/buygift [@user] — Purchase a gift card. ' +
-      'You will need to send HBD to the operator\'s Hive account with a specific memo.\n';
+      'Pay with HBD on Hive or Bitcoin via Lightning.\n';
 
     if (isOperator) {
       text += '\nOperator commands:\n';
