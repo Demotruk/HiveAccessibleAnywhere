@@ -713,3 +713,85 @@ When a non-operator user triggers the bot, it must collect payment before releas
 - Gift card inventory management (track which cards are available, assigned, or delivered)
 - Rate limiting and anti-abuse measures for group contexts
 - The bot should work in multiple groups simultaneously, all sharing the same operator and inventory
+
+### Discord Gift Card Bot
+
+A Discord bot that distributes Propolis gift cards within Discord servers. It serves the same purpose as the Telegram bot — operator-supplied gift cards distributed free or via HBD/BTC payment — but adapted to Discord's interaction model.
+
+**Key differences from Telegram:**
+
+- Discord bots use **slash commands** registered with the Discord API, not plain-text `/command` messages. Commands must be registered on startup and support typed parameters, autocomplete, and descriptions visible in the command picker.
+- Discord has no direct equivalent of Telegram's deep links (`?start=gc_CODE`). Shareable links should instead use **invite-style URLs** that direct users to the bot's server or a channel, combined with a claim command (e.g. `/claim <code>`).
+- Discord DMs require the bot and user to share a server, and users can disable DMs from server members. The bot must handle failed DMs gracefully — e.g. by sending an **ephemeral message** in the channel instructing the user to enable DMs or to use `/claim` in a DM channel with the bot.
+- Discord supports **ephemeral responses** (visible only to the command invoker). These should be used for payment instructions, error messages, and any sensitive output to avoid cluttering the channel.
+- Discord supports **buttons and interactive components** on messages. The payment flow should use buttons (e.g. "Pay with HBD", "Pay with Bitcoin") rather than requiring a separate command.
+- Discord bots authenticate via a **Bot Token** from the Discord Developer Portal, and must be invited to servers via an OAuth2 URL with appropriate permission scopes.
+
+**Core functionality:**
+
+- The bot operates within Discord servers (guilds)
+- The operator can load gift cards into the bot via a command (e.g. `/load <batch-id>`)
+- The operator can send a gift card to any user via `/gift @user`, free of charge
+- Other server members can purchase and send gift cards via `/buygift [@user]`
+- Gift cards are delivered as PNG images via Discord DM (converted from PDF, same as Telegram bot)
+- The bot should work across multiple servers simultaneously, sharing the same operator and inventory
+
+**Payment for non-operator users:**
+
+Same two payment methods as the Telegram bot:
+
+1. **HBD** — direct transfer to the operator's Hive account with a memo matching the pending transaction
+2. **Bitcoin via v4v.app** — generates a payment link that converts BTC to HBD
+
+**Interaction flow (non-operator):**
+
+1. User issues `/buygift @recipient` in a server channel
+2. Bot responds with an **ephemeral message** containing payment options as interactive buttons
+3. User clicks a payment button; bot responds (ephemeral) with payment details (HBD address + memo, or v4v.app link)
+4. Bot monitors for payment confirmation on-chain
+5. Once confirmed, bot delivers the gift card images to the recipient via DM and posts a non-ephemeral confirmation in the originating channel
+6. If payment is not received within the timeout period, the reservation expires and the card is released
+
+**Operator commands:**
+
+- `/gift @user` — send a gift card (free, operator only)
+- `/load <batch-id>` — load gift cards from a batch directory (operator only)
+- `/stock` — check inventory counts (ephemeral response)
+- `/setprice <amount>` — set the HBD price per gift card
+- `/share [count]` — generate claimable codes; bot responds (ephemeral) with codes and instructions
+- `/clear <batch-id>` — remove available cards from a batch
+- `/trust @user` — allow a user to gift for free
+- `/untrust @user` — revoke free gifting privilege
+- `/trusted` — list trusted users
+
+**User commands:**
+
+- `/buygift [@user]` — purchase and send a gift card (triggers payment flow); omit recipient to buy for yourself
+- `/claim <code>` — claim a gift card from a shared code
+
+**Shareable distribution:**
+
+Since Discord lacks Telegram-style deep links, shareable codes work differently:
+
+- Operator uses `/share [count]` to generate short codes
+- Codes can be distributed anywhere (other platforms, printed, etc.)
+- Recipients use `/claim <code>` in any server the bot is in, or in a DM with the bot
+- Each code is single-use; claimed codes cannot be reused
+
+**Permissions and security:**
+
+- Operator commands are restricted by Discord user ID (configured at deployment)
+- The bot should request only the minimum required Discord permissions: Send Messages, Embed Links, Attach Files, Use Slash Commands
+- Sensitive information (payment details, card images) must only be sent via DM or ephemeral messages — never in public channels
+- The bot should use Discord's built-in **role-based permissions** or command permission overrides to restrict operator commands at the Discord level, in addition to the user ID check
+
+**Technical considerations:**
+
+- Built on **discord.js** (the standard Discord bot library for Node.js)
+- Slash commands must be registered via the Discord API on startup (or via a deploy-commands script)
+- The bot needs a Discord Bot Token and Application ID from the Discord Developer Portal
+- Shares the same SQLite database, Hive transfer monitor, and PDF-to-image pipeline as the Telegram bot
+- Card delivery reuses the same `pdf-to-images.ts` conversion; Discord supports sending PNG attachments in DMs
+- The bot should handle Discord's **rate limits** gracefully (Discord enforces per-route rate limits on API calls)
+- Gateway intents required: Guilds, GuildMessages (and potentially GuildMembers if resolving users by mention)
+- Deployment: can run alongside the Telegram bot in the same process or as a separate service; if separate, both should share the same database and card inventory
