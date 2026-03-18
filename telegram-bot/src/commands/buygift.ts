@@ -1,5 +1,5 @@
 /**
- * /buygift [@username] — Purchase a gift card (any user, requires payment).
+ * /buygift — Purchase a gift card (any user, requires payment).
  *
  * Offers two payment methods:
  *   (a) Send HBD directly to the operator's Hive account with a memo
@@ -44,23 +44,6 @@ export function buygiftCommand(db: Database.Database, config: BotConfig) {
       return;
     }
 
-    // Parse recipient
-    const entities = ctx.message?.entities || [];
-    const text = ctx.message?.text || '';
-    const mention = entities.find(e => e.type === 'mention' || e.type === 'text_mention');
-
-    let recipientUserId: string | null = null;
-    let recipientUsername: string | null = null;
-
-    if (mention) {
-      if (mention.type === 'text_mention' && mention.user) {
-        recipientUserId = String(mention.user.id);
-        recipientUsername = mention.user.username || mention.user.first_name;
-      } else {
-        recipientUsername = text.slice(mention.offset + 1, mention.offset + mention.length); // strip @
-      }
-    }
-
     // Get price (from DB config or env default)
     const priceOverride = getConfigValue(db, 'gift_price_hbd');
     const price = formatHbd(priceOverride || config.giftPriceHbd);
@@ -81,14 +64,13 @@ export function buygiftCommand(db: Database.Database, config: BotConfig) {
       id: paymentId,
       telegramUserId: String(ctx.from.id),
       telegramChatId: String(ctx.chat.id),
-      recipientUserId,
-      recipientUsername,
+      recipientUserId: null,
+      recipientUsername: null,
       amountHbd: price,
       expiresAt,
       cardId: card.id,
     });
 
-    const recipientLabel = recipientUsername ? `@${recipientUsername}` : 'yourself';
     const memo = `pay-${paymentId}`;
 
     // Generate v4v.app Lightning invoice
@@ -116,7 +98,7 @@ export function buygiftCommand(db: Database.Database, config: BotConfig) {
     }
 
     await ctx.reply(
-      `To purchase a gift card for ${recipientLabel}:\n\n` +
+      `To purchase a gift card:\n\n` +
       `Option A — Pay with HBD:\n` +
       `Send ${price} HBD to @${config.hiveAccount} on Hive\n` +
       `Memo: ${memo}` +

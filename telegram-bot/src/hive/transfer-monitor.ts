@@ -5,19 +5,24 @@
  * with memos matching pending payments (format: "pay-<id>").
  */
 
+import { randomBytes } from 'node:crypto';
 import { config as hiveTxConfig } from 'hive-tx';
 import type { Bot } from 'grammy';
 import type Database from 'better-sqlite3';
-import { sendCardImages } from '../send-card.js';
 import {
   getPendingPaymentByMemo,
   confirmPayment,
-  markCardDelivered,
+  createSharedLink,
+  reserveCard,
   getExpiredPayments,
   expirePayment,
   releaseCard,
 } from '../db.js';
 import type { BotConfig } from '../config.js';
+
+function generateShortCode(): string {
+  return randomBytes(6).toString('base64url');
+}
 
 const POLL_INTERVAL_MS = 15_000;
 const EXPIRY_CHECK_INTERVAL_MS = 5 * 60_000;
@@ -50,6 +55,10 @@ async function fetchAccountHistory(
 
 async function pollTransfers(bot: Bot, db: Database.Database, config: BotConfig): Promise<void> {
   try {
+    // Skip polling if no payments are pending
+    const pending = db.prepare("SELECT 1 FROM payments WHERE status = 'pending' LIMIT 1").get();
+    if (!pending) return;
+
     const history = await fetchAccountHistory(config.hiveAccount, -1, 100);
 
     for (const [index, entry] of history) {
@@ -78,46 +87,23 @@ async function pollTransfers(bot: Bot, db: Database.Database, config: BotConfig)
         continue;
       }
 
-      // Confirm payment
+      // Confirm payment and generate a shareable link
       confirmPayment(db, paymentId, entry.trx_id);
-      markCardDelivered(db, payment.card_id!, payment.recipient_user_id || payment.telegram_user_id);
 
-      // Deliver the card via DM only (contains PIN — must stay private)
-      const recipientId = payment.recipient_user_id || payment.telegram_user_id;
-      const recipientLabel = payment.recipient_username
-        ? `@${payment.recipient_username}`
-        : 'the requester';
+      const code = generateShortCode();
+      reserveCard(db, payment.card_id!, `share-${code}`);
+      createSharedLink(db, code, payment.card_id!, payment.telegram_user_id);
 
-      let dmSuccess = false;
+      const botInfo = bot.botInfo;
+      const link = `https://t.me/${botInfo.username}?start=gc_${code}`;
+
+      // Send the shareable link to the buyer
       try {
-        await sendCardImages(
-          bot.api,
-          parseInt(recipientId, 10),
-          payment.pdf_path,
-          {
-            recipientName: payment.recipient_username || undefined,
-            inviteUrl: payment.invite_url,
-          },
+        await bot.api.sendMessage(
+          parseInt(payment.telegram_chat_id, 10),
+          `Payment confirmed! Here's your gift card link:\n\n${link}\n\n` +
+          `Share it with the recipient — they'll receive the card when they tap the link.`,
         );
-        dmSuccess = true;
-      } catch (err) {
-        console.error(`Failed to DM gift card to ${recipientId}:`, err);
-      }
-
-      // Notify in the original group
-      try {
-        if (dmSuccess) {
-          await bot.api.sendMessage(
-            parseInt(payment.telegram_chat_id, 10),
-            `Payment confirmed! Gift card has been sent to ${recipientLabel} via DM.`,
-          );
-        } else {
-          await bot.api.sendMessage(
-            parseInt(payment.telegram_chat_id, 10),
-            `Payment confirmed but I could not DM the gift card to ${recipientLabel}. ` +
-            `They need to send /start to me in a private chat first, then contact the operator to resend.`,
-          );
-        }
       } catch {
         // Non-critical
       }
