@@ -242,6 +242,8 @@ const LONG_TO_SHORT: Record<string, string> = {
   promiseType: 'y',
   promiseParams: 'pp',
   merkleProof: 'm',
+  variant: 'v',
+  locale: 'l',
 };
 
 const SHORT_TO_LONG: Record<string, string> = Object.fromEntries(
@@ -285,6 +287,10 @@ export interface GiftCardPayload {
   promiseParams?: Record<string, unknown>;
   /** Compact-encoded Merkle inclusion proof (see encodeMerkleProof) */
   merkleProof?: string;
+  /** Card variant: 'standard' (HiveSigner redirect) or 'robust' (proxy + bootstrap) */
+  variant: 'standard' | 'robust';
+  /** Wallet locale for robust invites (determines which on-chain wallet to fetch) */
+  locale?: string;
 }
 
 /**

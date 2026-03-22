@@ -14,6 +14,10 @@ export interface GiftCardPayload {
   promiseParams?: Record<string, unknown>;
   /** Compact-encoded Merkle inclusion proof */
   merkleProof?: string;
+  /** Card variant: 'standard' (HiveSigner redirect) or 'robust' (proxy + bootstrap) */
+  variant: 'standard' | 'robust';
+  /** Wallet locale for robust invites (determines which on-chain wallet to fetch) */
+  locale?: string;
 }
 
 /**
@@ -37,6 +41,8 @@ export interface InviteState {
   username: string | null;
   keys: DerivedKeys | null;
   claimResult: { account: string; tx_id: string } | null;
+  /** Whether the user has confirmed saving the bootstrap file (robust only) */
+  bootstrapSaved: boolean;
 }
 
 export type ScreenName =

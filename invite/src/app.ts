@@ -14,8 +14,10 @@ import { UsernameScreen } from './ui/screens/username';
 import { KeyBackupScreen } from './ui/screens/key-backup';
 import { ClaimingScreen } from './ui/screens/claiming';
 import { SuccessScreen } from './ui/screens/success';
+import { SuccessRobustScreen } from './ui/screens/success-robust';
 import { renderProgressBar } from './ui/progress-bar';
 
+// Build-time variant selection — Vite dead-code-eliminates the unused branch
 const SCREENS: Record<ScreenName, ScreenFn> = {
   landing: LandingScreen,
   pin: PinEntryScreen,
@@ -23,7 +25,7 @@ const SCREENS: Record<ScreenName, ScreenFn> = {
   username: UsernameScreen,
   backup: KeyBackupScreen,
   claiming: ClaimingScreen,
-  success: SuccessScreen,
+  success: __VARIANT__ === 'robust' ? SuccessRobustScreen : SuccessScreen,
 };
 
 export class InviteApp {
@@ -40,6 +42,7 @@ export class InviteApp {
       username: null,
       keys: null,
       claimResult: null,
+      bootstrapSaved: false,
     };
 
     this.detectFragment();

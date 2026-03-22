@@ -91,6 +91,41 @@ function parseArgs() {
   return { parsed, flags };
 }
 
+const VALID_LOCALES = ['en', 'zh', 'ar', 'fa', 'ru', 'tr', 'vi'];
+
+// -- Endpoint Liveness --
+
+async function probeEndpoints(endpoints: string[], minLive = 2): Promise<string[]> {
+  const live: string[] = [];
+  for (const ep of endpoints) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch(ep, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'condenser_api.get_config', params: [], id: 1 }),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      if (res.ok) {
+        const data = await res.json();
+        if (!data.error) live.push(ep);
+        else console.warn(`  Endpoint ${ep}: RPC error — skipping`);
+      } else {
+        console.warn(`  Endpoint ${ep}: HTTP ${res.status} — skipping`);
+      }
+    } catch (e) {
+      console.warn(`  Endpoint ${ep}: unreachable — skipping`);
+    }
+  }
+  if (live.length < minLive) {
+    console.error(`Only ${live.length} live endpoint(s) — need at least ${minLive}. Aborting.`);
+    process.exit(1);
+  }
+  return live;
+}
+
 // -- Env Validation --
 
 function requireEnv(name: string): string {
@@ -152,6 +187,8 @@ async function main() {
   if (!count || count < 1) {
     console.error('Usage: npx tsx giftcard-generate.ts --count <n> [options]');
     console.error('  --count <n>           Number of tokens to generate (required)');
+    console.error('  --variant <type>      Card variant: standard or robust (default: standard)');
+    console.error('  --locale <code>       Wallet locale (required for robust): en, zh, ar, fa, ru, tr, vi');
     console.error('  --expiry-days <n>     Days until expiry (default: 365)');
     console.error('  --promise-type <type> Promise type (default: account-creation)');
     console.error('  --promise-params <j>  JSON string with type-specific params');
@@ -177,6 +214,21 @@ async function main() {
       process.exit(1);
     }
   }
+  const variant = (parsed['variant'] || 'standard') as 'standard' | 'robust';
+  if (variant !== 'standard' && variant !== 'robust') {
+    console.error('--variant must be "standard" or "robust"');
+    process.exit(1);
+  }
+  const locale = parsed['locale'] || undefined;
+  if (variant === 'robust' && !locale) {
+    console.error('--locale is required for robust invites (one of: ' + VALID_LOCALES.join(', ') + ')');
+    process.exit(1);
+  }
+  if (locale && !VALID_LOCALES.includes(locale)) {
+    console.error('Invalid --locale. Must be one of: ' + VALID_LOCALES.join(', '));
+    process.exit(1);
+  }
+
   const note = parsed['note'] || null;
   const bootstrapUrl = parsed['bootstrap-url'] || 'https://demotruk.github.io/HiveAccessibleAnywhere';
   const serviceUrl = parsed['service-url'] || '';
@@ -210,8 +262,17 @@ async function main() {
   const expiresAt = new Date(now.getTime() + expiryDays * 24 * 60 * 60 * 1000);
   const expiresIso = expiresAt.toISOString();
 
+  // For robust invites, validate endpoint liveness
+  if (variant === 'robust' && endpoints.length > 0 && !dryRun) {
+    console.log('Probing endpoint liveness...');
+    endpoints = await probeEndpoints(endpoints);
+    console.log(`  ${endpoints.length} live endpoint(s)`);
+    console.log('');
+  }
+
   console.log('=== HAA Gift Card Batch Generator ===');
   console.log(`Provider:     @${providerAccount}`);
+  console.log(`Variant:      ${variant}${locale ? ' (' + locale + ')' : ''}`);
   console.log(`Promise:      ${promiseType}${promiseParams ? ' ' + JSON.stringify(promiseParams) : ''}`);
   console.log(`Count:        ${count}`);
   console.log(`Expiry:       ${expiresIso} (${expiryDays} days)`);
@@ -353,6 +414,8 @@ async function main() {
       promiseType,
       ...(promiseParams && Object.keys(promiseParams).length > 0 ? { promiseParams } : {}),
       merkleProof,
+      variant,
+      ...(locale ? { locale } : {}),
     };
 
     const encryptedBlob = encryptPayload(payload, card.pin);
@@ -456,6 +519,8 @@ async function main() {
   const manifest = {
     batchId,
     provider: providerAccount,
+    variant,
+    locale: locale || null,
     promiseType,
     promiseParams: promiseParams || null,
     count,

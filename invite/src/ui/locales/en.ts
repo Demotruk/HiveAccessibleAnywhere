@@ -89,6 +89,34 @@ export const t = {
   success_hivesigner_note: 'HiveSigner is an open-source login service. Your posting key lets you interact on Hive (vote, comment, post) but cannot move funds.',
   success_keys_reminder: 'Keep your gift card PIN safe — it protects your key backup. You can restore your keys anytime by scanning the backup QR code.',
 
+  // Robust Success — Phase 1 (Confirmation)
+  robust_title: 'Welcome to Hive!',
+  robust_created: 'Your account @%1 has been created.',
+  robust_tx: 'Transaction: %1',
+
+  // Robust Success — Phase 2 (Bootstrap Save)
+  robust_save_heading: 'Save Your Wallet File',
+  robust_save_desc: 'This file lets you access your wallet anytime. It is encrypted with your gift card PIN — keep your card safe.',
+  robust_save_download: 'Download Wallet File',
+  robust_save_generating: 'Generating wallet file...',
+  robust_save_checkbox: 'I have saved my wallet file',
+  robust_save_continue: 'Continue',
+  robust_save_filename: 'propolis-wallet-%1.html',
+
+  // Robust Success — Phase 3 (Wallet Loading)
+  robust_loading_title: 'Loading Wallet',
+  robust_loading_chunk: 'Fetching wallet: chunk %1 of %2',
+  robust_loading_verifying: 'Verifying integrity...',
+  robust_loading_ready: 'Ready!',
+  robust_loading_estimate: 'Usually takes 10\u201320 seconds',
+  robust_enrollment_confirmed: 'Endpoint enrollment confirmed.',
+  robust_enrollment_timeout: 'Endpoint enrollment is still processing. Your wallet will work normally \u2014 fresh endpoints will arrive within a few hours.',
+
+  // Robust Errors
+  robust_err_fetch: 'Could not fetch wallet from blockchain. Check your connection and try again.',
+  robust_err_hash: 'Wallet integrity check failed. Please try again.',
+  robust_err_retry: 'Retry',
+
   // Errors
   err_network: 'Network error. Check your connection.',
   err_service_down: 'The service is unavailable. Your gift card is still valid — try again later.',

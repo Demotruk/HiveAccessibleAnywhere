@@ -31,6 +31,8 @@ const SHORT_TO_LONG: Record<string, string> = {
   y: 'promiseType',
   pp: 'promiseParams',
   m: 'merkleProof',
+  v: 'variant',
+  l: 'locale',
 };
 
 function fromShortKeys(obj: Record<string, unknown>): GiftCardPayload {

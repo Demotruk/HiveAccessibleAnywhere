@@ -8,12 +8,17 @@ import { resolve } from 'node:path';
 const certDir = resolve(__dirname, '../.claude/certs');
 const hasCerts = existsSync(resolve(certDir, 'dev-cert.pem'));
 
+const variant = (process.env.VARIANT || 'standard') as 'standard' | 'robust';
+
 export default defineConfig({
   plugins: [
     viteSingleFile(),
     // Self-signed HTTPS for LAN dev (required for Web Crypto API on non-localhost)
     ...(process.env.HTTPS_DEV && !hasCerts ? [basicSsl()] : []),
   ],
+  define: {
+    __VARIANT__: JSON.stringify(variant),
+  },
   server: {
     port: parseInt(process.env.PORT || '5175'),
     ...(process.env.HTTPS_DEV && hasCerts ? {
@@ -25,7 +30,7 @@ export default defineConfig({
   },
   build: {
     target: 'es2022',
-    outDir: 'dist',
+    outDir: variant === 'robust' ? 'dist/robust' : 'dist/standard',
     minify: 'esbuild',
     reportCompressedSize: true,
   },

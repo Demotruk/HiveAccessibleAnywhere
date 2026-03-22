@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite --host localhost",
     "build": "vite build",
+    "build:standard": "cross-env VARIANT=standard vite build",
+    "build:robust": "cross-env VARIANT=robust vite build",
+    "build:all": "npm run build:standard && npm run build:robust",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -17,6 +20,7 @@
   "devDependencies": {
     "@types/qrcode": "^1.5.6",
     "@vitejs/plugin-basic-ssl": "^2.1.4",
+    "cross-env": "^10.1.0",
     "typescript": "^5.7.0",
     "vite": "^6.0.0",
     "vite-plugin-singlefile": "^2.0.0",

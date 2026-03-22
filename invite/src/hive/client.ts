@@ -6,7 +6,7 @@
 interface JsonRpcRequest {
   jsonrpc: '2.0';
   method: string;
-  params: unknown[];
+  params: unknown;
   id: number;
 }
 
@@ -20,6 +20,15 @@ interface JsonRpcResponse<T = unknown> {
 export interface HiveAccount {
   name: string;
   memo_key: string;
+  [key: string]: unknown;
+}
+
+export interface DiscussionPost {
+  author: string;
+  permlink: string;
+  parent_author: string;
+  body: string;
+  json_metadata: string;
   [key: string]: unknown;
 }
 
@@ -65,7 +74,7 @@ export class HiveClient {
     }
   }
 
-  async call<T = unknown>(method: string, params: unknown[] = []): Promise<T> {
+  async call<T = unknown>(method: string, params: unknown = []): Promise<T> {
     // Race all endpoints in parallel — use whichever responds first.
     // This avoids waiting on a slow/unresponsive node before trying the next.
     const controllers: AbortController[] = [];
@@ -107,6 +116,14 @@ export class HiveClient {
 
   async getAccounts(accounts: string[]): Promise<HiveAccount[]> {
     return this.call<HiveAccount[]>('condenser_api.get_accounts', [accounts]);
+  }
+
+  /**
+   * Fetch all comments in a discussion tree rooted at author/permlink.
+   * Returns a map of permlink → post object (including the root post).
+   */
+  async getDiscussion(author: string, permlink: string): Promise<Record<string, DiscussionPost>> {
+    return this.call<Record<string, DiscussionPost>>('bridge.get_discussion', { author, permlink });
   }
 
   /**
