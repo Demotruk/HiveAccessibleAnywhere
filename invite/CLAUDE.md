@@ -13,9 +13,13 @@ Sequential screens (no hash routing):
 6. **Claiming** — POST to gift card service `/claim` endpoint
 7. **Success** — handoff to wallet experience
 
-## Two Variants
+## Two Variants — Separate Build Targets
 
-The flow adapts based on the `variant` field in the decrypted payload:
+The codebase produces two HTML bundles via Vite multiple entry points:
+- `invite-standard.html` — GitHub Pages, HiveSigner/peakd.com handoff
+- `invite-robust.html` — Cloudflare Workers, chunk-fetching + bootstrap file generation
+
+Shared screens (landing, PIN, decryption, username, key backup) are common modules. Variant-specific screens (e.g. `success.ts` vs `success-robust.ts`) are separate files. Each build tree-shakes the other variant's code.
 
 **Standard invites** (unrestricted internet):
 - Uses public Hive API nodes directly
@@ -24,9 +28,8 @@ The flow adapts based on the `variant` field in the decrypted payload:
 
 **Robust invites** (restricted internet):
 - Uses proxy endpoints from the encrypted payload for all RPC calls
-- After account creation, fetches Propolis wallet from blockchain and transitions into it via `document.open()/write()/close()`
+- After account creation: (1) generates bootstrap file and blocks until user saves it, (2) fetches wallet from blockchain with progress bar, (3) transitions into wallet via `document.open()/write()/close()`
 - Writes credentials + proxy endpoints to `localStorage` for wallet pre-authenticated startup
-- Generates personalized bootstrap file for future wallet access
 
 ## QR Payload Structure
 
