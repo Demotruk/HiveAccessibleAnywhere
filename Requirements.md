@@ -48,7 +48,7 @@ Enable users to convert local currency to HBD and withdraw HBD back to local cur
 
 Phase 1 is split into two sub-phases. Phase 1a is the minimum viable release — ship this first. Phase 1b follows shortly after.
 
-**Phase 1a — Minimum viable release:** ✅ **All items shipped and published on-chain (EN locale fully live; additional locales in progress — see On-Chain Publishing Status in MEMORY.md).**
+**Phase 1a — Minimum viable release:** ✅ **All items shipped and published on-chain. All 7 locales fully live.**
 - Self-bootstrapping from a Hive post (sections 1.2, 1.2.1)
 - Bootstrap security: author filtering, hash manifest verification (section 1.2.1)
 - Local caching after first bootstrap (section 1.2.1)
@@ -77,7 +77,7 @@ A standalone HTML file that functions as a minimal Hive wallet, capable of:
 The tool must:
 - Be fully self-contained in a single HTML file (all JS bundled inline)
 - Work offline for signing operations
-- Be distributable on-chain as a single Hive post plus its comments (each post/comment body has a ~65KB limit, so the wallet is split across as many comments as needed under one root post)
+- Be distributable on-chain as a single Hive post plus its comments (each post/comment body has a ~65KB limit; chunks are split at 55KB for a safe margin, resulting in ~4 comments per wallet)
 - Run in any modern browser on desktop or mobile, with no installation required
 - Connect directly to public Hive API nodes (e.g. `api.hive.blog`, `api.deathwing.me`) with no dependency on custom infrastructure
 
@@ -139,7 +139,7 @@ A build script that takes the compiled wallet HTML and publishes it to the Hive 
 
 The script must:
 - Take the single-file HTML output from the build process
-- Split it into chunks that fit within the Hive comment body limit (~65KB each)
+- Split it into chunks that fit within the Hive comment body limit (55KB each, safe margin under the ~65KB hard limit)
 - Post the root post with `json_metadata` containing the hash manifest (ordered list of expected comment permlinks and SHA-256 hash of each chunk's content)
 - Post each chunk as a comment on the root post, with ordered permlinks and content type tags in `json_metadata`
 - Generate the bootstrap HTML file with the publisher account and root post permlink hardcoded
@@ -205,7 +205,7 @@ A network of proxy nodes that relay RPC requests to actual Hive API nodes.
 - Each proxy endpoint is assigned to a small group of users to enable leak tracing
 - Gift card onboarding (section 2.4) uses the same proxy endpoints for RPC access; the invite app and bootstrap wallet are served from public URLs (e.g. GitHub Pages, CDN) rather than the proxy
 
-**Scaling consideration:** The initial proof-of-concept deploys two proxy instances (London and Singapore) using Fly.io's free tier with auto-stop to minimise costs. Additional instances in other regions (e.g. US, Frankfurt, Tokyo) should be deployed as users come onboard, scaling with demand rather than provisioning speculatively. Each 256MB shared-CPU instance is lightweight and costs are negligible when auto-stopped, so scaling can be reactive.
+**Scaling consideration:** The initial proof-of-concept deploys a single proxy instance in London (`lhr`) using Fly.io with auto-stop to minimise costs. A second instance in Singapore is planned but not yet deployed. Additional instances in other regions (e.g. US, Frankfurt, Tokyo) should be deployed as users come onboard, scaling with demand rather than provisioning speculatively. Each 256MB shared-CPU instance is lightweight and costs are negligible when auto-stopped, so scaling can be reactive.
 
 ### 2.4 Gift Card Onboarding
 
@@ -507,7 +507,7 @@ The following design questions were identified during requirements review (March
 
    **Enrollment verification** runs concurrently with Phase 3 (wallet loading). If enrollment is not confirmed within 60 seconds, the wallet loading still completes — the user sees a non-blocking notice: "Your account was created successfully, but endpoint enrollment is still processing. Your wallet will work normally — fresh endpoints will arrive within a few hours." This notice appears briefly before the wallet transition and is not a blocker.
 
-5. **`variant` field missing from `GiftCardPayload` type.** The `GiftCardPayload` interface in `invite/src/types.ts` does not include a `variant` field. The requirements specify `"standard"` or `"robust"`. Without it, the invite app can only infer the variant from `endpoints.length > 0`, which is fragile (a standard invite with accidentally empty endpoints would be misclassified). The `locale` field (for determining which wallet to fetch) is also missing from the type. Both should be added.
+5. ~~**`variant` field missing from `GiftCardPayload` type.** The `GiftCardPayload` interface in `invite/src/types.ts` does not include a `variant` field. The requirements specify `"standard"` or `"robust"`. Without it, the invite app can only infer the variant from `endpoints.length > 0`, which is fragile (a standard invite with accidentally empty endpoints would be misclassified). The `locale` field (for determining which wallet to fetch) is also missing from the type. Both should be added.~~ ✅ **RESOLVED** — both `variant: 'standard' | 'robust'` and `locale?: string` fields have been added to `GiftCardPayload` in `invite/src/types.ts`.
 
 6. **Offline/degraded network during robust invite flow — RESOLVED.** Robust invites target users with restricted internet, so partial connectivity is a likely scenario.
 
@@ -583,7 +583,7 @@ Initial user testing with two participants (standard invite flow, QR-based) reve
 Key pain points identified:
 - **QR scanning unreliable:** Tester A's phone camera failed to scan the QR code initially, requiring a workaround. QR codes must be tested across a range of devices and camera apps.
 - **Key backup screenshot not taken:** Tester B did not save the screenshot at the key backup step and could not proceed to account creation. The screenshot step needs to be more prominent or enforced — the current emphasis (commit `014df33`) may help but was not yet deployed during this test. Tester B was using an older version without the emphasis. Options to further increase emphasis: (a) flashing "Important" text animation (red/yellow pulse), (b) pulsing border/glow on the banner, (c) one-time entrance animation (shake/slide), (d) blocking confirmation — require user to check "I've taken a screenshot" before proceeding. Option (d) is most effective but adds friction; could combine with (a) or (b).
-- **Account creation slow / failed:** Account creation was consistently slow for all testers who reached that step. Investigation shows two compounding causes: (1) the giftcard service on Fly.io is configured with `min_machines_running: 0` and `auto_stop_machines: 'stop'`, meaning cold starts of 10-30+ seconds before the service can even process a request; (2) the on-chain `create_claimed_account` transaction adds 3-10 seconds on top. The wallet has no timeout, no retry logic, and no pre-flight wake-up call — the `/health` endpoint exists on the service but is never used by the client. A warm-up ping earlier in the flow (e.g. during username selection or validation) would mask cold-start latency. The UX should also set expectations with a progress indicator and estimated wait time.
+- **Account creation slow / failed:** Account creation was consistently slow for all testers who reached that step. Investigation shows two compounding causes: (1) the giftcard service on Fly.io is configured with `min_machines_running: 0` and `auto_stop_machines: 'stop'`, meaning cold starts of 10-30+ seconds before the service can even process a request; (2) the on-chain `create_claimed_account` transaction adds 3-10 seconds on top. ~~The wallet has no timeout, no retry logic, and no pre-flight wake-up call — the `/health` endpoint exists on the service but is never used by the client. A warm-up ping earlier in the flow (e.g. during username selection or validation) would mask cold-start latency.~~ ✅ **Partially addressed** — the warm-up ping has been moved to the PIN entry screen, giving the service several screens of warm-up time before the `/claim` request. Timeout handling with a retry button has been added to the claiming screen (60-second timeout). Estimated wait time UX is not yet implemented.
 - **HiveSigner handoff incomplete:** Tester A created an account and proceeded to HiveSigner but did not complete login. The multi-step handoff (copy username, copy key, navigate to HiveSigner, paste credentials) is too many steps for a first-time user with no blockchain experience. Two improvements are in progress from upstream maintainers:
   - **Option A — PeakLock direct login (preferred):** @asgarth (peakd.com) will add a query-string login endpoint so the invite app can open `peakd.com/?username=foo&login=peaklock` directly. The user only needs to paste one key. Eliminates the HiveSigner middleman entirely — fewer redirects, user lands on the destination site immediately. Pending @asgarth's implementation (peakd.com is closed-source).
   - **Option B — HiveSigner username pre-fill (fallback):** @good-karma (hivesigner) is open to a PR adding `&username=` query parameter support to the OAuth flow. The invite app would copy the posting key to clipboard before opening HiveSigner, reducing the flow to: click button → paste key → login. PR target: `ecency/hivesigner-ui`. Security consideration: the username parameter must only pre-fill the input field, never bypass authentication or auto-submit.
@@ -592,18 +592,18 @@ Key pain points identified:
 **Additional UX improvements (standard invite flow):**
 
 - ~~**Step progress indicator:** Users have no sense of where they are in the flow or how many steps remain. A simple step counter or progress bar (e.g. "Step 2 of 5") at the top of each screen would set expectations and reduce abandonment. The flow has 5 user-facing stages: PIN → Verifying → Username → Backup → Claiming/Success.~~ ✅ **Done** — step progress bar implemented.
-- **Auto-copy posting key on HiveSigner redirect:** When the user clicks the HiveSigner login button on the success screen, auto-copy the posting key to clipboard before opening the tab. This eliminates the separate "Copy" step — the user only needs to paste.
-- **Estimated wait time on claiming/verifying screens:** Replace the bare spinner with an explicit time estimate (e.g. "This usually takes 10–20 seconds"). Users who see only a spinner with no time context assume the app is broken and abandon the flow.
-- **Timeout with actionable message:** Neither the verifying nor claiming screen has visible timeout handling. After ~30 seconds, show an actionable message: "This is taking longer than usual — your gift card is still valid. You can retry or try again later." rather than spinning indefinitely.
+- **Auto-copy posting key on HiveSigner redirect:** Copy buttons are implemented for both username and posting key on the success screen, with visual "Copied" feedback. However, the posting key is not auto-copied when the HiveSigner tab opens — the user must click the copy button separately before clicking the HiveSigner link. Auto-copy on redirect would further reduce friction.
+- **Estimated wait time on claiming/verifying screens:** Not yet implemented. The claiming screen shows "Connecting..." / "Claiming account..." with a spinner but no time estimate. Adding "This usually takes 10–20 seconds" would reduce perceived abandonment.
+- ~~**Timeout with actionable message:** Neither the verifying nor claiming screen has visible timeout handling. After ~30 seconds, show an actionable message: "This is taking longer than usual — your gift card is still valid. You can retry or try again later." rather than spinning indefinitely.~~ ✅ **Partially done** — the claiming screen detects a 60-second timeout and shows a retry button with guidance. The verifying screen has error handling with retry but no explicit timeout.
 - ~~**Service warm-up at PIN entry:** The `/health` warm-up ping currently fires on the verifying screen. Moving it to the PIN entry screen gives Fly.io 2–3 additional screens of warm-up time (PIN entry + verifying + username selection) before the `/claim` request, further masking cold-start latency.~~ ✅ **Done** — warm-up ping moved to PIN entry screen.
-- **Confirmation summary before claiming:** Show a brief confirmation ("You're about to create account **@username** on the Hive blockchain") before the irreversible claim step. Catches typos and gives the user a moment of intentionality before the point of no return.
-- **Username suggestions on collision:** When a chosen username is taken, suggest available variations (e.g. appending digits or hyphens). First-time users unfamiliar with Hive naming conventions may get stuck in trial-and-error.
-- **Back navigation:** There is currently no way to return to a previous screen. At minimum, the username and backup screens should allow going back. If a user picks a username and has second thoughts during backup, they are stuck.
-- **Claiming idempotency guidance:** If the `/claim` request times out but the server actually succeeded, the retry button re-posts and may fail with "username taken." The service should handle idempotent retries (return success if the same token+username was already fulfilled), and the UI should guide the user: "If your account was already created, try logging in directly."
-- **Mobile credential font sizes:** The posting key on the success screen is displayed at `.7rem`, which is likely too small on phone screens. Credential displays should use at least `.85rem` with horizontal scroll rather than wrapping, to remain legible on mobile devices where the entire flow runs (QR scan entry point).
-- **PIN input visual segments:** Show filled dots or discrete character slots as each character is entered (similar to a phone unlock screen), making the 6-character target visually clear rather than relying on a plain text input.
-- **Offline detection:** Check `navigator.onLine` before network-dependent screens (verifying, username availability, claiming) and show a connection warning upfront rather than letting the request fail with a generic network error.
-- **Invite app i18n:** The wallet supports 7 locales but the invite app is English-only. Since the target audience includes users in China, Iran, Russia, Turkey, and Vietnam, locale detection (from the gift card payload or browser language) would make the first experience more welcoming. This is a larger effort but aligns with the project's mission of accessibility anywhere.
+- **Confirmation summary before claiming:** Not yet implemented. The flow advances directly from key backup to claiming with no confirmation step. A brief "You're about to create account **@username** on the Hive blockchain" confirmation would catch typos.
+- ~~**Username suggestions on collision:** When a chosen username is taken, suggest available variations (e.g. appending digits or hyphens). First-time users unfamiliar with Hive naming conventions may get stuck in trial-and-error.~~ ✅ **Done** — `generateSuggestions()` provides up to 4 available alternatives as clickable chips when a username is taken.
+- **Back navigation:** Not yet implemented. The flow is strictly linear with no way to return to a previous screen.
+- **Claiming idempotency guidance:** The gift card service rejects duplicate claims with "Token already redeemed" (400 error) rather than returning success for the same token+username. True idempotent retries (returning success if the same token+username was already fulfilled) would improve the timeout-then-retry experience. The UI does not yet guide the user to try logging in directly if the claim may have succeeded silently.
+- **Mobile credential font sizes:** Not yet addressed. The posting key on the success screen is displayed at `.7rem`.
+- **PIN input visual segments:** Not yet implemented. Uses a plain `<input type="text">` with letter-spacing. Filled dots or discrete character slots (similar to a phone unlock screen) would make the 6-character target visually clear.
+- **Offline detection:** Not yet implemented. No `navigator.onLine` checks before network-dependent screens.
+- **Invite app i18n:** Not yet implemented. The invite app is English-only despite the wallet supporting 7 locales. This is a larger effort but important for the target audience in China, Iran, Russia, Turkey, and Vietnam.
 
 ### 2.5 Onboarding Service (General)
 
@@ -792,6 +792,8 @@ To support this, the gift card service may also need to claim accounts using the
 
 ### Backup Restore App
 
+✅ **Implemented.** See `restore/` and `restore/CLAUDE.md`. Hosted on GitHub Pages.
+
 A lightweight tool for restoring account keys from the encrypted QR backup generated during the invite app onboarding flow. The invite app's key backup screen encrypts the master password with the gift card PIN and encodes it as a QR code; the restore app reverses this process.
 
 **Core functionality:**
@@ -844,6 +846,8 @@ The physical/digital invite card design should include a small QR code linking t
 
 ### Telegram Gift Card Bot
 
+✅ **Implemented and deployed on Fly.io.** See `telegram-bot/` and `telegram-bot/CLAUDE.md`.
+
 A Telegram bot that distributes Propolis gift cards within group chats. The bot operator (issuer) supplies gift cards to the bot, and group members can trigger delivery of cards to other users — either free (for the operator) or paid (for everyone else).
 
 **Core functionality:**
@@ -892,6 +896,8 @@ When a non-operator user triggers the bot, it must collect payment before releas
 - The bot should work in multiple groups simultaneously, all sharing the same operator and inventory
 
 ### Discord Gift Card Bot
+
+⏳ **Not yet implemented.** Design below is speculative — implementation will begin after the Telegram bot is validated in production.
 
 A Discord bot that distributes Propolis gift cards within Discord servers. It serves the same purpose as the Telegram bot — operator-supplied gift cards distributed free or via HBD/BTC payment — but adapted to Discord's interaction model.
 
