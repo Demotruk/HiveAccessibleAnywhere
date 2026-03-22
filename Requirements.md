@@ -638,26 +638,123 @@ The service requires payment to cover infrastructure costs. For the proof-of-con
 
 ### 2.8 Modified Hive Keychain
 
-A modified version of the Hive Keychain browser extension that integrates the same RPC endpoint discovery and traffic obfuscation capabilities as the self-contained wallet tool.
+A fork of the [Hive Keychain browser extension](https://github.com/hive-keychain/hive-keychain-extension) (MIT licensed) that integrates the same RPC endpoint discovery and traffic obfuscation capabilities as the self-contained wallet tool. The primary goal is wallet functionality and dApp browsing while retaining the extension's existing security model.
 
 **Purpose:** Existing Hive users who already use Hive Keychain can install this modified version *before* traveling to a region with restricted internet access, giving them continued access to Hive through a familiar interface.
 
-**Requirements:**
-- Integrates per-user encrypted memo endpoint discovery (same mechanism as the wallet tool, section 2.1)
-- Supports the same traffic obfuscation protocol (section 2.2) for RPC communication
-- Falls back to discovered proxy endpoints automatically when direct RPC access fails
-- Retains all standard Keychain functionality — signing, account management, dApp integration
-- Users can configure their service account (the account that sends endpoint memos) within the extension settings
+**Scope — priority features:**
+- Core wallet functionality (balances, transfers, staking, savings, delegations, account history)
+- dApp browser integration (the injected `window.hive_keychain` API for sites like Peakd)
+- Transaction signing and broadcasting
 
-**Limitations:**
+**Scope — lower priority / deferred:**
+- Hive Engine sidechain token support (requires proxying a separate set of RPC nodes)
+- Swap service integration (depends on the Keychain backend API)
+- PeakD push notifications (depends on the Keychain backend API)
+- Ledger hardware wallet support (works locally, no proxy impact, but adds testing surface)
+
+#### Architecture — why Keychain is a good fit for this
+
+Hive Keychain centralises all Hive RPC communication through the [`hive-tx-js`](https://github.com/hive-keychain/hive-tx-js) library (also MIT licensed, maintained by the same org). Every RPC call in Keychain flows through a single function — `hiveTx.call(method, params)` — which sends JSON-RPC requests to whichever node is configured in `HiveTxConfig.node`. This means there is essentially **one integration point** for adding obfuscation and proxy support.
+
+Individual operation handlers (transfer, delegation, vote, etc.) call utility classes which internally use `hive-tx`. The operation handlers themselves make no direct HTTP calls.
+
+#### Implementation approach
+
+**1. Fork `hive-tx-js` with obfuscation support**
+
+Add an optional obfuscated transport mode to the `hive-tx` `call()` function, reusing the same protocol as the Propolis wallet (section 2.2):
+
+- When obfuscation is enabled: gzip-compress the JSON-RPC payload, base64-encode it, wrap in a REST-like envelope (`{"q": "<base64>", "sid": "<random>"}`), POST to a random innocuous path (`/api/comments`, `/api/feed`, etc.) with `X-Api-Version: 1` header
+- Decode the response by extracting the `data.r` field and reversing the encoding
+- When obfuscation is disabled: standard JSON-RPC over HTTPS (existing behaviour, unchanged)
+- The obfuscation toggle is controlled by a flag passed from the extension's settings, not hardcoded
+
+This is cleaner than intercepting at the fetch level (as the Propolis wallet does) because extensions run in a service worker context where global fetch interception is more complex.
+
+**2. Expand the proxy method allowlist**
+
+The current HAA proxy (section 2.2) allows only 7 methods — the minimum for the Propolis wallet. Keychain's wallet and browser functionality requires substantially more. The proxy allowlist must be expanded to include at minimum:
+
+*Wallet operations (required):*
+- All 7 existing methods (`condenser_api.get_accounts`, `get_dynamic_global_properties`, `broadcast_transaction`, `broadcast_transaction_synchronous`, `get_account_history`, `get_block`, `transaction_status_api.find_transaction`)
+- `condenser_api.get_vesting_delegations` — delegation queries
+- `condenser_api.get_open_orders` — market orders
+- `condenser_api.get_witnesses_by_vote` — witness voting
+- `condenser_api.get_conversion_requests` — HBD conversions
+- `condenser_api.get_savings_withdraw_from` / `get_savings_withdraw_to` — savings operations
+- `rc_api.find_rc_accounts` — resource credit checks
+
+*Browser / dApp support (required for Peakd etc.):*
+- `bridge.get_account_posts` — user post feeds
+- `bridge.get_ranked_posts` — trending/hot/new feeds
+- `bridge.get_discussion` — post + comment threads
+- `bridge.get_community` / `bridge.list_communities` — community browsing
+- `bridge.get_profile` — user profiles
+- `bridge.get_follow_count` — social graph
+- `condenser_api.get_content` — individual post lookup
+- `condenser_api.get_content_replies` — comment threads
+
+*Hive Engine sidechain (deferred, separate proxy):*
+- Hive Engine tokens use entirely different RPC endpoints (`api.hive-engine.com`). Supporting tokens would require either a separate proxy instance or extending the existing proxy to relay to multiple upstream backends. This can be deferred to a follow-up phase.
+
+The proxy should continue using an **allowlist** (not a blocklist) approach — explicitly enumerating permitted methods is safer than trying to block dangerous ones.
+
+**3. Endpoint discovery**
+
+Keychain currently fetches its default RPC node from `api.hive-keychain.com/hive/rpc` on startup. In restricted regions, this backend is likely also blocked. The fork needs a hybrid discovery approach:
+
+- **Hardcoded bootstrap list**: Ship a set of known proxy URLs in the extension, updated with each release. This provides immediate connectivity without depending on any external service.
+- **Memo-based discovery**: Once connected (via bootstrap or any reachable node), use the same `haa-service` encrypted memo mechanism as the Propolis wallet (section 2.1) to discover current proxy endpoints. This keeps the endpoint list fresh without requiring extension updates.
+- **Manual configuration**: Retain the ability for users to manually specify a proxy endpoint URL in settings (for users who operate their own proxy).
+
+The bootstrap list solves the chicken-and-egg problem: you need a proxy to read Hive, but you discover proxies by reading Hive.
+
+**4. Remove or stub the Keychain backend dependency**
+
+Hive Keychain makes non-RPC calls to its own backend (`api.hive-keychain.com`) for:
+- Default RPC node recommendation → replaced by the discovery mechanism above
+- Swap service → deferred (strip from initial fork)
+- PeakD notification relay → deferred (strip from initial fork)
+- Socket.io realtime updates → deferred (strip from initial fork)
+
+The fork should gracefully degrade when these services are unreachable — no errors shown to the user, features simply hidden.
+
+**5. RPC failover adaptation**
+
+Keychain has existing node failover logic (`rpc-switcher.utils.ts`) that rotates through known RPC nodes when one fails. This must be adapted to:
+- Prioritise discovered proxy endpoints (from memo discovery) over hardcoded bootstrap endpoints
+- Exclude public Hive API nodes from the candidate set when obfuscation is enabled (same logic as the Propolis wallet's `rpc-manager.ts`)
+- Test endpoint health using obfuscated requests when in obfuscated mode
+
+#### Security model
+
+The fork **retains Keychain's existing security architecture** with no degradation:
+
+- **Key storage**: Unchanged — private keys encrypted with AES (via `crypto-js`) using the user's master password. Encrypted data stored in `chrome.storage.local`. Master password held in-memory only (service worker vault), never persisted.
+- **Transaction signing**: Unchanged — all signing happens locally in the service worker. Only signed transactions leave the device. The proxy never sees private keys.
+- **dApp isolation**: Unchanged — the content script injects `window.hive_keychain` but never exposes keys. Operation requests open a confirmation dialog; the user explicitly approves each transaction.
+- **Auto-lock**: Unchanged — vault clears on idle/browser shutdown.
+
+**Proxy trust model:** The proxy can observe *which* accounts are being queried and *what* signed transactions are being broadcast (the same information visible to any public Hive API node). It cannot forge transactions because it does not have the user's private keys. However:
+
+- A malicious proxy could **selectively censor** transactions (refuse to broadcast) — mitigated by failover to alternative proxies
+- A malicious proxy could **return falsified read data** (wrong balances, missing history) — mitigated by cross-verifying critical reads against multiple endpoints when possible
+- The obfuscation layer resists deep packet inspection but is **not encryption** — a determined adversary who controls the proxy and knows the protocol can decode the traffic. HTTPS/TLS provides the actual confidentiality layer. Users should understand that obfuscation protects against network-level DPI, not against a compromised proxy operator.
+
+#### Limitations
+
 - This is **not a solution for users inside restricted regions who lack prior access.** Browser extension stores (Chrome Web Store, Firefox Add-ons) may themselves be blocked or restricted. The modified Keychain cannot be installed from within a restricted environment.
 - It is intended for users who **already have Hive accounts and Keychain installed**, and who want to maintain access when traveling to or residing in restricted areas.
 - Distribution of this extension is through conventional channels (extension stores, sideloading from a trusted source). It does not need on-chain distribution — users install it while they still have unrestricted access.
+- Sideloading on Chromium requires developer mode; Firefox supports unsigned add-ons only in Developer/Nightly editions. For broad distribution, publishing to extension stores under a separate listing is preferred.
 
-**Relationship to the wallet tool:**
+#### Relationship to the wallet tool
+
 - The wallet tool (section 1.1) is for users who cannot install extensions — it works as a standalone HTML file with no installation
 - The modified Keychain is for users who *can* install extensions ahead of time and prefer the richer Keychain experience
 - Both share the same endpoint discovery protocol and obfuscation layer, ensuring compatibility with the same proxy infrastructure
+- The proxy method allowlist expansion benefits both: the wallet tool could optionally surface more features if the proxy supports the additional methods
 
 ---
 
@@ -978,3 +1075,33 @@ Since Discord lacks Telegram-style deep links, shareable codes work differently:
 - The bot should handle Discord's **rate limits** gracefully (Discord enforces per-route rate limits on API calls)
 - Gateway intents required: Guilds, GuildMessages (and potentially GuildMembers if resolving users by mention)
 - Deployment: can run alongside the Telegram bot in the same process or as a separate service; if separate, both should share the same database and card inventory
+
+### Signal Gift Card Bot
+
+⏳ **Not yet implemented.** Future consideration — Signal's strong privacy model makes it a natural fit for restricted-region users who may not trust or have access to Telegram.
+
+**Why Signal:**
+
+Signal's end-to-end encryption and minimal metadata collection align with the project's goal of serving users in regions where internet access is restricted or surveilled. It is already listed as the primary support channel for restricted-region users.
+
+**Key differences from Telegram:**
+
+- **No official bot API** — Signal does not provide a bot platform. Bots are built using community tools, primarily [signal-cli](https://github.com/AsamK/signal-cli) (a Java-based CLI client) wrapped by [signal-cli-rest-api](https://github.com/bbernhard/signal-cli-rest-api) (Dockerized REST API).
+- **Dedicated phone number required** — the bot needs its own phone number registered with Signal. A prepaid SIM is the most reliable option; the SIM only needs to be active for initial SMS verification, after which signal-cli maintains the session independently. Using a personal number would deregister the owner's Signal app.
+- **No inline keyboards or buttons** — Signal has no rich UI elements. All interaction must be text-command based, which adds friction compared to Telegram's button-driven flows.
+- **No group admin features** — limited bot permissions compared to Telegram; the bot cannot manage group membership or enforce rules.
+- **No deep links** — Signal has no equivalent of Telegram's `?start=` deep links for one-click claim flows.
+
+**Candidate frameworks:**
+
+1. **signal-cli-rest-api** — Dockerized REST API wrapping signal-cli. Most common foundation for Signal bots. The bot logic would call a local REST API rather than a platform-hosted API like Telegram's.
+2. **signalbot** (Python, MIT) — higher-level bot framework built on signal-cli-rest-api with command/trigger abstractions. Actively maintained. Would require Python rather than the existing TypeScript stack.
+3. **Sentz/Forest SDK** — payments-enabled bot framework for Signal, potentially relevant for the paid gift card flow.
+
+**Technical considerations:**
+
+- The bot would need to run signal-cli (Java) as a sidecar service alongside the bot process, typically via Docker Compose
+- Shares the same SQLite database, Hive transfer monitor, and PDF-to-image pipeline as the Telegram bot
+- The text-only interaction model means payment flows would be more verbose (no buttons to select payment method; users would type commands like `pay hbd` or `pay btc`)
+- signal-cli must remain running continuously to maintain the Signal session; session loss requires re-registration with the phone number
+- Deployment on Fly.io would need persistent storage for the signal-cli session data
