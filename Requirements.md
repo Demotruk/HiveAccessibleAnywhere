@@ -515,7 +515,7 @@ The following design questions were identified during requirements review (March
 
    **(b) Retry with backoff.** All proxy-dependent network requests (verification, username availability, claiming, wallet chunk fetching) use retry logic with exponential backoff. If the payload contains multiple proxy endpoints, failed requests rotate through them before exhausting retries. This is standard resilience for unreliable network conditions and should be implemented from the first iteration.
 
-   **(c) Guidance on unreachable gift card service.** When the gift card service is unreachable through the proxy, the user sees specific guidance rather than a generic error. The exact messaging is to be determined during implementation, but the principle is: the user should understand (1) the gift card is still valid and has not been consumed, (2) the problem is connectivity not the card, and (3) what they can try (retry, try later, use Telegram fallback if printed on card). The error screen must not be a dead end — it should offer actionable next steps.
+   **(c) Guidance on unreachable gift card service.** When the gift card service is unreachable through the proxy, the user sees specific guidance rather than a generic error. The exact messaging is to be determined during implementation, but the principle is: the user should understand (1) the gift card is still valid and has not been consumed, (2) the problem is connectivity not the card, and (3) what they can try (retry, try later, contact support via Signal if printed on card). The error screen must not be a dead end — it should offer actionable next steps.
 
    **(d) Intermediate state caching.** The invite app caches intermediate state to `sessionStorage` at key checkpoints (after successful verification, after username selection, after key generation/backup). If connectivity drops mid-flow and the user refreshes or returns to the page, the app detects cached state and offers to resume from the last checkpoint rather than restarting from scratch. The encrypted blob is consumed on first load and cannot be re-read from the URL, so caching is the only way to support resumption. Cached state is cleared on successful completion or explicit abandonment. The claim token remains valid until redeemed, so resuming a partially-completed flow is safe as long as the token has not expired.
 
@@ -532,6 +532,38 @@ The following design questions were identified during requirements review (March
    **(b) Endpoint liveness validation — RESOLVED.** After sourcing endpoints from the on-chain memo, the generation script **directly probes each endpoint** with a lightweight health check before embedding it in cards. This is safe because the generation script is operated by the same party who operates the proxies — probing your own infrastructure reveals nothing to an adversary. Any endpoint that fails the health check is excluded from the batch, and generation aborts if fewer than a minimum threshold of endpoints are live (the threshold is configurable, defaulting to at least 2 live endpoints). This ensures that gift cards are never produced with dead or unreachable endpoints, which would be unrecoverable for users in restricted regions with no fallback.
 
    **(d) Batch declaration `custom_json` fields — RESOLVED.** No additional on-chain fields are needed for robust batches. The batch declaration exists for one purpose — trustless Merkle proof validation at claim time — and the existing fields (`batch_id`, `count`, `expires`, `merkle_root`, `promise_type`, `promise_params`) are sufficient for that. Variant, locale, endpoint count, and grace window duration are **operational metadata**. Publishing them on the public blockchain would create a permanent record of operational patterns (distribution cadence, target regions, batch sizes) with no functional benefit — none of these fields are needed for token validation. This metadata already lives in the local `manifest.json` produced by the generation script, which is sufficient for operator bookkeeping. Where the claim service needs to distinguish robust from standard (e.g. to trigger endpoint feed enrollment), it learns this from the `/claim` request itself — the invite app knows its own variant and includes it in the request.
+
+**Secure support channel:**
+
+Users in restricted regions — particularly mainland China — will encounter difficulties during onboarding and instinctively seek help on familiar platforms (WeChat, QQ). These platforms are actively surveilled; sharing gift card PINs, screenshots, or proxy URLs on them risks exposing the user, consuming the card (if an observer claims it first), and revealing proxy infrastructure to censors.
+
+The mitigation strategy has two parts: (1) reduce the need for external help by making the invite flow self-explanatory with inline guidance and clear error messages, and (2) provide a secure support channel for when help is genuinely needed.
+
+**Signal as the primary support channel.** Signal is preferred over Telegram for the highest-risk regions because of its stronger metadata protection (sealed sender, no server-side message retention) and lower profile with Chinese authorities compared to Telegram. The support channel is a **dedicated Signal number** operated by the gift card provider, not a group chat. Rationale:
+
+- **No group invite link to leak.** A group invite link shared on WeChat would defeat the purpose — anyone (including surveillance actors) could join. A 1:1 support number avoids this entirely.
+- **No member exposure.** Group chats expose member phone numbers to admins and potentially to other members. 1:1 conversations expose only the support number, which is already public.
+- **No moderation overhead.** Groups require active moderation to prevent spam, scams, and off-topic discussion. A support number is point-to-point.
+- **Signal lacks bot support.** Unlike Telegram, Signal has no bot API, so a group chat cannot be automated. A support number staffed by the provider (or a small team) is the natural model.
+
+**Integration points:**
+
+- **Printed gift cards** include the Signal support number (or `signal.me` deep link) alongside the QR code and PIN, with text in the target locale: "Need help? Contact us on Signal." No warnings about specific platforms — the card should feel like a normal gift, not something dangerous.
+- **Invite app error screens** (unreachable gift card service, network failures, timeout states) display a "Need help?" link that opens the Signal deep link (`https://signal.me/#p/+PHONENUMBER`). This is the actionable fallback when self-service recovery fails.
+- **Invite app PIN entry or landing screen** shows a brief, normalised security notice: "This card is personal — don't share the PIN" (analogous to bank card advice). No mention of specific platforms. The goal is to make PIN confidentiality feel like common sense, not to imply the activity is risky or illegal. A "Need help?" link to Signal is shown nearby.
+- **Gifter/distributor materials only** (instructions included with card batches): The explicit guidance about platform risks belongs here, not in user-facing materials. Distributors understand the threat model and can exercise judgment in how they brief recipients verbally. Materials should advise: keep card details off public or monitored messaging platforms; direct recipients to Signal for help; explain why (card could be claimed by an observer, infrastructure could be discovered).
+
+**Operational notes:**
+
+- The Signal support number should be a dedicated number (not a personal phone), ideally registered to a VoIP service for operational separation. Signal supports registration via landline voice verification.
+- For scaling beyond a single operator, Signal's multi-device support (up to 5 linked devices) allows a small team to share the support number without exposing individual phone numbers.
+- The support number is printed on physical cards and embedded in the invite app, so changing it requires reprinting cards and updating the app. Choose the number carefully and plan for longevity.
+- **Signal accessibility in restricted regions.** Signal is itself sometimes blocked in China, and Google Play (the primary Android distribution channel) is unavailable. Chinese app stores will not carry Signal. To make Signal practically reachable, the proxy infrastructure serves a second purpose: **Signal APK distribution.** The proxy can cache or relay the official Signal APK (published at signal.org/android/apk) so users can download it through the same proxy endpoints they already use for the wallet. Integration points:
+  - **Invite app success screen or help link:** After successful account creation, or on any error screen with the "Need help?" prompt, include a "Download Signal" link that fetches the APK through the proxy. The link is only shown on Android (detected via user agent) since iOS users must use the App Store (which is available in China, and Signal is listed there).
+  - **Printed gift cards (robust variant):** A short URL or second QR code that resolves through the proxy to the Signal APK download. This allows the user to install Signal before or independently of the invite flow.
+  - **Censorship circumvention guidance:** Once installed, Signal has a built-in "censorship circumvention" toggle (Settings > Privacy) that uses domain fronting via Google/Cloudflare. Brief guidance on enabling this should accompany the download link — it often works in China without a separate VPN.
+  - The APK served through the proxy should be verified against Signal's published checksum to prevent tampering. The proxy caches the APK to avoid repeated fetches from signal.org (which may itself be blocked from the proxy's location — if so, the APK is pre-seeded manually by the operator).
+  - This is deferred from the first iteration — the initial release includes only the Signal contact number/deep link. APK distribution is added once the core robust flow and proxy infrastructure are validated.
 
 **User testing observations (March 2026):**
 
@@ -645,6 +677,7 @@ A modified version of the Hive Keychain browser extension that integrates the sa
 - **Gift card claim tokens are single-use and expire.** A stolen token lets an attacker claim an empty account, but does not compromise any existing user. Keys are generated locally on the user's device, never embedded in the QR or transmitted. Expired tokens cannot be redeemed.
 - **Gift card services are security-isolated from proxies.** The gift card service holds account creation keys; the proxy holds no such keys. Compromise of a proxy does not grant account creation capability.
 - **Gift card service account alerting.** The gift card provider account's active key is held persistently by the claim service (required for autonomous account creation). To mitigate the risk of key compromise, the provider should be alerted immediately when any unexpected operation is broadcast from the account — i.e. any operation other than `create_claimed_account`, `delegate_vesting_shares`, or small HBD transfers to the feed service account. On alert, the provider can revoke the active key via a wallet that holds the owner key (e.g. Peakd with Hive Keychain). Existing Hive ecosystem monitoring tools should be evaluated before building a custom solution.
+- **User communication security.** Users in restricted regions (particularly mainland China) may instinctively share gift card details, PINs, or screenshots on familiar but surveilled platforms (e.g. WeChat, QQ). This risks exposing the user, the card contents, and potentially the proxy infrastructure. User-facing materials use normalised, non-alarming language ("this card is personal — don't share the PIN") and provide a secure support channel (Signal) as the obvious help path. Explicit platform-risk guidance is reserved for distributors only — warning end users against specific platforms like WeChat risks scaring them off the invite entirely (see "Secure support channel" under section 2.4).
 
 ## Operational Model
 
@@ -783,6 +816,31 @@ The physical/digital invite card design should include a small QR code linking t
 - Label clearly (e.g. "Backup Restore" or "Key Recovery Tool") to distinguish from the main invite QR
 - The URL should be stable and long-lived (e.g. a GitHub Pages URL or a short redirect under a controlled domain)
 - Consider a brief text hint alongside the QR (e.g. "Lost your keys? Scan this QR with your PIN to recover them.")
+
+### Sting Chat as Post-Onboarding Support Channel
+
+[Sting Chat](https://peakd.com/@peak.open/sting-chat-open-source-upgrades-are-live) is an encrypted messaging system built on native Hive accounts, developed by the PeakD team. It supports private messages (2–4 users), group chats, and community channels, with encryption using Hive memo keys. It is open source ([GitLab](https://gitlab.com/peakd)), decentralized (anyone can run a node — PostgreSQL + Node.js, <1GB storage), and already integrated into PeakD and other Hive frontends.
+
+**Why Sting Chat is a natural fit for post-onboarding support:**
+
+- **Zero additional signup.** The user already has a Hive account after the invite flow — Sting Chat uses native Hive authentication, so there is no separate registration, phone number, or app install required.
+- **Already present on PeakD.** Standard invite users who land on PeakD have Sting Chat available immediately. No onboarding friction.
+- **Ecosystem-native.** Support conversations happen within the Hive ecosystem rather than on an external platform, reinforcing the user's relationship with the tools they're learning to use.
+- **Decentralized operation.** The gift card provider can run their own Sting node, ensuring availability independent of PeakD's infrastructure.
+
+**Limitations and why Signal remains primary for robust invites:**
+
+- **Robust invite users don't land on PeakD** — they transition into the Propolis wallet, which has no Sting Chat integration. Accessing Sting Chat requires navigating to PeakD or another integrated frontend separately.
+- **Web-only** — no standalone mobile app. Users must open a browser to a Hive frontend.
+- **Node-dependent** — messages route through Sting nodes, not on-chain. If nodes are blocked in a restricted region, the same censorship problem applies (though traffic could potentially be routed through the existing proxy infrastructure).
+- **Less battle-tested in adversarial environments** than Signal, which has years of use under hostile state surveillance with extensively audited cryptography.
+
+**Recommended model (two-tier support):**
+
+1. **Signal** — primary support channel during onboarding and for users in restricted regions who are stuck. Works independently of the Hive ecosystem, proven in adversarial environments, accessible via APK distribution through the proxy.
+2. **Sting Chat** — post-onboarding support and ongoing community channel once the user has a working Hive account and is active on PeakD or another Sting-integrated frontend. Replaces the need for external community platforms (Telegram groups, Discord servers) for Hive-native users.
+
+**Implementation scope:** This is a future consideration. The initial release relies on Signal only. Sting Chat integration should be evaluated once the core onboarding flow is stable and there is an active user base to support. Potential integration points include: a "Community Chat" link on the Propolis wallet's settings or help screen, and a welcome message from the provider's Hive account via Sting Chat after successful onboarding (analogous to the Stage 2 follow-up memo).
 
 ### Telegram Gift Card Bot
 
