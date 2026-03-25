@@ -169,9 +169,8 @@ export const KeyBackupScreen: ScreenFn = async (container, state, advance) => {
     copyBtn.addEventListener('click', async () => {
       try {
         await navigator.clipboard.writeText(state.masterPassword!);
-        (copyBtn as HTMLButtonElement).textContent = t.backup_copied;
-        setTimeout(() => { (copyBtn as HTMLButtonElement).textContent = t.backup_copy; }, 2000);
       } catch {
+        // Clipboard unavailable — select the text so the user can copy manually
         const masterEl = container.querySelector('#master')!;
         const range = document.createRange();
         range.selectNodeContents(masterEl);
@@ -179,6 +178,8 @@ export const KeyBackupScreen: ScreenFn = async (container, state, advance) => {
         sel?.removeAllRanges();
         sel?.addRange(range);
       }
+      (copyBtn as HTMLButtonElement).textContent = t.backup_copied;
+      setTimeout(() => { (copyBtn as HTMLButtonElement).textContent = t.backup_copy; }, 2000);
     });
   }
 

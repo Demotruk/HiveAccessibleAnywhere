@@ -31,12 +31,10 @@ function attachCopyHandler(container: HTMLElement, btnId: string, text: string) 
   const btn = container.querySelector(`#${btnId}`) as HTMLButtonElement | null;
   if (!btn) return;
   btn.addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      const orig = btn.textContent;
-      btn.textContent = t.success_copied;
-      setTimeout(() => { btn.textContent = orig; }, 1500);
-    } catch { /* clipboard may not be available */ }
+    try { await navigator.clipboard.writeText(text); } catch { /* clipboard may not be available */ }
+    const orig = btn.textContent;
+    btn.textContent = t.success_copied;
+    setTimeout(() => { btn.textContent = orig; }, 1500);
   });
 }
 

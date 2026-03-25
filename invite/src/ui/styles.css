@@ -35,7 +35,7 @@ label{display:block;font-size:.85rem;color:var(--tm);margin-bottom:4px}
 .mono-box{font-family:'Courier New',monospace;font-size:.8rem;background:var(--in);border:1px solid var(--bd);border-radius:var(--r);padding:10px 12px;word-break:break-all;line-height:1.6;user-select:all;margin-bottom:8px}
 .copy-row{display:flex;gap:8px;align-items:center;margin-bottom:12px}
 .copy-row .mono-box{flex:1;margin-bottom:0}
-.copy-btn{width:auto;padding:8px 16px;font-size:.85rem;white-space:nowrap}
+.copy-btn{width:auto;min-width:6em;padding:8px 16px;font-size:.85rem;white-space:nowrap;text-align:center}
 
 /* QR backup */
 .qr-backup{text-align:center;margin-bottom:12px}
