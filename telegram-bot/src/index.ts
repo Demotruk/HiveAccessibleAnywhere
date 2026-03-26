@@ -43,7 +43,7 @@ if (config.discordBotToken) {
 // Start HBD transfer monitor (shared across both platforms)
 startTransferMonitor(notifiers, db, config);
 
-// Start Telegram polling
+// Start Telegram polling (catch errors so they don't crash Discord)
 bot.start({
   onStart: (botInfo) => {
     console.log(`Telegram bot @${botInfo.username} started (polling mode)`);
@@ -53,6 +53,10 @@ bot.start({
     console.log(`Payment timeout: ${config.paymentTimeoutMinutes} minutes`);
     console.log(`Card output dir: ${config.giftcardOutputDir}`);
   },
+}).catch(err => {
+  console.error('Telegram bot polling failed:', err.message);
+  if (!discordClient || process.env.NODE_ENV === 'production') process.exit(1);
+  console.log('Telegram polling stopped but Discord bot still running (dev mode).');
 });
 
 // Start Discord bot (if configured)

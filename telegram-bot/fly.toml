@@ -9,13 +9,14 @@ primary_region = 'lhr'
 [build]
 
 [env]
+  NODE_ENV = 'production'
   DB_PATH = '/data/bot.db'
   GIFTCARD_OUTPUT_DIR = '/app/giftcard-output'
   GIFT_PRICE_HBD = '0.500'
   PAYMENT_TIMEOUT_MINUTES = '30'
-  # DISCORD_APPLICATION_ID = ''    # Set when Discord bot is ready
-  # OPERATOR_DISCORD_ID = ''       # Set when Discord bot is ready
-  # DISCORD_BOT_TOKEN via: fly secrets set DISCORD_BOT_TOKEN=...
+  DISCORD_APPLICATION_ID = '1486796842288287855'
+  OPERATOR_DISCORD_ID = '162634863118254090'
+  # DISCORD_BOT_TOKEN set via: fly secrets set DISCORD_BOT_TOKEN=...
 
 [processes]
   app = 'node --import tsx src/index.ts'

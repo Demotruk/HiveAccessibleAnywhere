@@ -5,6 +5,7 @@
 import { Bot, type CommandContext, type Context } from 'grammy';
 import type Database from 'better-sqlite3';
 import type { BotConfig } from './config.js';
+import { isTrustedUser } from './db.js';
 import { loadCommand } from './commands/load.js';
 import { stockCommand } from './commands/stock.js';
 import { giftCommand } from './commands/gift.js';
@@ -30,6 +31,22 @@ function operatorOnly(operatorId: number, handler: CmdHandler): CmdHandler {
   };
 }
 
+/**
+ * Middleware that restricts a command to the operator or trusted users.
+ */
+function operatorOrTrusted(operatorId: number, db: Database.Database, handler: CmdHandler): CmdHandler {
+  return async (ctx) => {
+    if (!ctx.from) return;
+    const isOperator = ctx.from.id === operatorId;
+    const isTrusted = isTrustedUser(db, String(ctx.from.id));
+    if (!isOperator && !isTrusted) {
+      await ctx.reply('This command is restricted to the bot operator and trusted users.');
+      return;
+    }
+    await handler(ctx);
+  };
+}
+
 export function createBot(config: BotConfig, db: Database.Database): Bot {
   const bot = new Bot(config.telegramBotToken);
 
@@ -41,7 +58,7 @@ export function createBot(config: BotConfig, db: Database.Database): Bot {
   bot.command('trust', operatorOnly(config.operatorTelegramId, trustCommand(db)));
   bot.command('untrust', operatorOnly(config.operatorTelegramId, untrustCommand(db)));
   bot.command('trusted', operatorOnly(config.operatorTelegramId, trustedCommand(db)));
-  bot.command('share', operatorOnly(config.operatorTelegramId, shareCommand(db)));
+  bot.command('share', operatorOrTrusted(config.operatorTelegramId, db, shareCommand(db)));
 
   // Public commands (gift handles operator vs non-operator internally)
   bot.command('gift', giftCommand(db, config));

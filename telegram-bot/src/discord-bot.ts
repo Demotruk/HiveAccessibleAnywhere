@@ -12,6 +12,7 @@ import {
 } from 'discord.js';
 import type Database from 'better-sqlite3';
 import type { BotConfig } from './config.js';
+import { isTrustedUser } from './db.js';
 import { giftCommand } from './discord-commands/gift.js';
 import { buygiftCommand, handleBuygiftButton } from './discord-commands/buygift.js';
 import { loadCommand } from './discord-commands/load.js';
@@ -80,7 +81,7 @@ export function createDiscordBot(config: BotConfig, db: Database.Database): Clie
     intents: [GatewayIntentBits.Guilds],
   });
 
-  client.once('ready', async () => {
+  client.once('clientReady', async () => {
     console.log(`Discord bot logged in as ${client.user!.tag}`);
 
     // Register slash commands globally
@@ -124,11 +125,22 @@ async function handleSlashCommand(
   db: Database.Database,
   config: BotConfig,
 ): Promise<void> {
-  const operatorCommands = ['load', 'stock', 'setprice', 'share', 'clear', 'trust', 'untrust', 'trusted'];
+  const operatorCommands = ['load', 'stock', 'setprice', 'clear', 'trust', 'untrust', 'trusted'];
+  const operatorOrTrustedCommands = ['share'];
 
   if (operatorCommands.includes(interaction.commandName) && !isOperator(interaction, config)) {
     await replyOperatorOnly(interaction);
     return;
+  }
+
+  if (operatorOrTrustedCommands.includes(interaction.commandName) && !isOperator(interaction, config)) {
+    if (!isTrustedUser(db, interaction.user.id, 'discord')) {
+      await interaction.reply({
+        content: 'This command is restricted to the bot operator and trusted users.',
+        ephemeral: true,
+      });
+      return;
+    }
   }
 
   switch (interaction.commandName) {
