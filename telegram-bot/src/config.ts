@@ -1,8 +1,9 @@
 /**
- * Telegram bot configuration.
+ * Bot configuration.
  *
  * Loads and validates environment variables at startup.
  * Exits with a clear error message if required variables are missing.
+ * Discord fields are optional — if DISCORD_BOT_TOKEN is absent, Discord bot is skipped.
  */
 
 export interface BotConfig {
@@ -22,6 +23,12 @@ export interface BotConfig {
   paymentTimeoutMinutes: number;
   /** SQLite database path */
   dbPath: string;
+  /** Discord Bot Token (optional — Discord bot only starts if set) */
+  discordBotToken?: string;
+  /** Discord Application ID (required if discordBotToken is set) */
+  discordApplicationId?: string;
+  /** Operator's Discord user ID (required if discordBotToken is set) */
+  operatorDiscordId?: string;
 }
 
 export function loadConfig(): BotConfig {
@@ -51,6 +58,22 @@ export function loadConfig(): BotConfig {
     ? nodesRaw.split(',').map(s => s.trim())
     : ['https://api.hive.blog', 'https://api.deathwing.me', 'https://hive-api.arcange.eu'];
 
+  // Discord config (optional — bot only starts if token is provided)
+  const discordBotToken = process.env.DISCORD_BOT_TOKEN;
+  const discordApplicationId = process.env.DISCORD_APPLICATION_ID;
+  const operatorDiscordId = process.env.OPERATOR_DISCORD_ID;
+
+  if (discordBotToken) {
+    const discordMissing: string[] = [];
+    if (!discordApplicationId) discordMissing.push('DISCORD_APPLICATION_ID');
+    if (!operatorDiscordId) discordMissing.push('OPERATOR_DISCORD_ID');
+    if (discordMissing.length > 0) {
+      console.error('DISCORD_BOT_TOKEN is set but these required Discord variables are missing:');
+      for (const name of discordMissing) console.error(`  - ${name}`);
+      process.exit(1);
+    }
+  }
+
   return {
     telegramBotToken: telegramBotToken!,
     operatorTelegramId: parsedOperatorId,
@@ -60,5 +83,8 @@ export function loadConfig(): BotConfig {
     giftPriceHbd: process.env.GIFT_PRICE_HBD || '5.000',
     paymentTimeoutMinutes: parseInt(process.env.PAYMENT_TIMEOUT_MINUTES || '30', 10),
     dbPath: process.env.DB_PATH || './data/bot.db',
+    discordBotToken: discordBotToken || undefined,
+    discordApplicationId: discordApplicationId || undefined,
+    operatorDiscordId: operatorDiscordId || undefined,
   };
 }

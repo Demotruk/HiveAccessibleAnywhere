@@ -13,6 +13,9 @@ primary_region = 'lhr'
   GIFTCARD_OUTPUT_DIR = '/app/giftcard-output'
   GIFT_PRICE_HBD = '0.500'
   PAYMENT_TIMEOUT_MINUTES = '30'
+  # DISCORD_APPLICATION_ID = ''    # Set when Discord bot is ready
+  # OPERATOR_DISCORD_ID = ''       # Set when Discord bot is ready
+  # DISCORD_BOT_TOKEN via: fly secrets set DISCORD_BOT_TOKEN=...
 
 [processes]
   app = 'node --import tsx src/index.ts'
@@ -24,5 +27,5 @@ primary_region = 'lhr'
 [[vm]]
   cpu_kind = 'shared'
   cpus = 1
-  memory_mb = 256
+  memory_mb = 512
   auto_stop_machines = 'off'

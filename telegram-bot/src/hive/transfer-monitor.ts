@@ -7,7 +7,6 @@
 
 import { randomBytes } from 'node:crypto';
 import { config as hiveTxConfig } from 'hive-tx';
-import type { Bot } from 'grammy';
 import type Database from 'better-sqlite3';
 import {
   getPendingPaymentByMemo,
@@ -19,6 +18,7 @@ import {
   releaseCard,
 } from '../db.js';
 import type { BotConfig } from '../config.js';
+import type { PaymentNotifier } from '../notifier.js';
 
 function generateShortCode(): string {
   return randomBytes(6).toString('base64url');
@@ -53,7 +53,7 @@ async function fetchAccountHistory(
   return json.result ?? [];
 }
 
-async function pollTransfers(bot: Bot, db: Database.Database, config: BotConfig): Promise<void> {
+async function pollTransfers(notifiers: Map<string, PaymentNotifier>, db: Database.Database, config: BotConfig): Promise<void> {
   try {
     // Skip polling if no payments are pending
     const pending = db.prepare("SELECT 1 FROM payments WHERE status = 'pending' LIMIT 1").get();
@@ -94,18 +94,12 @@ async function pollTransfers(bot: Bot, db: Database.Database, config: BotConfig)
       reserveCard(db, payment.card_id!, `share-${code}`);
       createSharedLink(db, code, payment.card_id!, payment.telegram_user_id);
 
-      const botInfo = bot.botInfo;
-      const link = `https://t.me/${botInfo.username}?start=gc_${code}`;
-
-      // Send the shareable link to the buyer
-      try {
-        await bot.api.sendMessage(
-          parseInt(payment.telegram_chat_id, 10),
-          `Payment confirmed! Here's your gift card link:\n\n${link}\n\n` +
-          `Share it with the recipient — they'll receive the card when they tap the link.`,
-        );
-      } catch {
-        // Non-critical
+      // Dispatch notification to the correct platform
+      const notifier = notifiers.get(payment.platform);
+      if (notifier) {
+        await notifier.notifyPaymentConfirmed(payment, code);
+      } else {
+        console.error(`No notifier registered for platform "${payment.platform}" (payment ${paymentId})`);
       }
     }
 
@@ -136,7 +130,7 @@ function cleanupExpiredPayments(db: Database.Database): void {
   }
 }
 
-export function startTransferMonitor(bot: Bot, db: Database.Database, config: BotConfig): void {
+export function startTransferMonitor(notifiers: Map<string, PaymentNotifier>, db: Database.Database, config: BotConfig): void {
   // Initialize high-water mark to current latest so we don't process old transfers
   fetchAccountHistory(config.hiveAccount, -1, 1)
     .then(history => {
@@ -148,7 +142,7 @@ export function startTransferMonitor(bot: Bot, db: Database.Database, config: Bo
     .catch(err => console.error('Failed to initialize transfer monitor:', err));
 
   // Poll for new transfers
-  setInterval(() => pollTransfers(bot, db, config), POLL_INTERVAL_MS);
+  setInterval(() => pollTransfers(notifiers, db, config), POLL_INTERVAL_MS);
 
   // Cleanup expired payments
   setInterval(() => cleanupExpiredPayments(db), EXPIRY_CHECK_INTERVAL_MS);

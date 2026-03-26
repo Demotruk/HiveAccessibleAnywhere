@@ -1,7 +1,13 @@
 /**
- * SQLite database layer for Telegram bot state.
+ * SQLite database layer for bot state.
  *
  * Tracks gift card inventory, pending payments, and delivery log.
+ * Supports multiple platforms (Telegram, Discord) via the `platform` column.
+ *
+ * Note: Column names `telegram_user_id` and `telegram_chat_id` in the payments
+ * and trusted_users tables are legacy names retained for SQLite migration safety.
+ * They hold the platform-specific user/channel ID regardless of platform.
+ * The `platform` column disambiguates.
  */
 
 import Database from 'better-sqlite3';
@@ -23,6 +29,8 @@ export interface CardRow {
   delivered_at: string | null;
 }
 
+export type Platform = 'telegram' | 'discord';
+
 export interface PaymentRow {
   id: string;
   telegram_user_id: string;
@@ -36,6 +44,7 @@ export interface PaymentRow {
   confirmed_at: string | null;
   hive_tx_id: string | null;
   card_id: number | null;
+  platform: Platform;
 }
 
 // -- Initialization --
@@ -114,6 +123,16 @@ export function initDatabase(dbPath: string): Database.Database {
 
     CREATE INDEX IF NOT EXISTS idx_shared_links_card ON shared_links(card_id);
   `);
+
+  // Migrate: add platform column to payments and trusted_users (multi-platform support)
+  const migrateTable = (table: string) => {
+    const info = db.pragma(`table_info(${table})`) as { name: string }[];
+    if (!info.some(c => c.name === 'platform')) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN platform TEXT NOT NULL DEFAULT 'telegram'`);
+    }
+  };
+  migrateTable('payments');
+  migrateTable('trusted_users');
 
   return db;
 }
@@ -210,11 +229,12 @@ export function createPayment(
     amountHbd: string;
     expiresAt: string;
     cardId: number;
+    platform?: Platform;
   },
 ): void {
   db.prepare(`
-    INSERT INTO payments (id, telegram_user_id, telegram_chat_id, recipient_user_id, recipient_username, amount_hbd, expires_at, card_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO payments (id, telegram_user_id, telegram_chat_id, recipient_user_id, recipient_username, amount_hbd, expires_at, card_id, platform)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     payment.id,
     payment.telegramUserId,
@@ -224,6 +244,7 @@ export function createPayment(
     payment.amountHbd,
     payment.expiresAt,
     payment.cardId,
+    payment.platform ?? 'telegram',
   );
 }
 
@@ -269,25 +290,28 @@ export function setConfigValue(db: Database.Database, key: string, value: string
 
 // -- Trusted user operations --
 
-export function addTrustedUser(db: Database.Database, telegramUserId: string, addedBy: string, note?: string): boolean {
+export function addTrustedUser(db: Database.Database, telegramUserId: string, addedBy: string, note?: string, platform: Platform = 'telegram'): boolean {
   const result = db.prepare(
-    'INSERT OR IGNORE INTO trusted_users (telegram_user_id, added_by, note) VALUES (?, ?, ?)'
-  ).run(telegramUserId, addedBy, note ?? null);
+    'INSERT OR IGNORE INTO trusted_users (telegram_user_id, added_by, note, platform) VALUES (?, ?, ?, ?)'
+  ).run(telegramUserId, addedBy, note ?? null, platform);
   return result.changes > 0;
 }
 
-export function removeTrustedUser(db: Database.Database, telegramUserId: string): boolean {
-  const result = db.prepare('DELETE FROM trusted_users WHERE telegram_user_id = ?').run(telegramUserId);
+export function removeTrustedUser(db: Database.Database, telegramUserId: string, platform: Platform = 'telegram'): boolean {
+  const result = db.prepare('DELETE FROM trusted_users WHERE telegram_user_id = ? AND platform = ?').run(telegramUserId, platform);
   return result.changes > 0;
 }
 
-export function isTrustedUser(db: Database.Database, telegramUserId: string): boolean {
-  const row = db.prepare('SELECT 1 FROM trusted_users WHERE telegram_user_id = ?').get(telegramUserId);
+export function isTrustedUser(db: Database.Database, telegramUserId: string, platform: Platform = 'telegram'): boolean {
+  const row = db.prepare('SELECT 1 FROM trusted_users WHERE telegram_user_id = ? AND platform = ?').get(telegramUserId, platform);
   return !!row;
 }
 
-export function getTrustedUsers(db: Database.Database): Array<{ telegram_user_id: string; added_at: string; note: string | null }> {
-  return db.prepare('SELECT telegram_user_id, added_at, note FROM trusted_users ORDER BY added_at').all() as any[];
+export function getTrustedUsers(db: Database.Database, platform?: Platform): Array<{ telegram_user_id: string; added_at: string; note: string | null; platform: Platform }> {
+  if (platform) {
+    return db.prepare('SELECT telegram_user_id, added_at, note, platform FROM trusted_users WHERE platform = ? ORDER BY added_at').all(platform) as any[];
+  }
+  return db.prepare('SELECT telegram_user_id, added_at, note, platform FROM trusted_users ORDER BY added_at').all() as any[];
 }
 
 // -- Shared link operations --
