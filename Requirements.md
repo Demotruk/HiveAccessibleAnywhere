@@ -994,17 +994,17 @@ When a non-operator user triggers the bot, it must collect payment before releas
 
 ### Discord Gift Card Bot
 
-⏳ **Not yet implemented.** Design below is speculative — implementation will begin after the Telegram bot is validated in production.
+⏳ **Not yet implemented.** The Telegram bot has been validated in production; Discord implementation is next.
 
 A Discord bot that distributes Propolis gift cards within Discord servers. It serves the same purpose as the Telegram bot — operator-supplied gift cards distributed free or via HBD/BTC payment — but adapted to Discord's interaction model.
 
 **Key differences from Telegram:**
 
 - Discord bots use **slash commands** registered with the Discord API, not plain-text `/command` messages. Commands must be registered on startup and support typed parameters, autocomplete, and descriptions visible in the command picker.
-- Discord has no direct equivalent of Telegram's deep links (`?start=gc_CODE`). Shareable links should instead use **invite-style URLs** that direct users to the bot's server or a channel, combined with a claim command (e.g. `/claim <code>`).
-- Discord DMs require the bot and user to share a server, and users can disable DMs from server members. The bot must handle failed DMs gracefully — e.g. by sending an **ephemeral message** in the channel instructing the user to enable DMs or to use `/claim` in a DM channel with the bot.
+- Discord has no direct equivalent of Telegram's deep links (`?start=gc_CODE`). Shareable codes are distributed out-of-band and redeemed via `/claim <code>` in any server the bot is in, or in a DM with the bot.
+- Discord DMs require the bot and user to share a server, and users can disable DMs from server members. When a DM delivery fails, the bot falls back to a **claim code** (see "DM failure handling" below).
 - Discord supports **ephemeral responses** (visible only to the command invoker). These should be used for payment instructions, error messages, and any sensitive output to avoid cluttering the channel.
-- Discord supports **buttons and interactive components** on messages. The payment flow should use buttons (e.g. "Pay with HBD", "Pay with Bitcoin") rather than requiring a separate command.
+- Discord supports **buttons and interactive components** on messages. The payment flow uses buttons (e.g. "Pay with HBD", "Pay with Bitcoin") rather than text-based instructions.
 - Discord bots authenticate via a **Bot Token** from the Discord Developer Portal, and must be invited to servers via an OAuth2 URL with appropriate permission scopes.
 
 **Core functionality:**
@@ -1021,20 +1021,41 @@ A Discord bot that distributes Propolis gift cards within Discord servers. It se
 Same two payment methods as the Telegram bot:
 
 1. **HBD** — direct transfer to the operator's Hive account with a memo matching the pending transaction
-2. **Bitcoin via v4v.app** — generates a payment link that converts BTC to HBD
+2. **Bitcoin via v4v.app** — generates a Lightning invoice that converts BTC to HBD
 
-**Interaction flow (non-operator):**
+**Interaction flow (purchase via buttons):**
 
-1. User issues `/buygift @recipient` in a server channel
-2. Bot responds with an **ephemeral message** containing payment options as interactive buttons
-3. User clicks a payment button; bot responds (ephemeral) with payment details (HBD address + memo, or v4v.app link)
-4. Bot monitors for payment confirmation on-chain
-5. Once confirmed, bot delivers the gift card images to the recipient via DM and posts a non-ephemeral confirmation in the originating channel
-6. If payment is not received within the timeout period, the reservation expires and the card is released
+1. User issues `/buygift [@recipient]` in a server channel
+2. Bot responds with an **ephemeral embed**: "Gift card for @recipient — 5.000 HBD" with two buttons: **[Pay with HBD]** and **[Pay with Bitcoin]**
+3. User clicks **[Pay with HBD]**:
+   - Bot edits the ephemeral message to show payment details: "Send 5.000 HBD to @hive-account with memo `pay-a1b2c3d4`. Payment expires in 30 minutes." with a **[Cancel]** button
+4. User clicks **[Pay with Bitcoin]**:
+   - Bot calls v4v.app to generate a Lightning invoice
+   - Bot edits the ephemeral message to show the BOLT11 invoice string and a v4v.app payment link, with a **[Cancel]** button
+   - v4v.app handles BTC→HBD conversion and sends HBD to the operator account with the same memo, so the transfer monitor handles it identically to a direct HBD payment
+5. **[Cancel]** button: releases the reserved card and marks the payment as cancelled
+6. Transfer monitor detects the on-chain payment (same 15-second polling as Telegram):
+   - Bot DMs the buyer: "Payment confirmed!" with the gift card images
+   - If a different recipient was specified, bot also DMs the recipient with the card images
+   - Bot posts a non-ephemeral confirmation in the originating channel (no card details — just "Gift card delivered to @recipient!")
+7. If payment is not received within the timeout period, the reservation expires and the card is released
+
+**DM failure handling (claim code fallback):**
+
+Discord users can disable DMs from server members. When a DM delivery attempt fails:
+
+1. Bot generates a claim code using the existing `shared_links` infrastructure (same mechanism as `/share`)
+2. Bot sends an **ephemeral message** to the buyer in the originating channel: "I couldn't DM @recipient. They can claim their card with `/claim ABC123` in a DM with me, or in any server I'm in."
+3. The card stays in "reserved" state, linked to the claim code
+4. The buyer can pass the code to the recipient through any channel they like
+5. Recipient runs `/claim ABC123` — the bot delivers the card images in that context (DM or ephemeral in-channel)
+6. If the claim code is not redeemed within 7 days, the card is released back to inventory
+
+This reuses the `shared_links` table and deep-link redemption logic already built for the Telegram bot.
 
 **Operator commands:**
 
-- `/gift @user` — send a gift card (free, operator only)
+- `/gift @user` — send a gift card (free, operator and trusted users only; other users are redirected to `/buygift`)
 - `/load <batch-id>` — load gift cards from a batch directory (operator only)
 - `/stock` — check inventory counts (ephemeral response)
 - `/setprice <amount>` — set the HBD price per gift card
@@ -1060,7 +1081,7 @@ Since Discord lacks Telegram-style deep links, shareable codes work differently:
 
 **Permissions and security:**
 
-- Operator commands are restricted by Discord user ID (configured at deployment)
+- Operator commands are restricted by Discord user ID (configured at deployment via `OPERATOR_DISCORD_ID` env var)
 - The bot should request only the minimum required Discord permissions: Send Messages, Embed Links, Attach Files, Use Slash Commands
 - Sensitive information (payment details, card images) must only be sent via DM or ephemeral messages — never in public channels
 - The bot should use Discord's built-in **role-based permissions** or command permission overrides to restrict operator commands at the Discord level, in addition to the user ID check
@@ -1069,12 +1090,15 @@ Since Discord lacks Telegram-style deep links, shareable codes work differently:
 
 - Built on **discord.js** (the standard Discord bot library for Node.js)
 - Slash commands must be registered via the Discord API on startup (or via a deploy-commands script)
-- The bot needs a Discord Bot Token and Application ID from the Discord Developer Portal
-- Shares the same SQLite database, Hive transfer monitor, and PDF-to-image pipeline as the Telegram bot
+- The bot needs `DISCORD_BOT_TOKEN` and `DISCORD_APPLICATION_ID` environment variables (from the Discord Developer Portal)
+- Runs in the **same process** as the Telegram bot, sharing the SQLite database, Hive transfer monitor, and PDF-to-image pipeline
 - Card delivery reuses the same `pdf-to-images.ts` conversion; Discord supports sending PNG attachments in DMs
 - The bot should handle Discord's **rate limits** gracefully (Discord enforces per-route rate limits on API calls)
 - Gateway intents required: Guilds, GuildMessages (and potentially GuildMembers if resolving users by mention)
-- Deployment: can run alongside the Telegram bot in the same process or as a separate service; if separate, both should share the same database and card inventory
+
+**Database changes for multi-platform support:**
+
+The existing SQLite schema needs a `platform` column added to the `cards`, `payments`, and `trusted_users` tables to distinguish Telegram vs Discord users. This is backwards-compatible: `ALTER TABLE ADD COLUMN platform TEXT NOT NULL DEFAULT 'telegram'` preserves all existing data. The `shared_links` table does not need a platform column — claim codes are platform-agnostic and redeemable from either bot.
 
 ### Signal Gift Card Bot
 
