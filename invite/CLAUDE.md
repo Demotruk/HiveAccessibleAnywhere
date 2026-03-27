@@ -16,14 +16,14 @@ Sequential screens (no hash routing):
 ## Two Variants — Separate Build Targets
 
 The codebase produces two HTML bundles via Vite multiple entry points:
-- `invite-standard.html` — GitHub Pages, HiveSigner/peakd.com handoff
+- `invite-standard.html` — GitHub Pages, PeakLock/peakd.com handoff
 - `invite-robust.html` — Cloudflare Workers, chunk-fetching + bootstrap file generation
 
 Shared screens (landing, PIN, decryption, username, key backup) are common modules. Variant-specific screens (e.g. `success.ts` vs `success-robust.ts`) are separate files. Each build tree-shakes the other variant's code.
 
 **Standard invites** (unrestricted internet):
 - Uses public Hive API nodes directly
-- After account creation, redirects to peakd.com via HiveSigner OAuth
+- After account creation, opens peakd.com/signin with PeakLock pre-fill (username in URL, posting key auto-copied to clipboard)
 - No proxy infrastructure needed
 
 **Robust invites** (restricted internet):
@@ -59,7 +59,7 @@ Fragment (never sent to server) contains PIN-encrypted data:
 
 - Key backup step must be prominently enforced — users skip it
 - Account creation can take 10-30s (cold start + on-chain TX) — show progress + time estimate
-- HiveSigner handoff has friction — upstream improvements pending (@asgarth PeakLock deep link, @good-karma HiveSigner username param)
+- PeakLock deep link implemented by @asgarth — peakd.com/signin?mode=peaklock&account=<username>&r=/trending
 - Each screen is a drop-off point — minimize user actions
 
 ## Build

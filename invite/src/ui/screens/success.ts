@@ -1,29 +1,25 @@
 /**
  * Success screen — account created!
  *
- * For standard invites: guides the user to log into peakd.com via HiveSigner.
- * Shows username + posting key with copy buttons, then a redirect to HiveSigner.
- *
- * For future robust invites: will link to Propolis wallet with pre-configured
- * proxy endpoints (via localStorage handoff).
+ * For standard invites: guides the user to log into peakd.com via PeakLock.
+ * Auto-copies posting key to clipboard, then opens peakd.com/signin with
+ * username pre-filled via query parameter. User pastes key and sets a PIN.
  */
 
 import type { ScreenFn } from '../../types';
 import { t, fmt } from '../locale';
 
 /**
- * Build the HiveSigner OAuth URL for logging into peakd.com.
- * After successful auth, HiveSigner redirects back to peakd.com.
+ * Build the PeakLock signin URL for peakd.com.
+ * Pre-fills the username and login mode; redirects to /trending after login.
  */
-function buildHiveSignerUrl(): string {
+function buildPeakdSigninUrl(username: string): string {
   const params = new URLSearchParams({
-    client_id: 'peakd.app',
-    redirect_uri: 'https://peakd.com/callback/hivesigner',
-    scope: 'posting',
-    response_type: 'code',
-    state: '/',
+    mode: 'peaklock',
+    account: username,
+    r: '/trending',
   });
-  return `https://hivesigner.com/oauth2/authorize?${params.toString()}`;
+  return `https://peakd.com/signin?${params.toString()}`;
 }
 
 /** Copy text to clipboard and briefly update button label. */
@@ -44,7 +40,7 @@ export const SuccessScreen: ScreenFn = (container, state) => {
   const username = result.account;
   const postingKey = state.keys!.posting.wif;
   const shortTx = result.tx_id ? result.tx_id.slice(0, 16) + '...' : '';
-  const hiveSignerUrl = buildHiveSignerUrl();
+  const peakdUrl = buildPeakdSigninUrl(username);
 
   // For future robust invites: pre-configure proxy endpoints for the wallet
   try {
@@ -66,12 +62,6 @@ export const SuccessScreen: ScreenFn = (container, state) => {
 
       <p class="sm mb">${t.success_step_copy}</p>
 
-      <label>${t.success_username_label}</label>
-      <div class="copy-row">
-        <div class="mono-box">${username}</div>
-        <button class="copy-btn btn-s" id="copy-user">${t.success_copy}</button>
-      </div>
-
       <label>${t.success_posting_label}</label>
       <div class="copy-row">
         <div class="mono-box" style="font-size:.7rem">${postingKey}</div>
@@ -80,11 +70,11 @@ export const SuccessScreen: ScreenFn = (container, state) => {
 
       <p class="sm mb">${t.success_step_login}</p>
 
-      <a href="${hiveSignerUrl}" target="_blank" rel="noopener" id="hs-link">
-        <button class="btn-ok">${t.success_hivesigner_btn}</button>
+      <a href="${peakdUrl}" target="_blank" rel="noopener" id="peakd-link">
+        <button class="btn-ok">${t.success_peakd_btn}</button>
       </a>
 
-      <p class="xs mt1 mt">${t.success_hivesigner_note}</p>
+      <p class="xs mt1 mt">${t.success_peakd_note}</p>
     </div>
 
     <div class="card">
@@ -92,7 +82,14 @@ export const SuccessScreen: ScreenFn = (container, state) => {
     </div>
   </div>`;
 
-  // Attach copy handlers
-  attachCopyHandler(container, 'copy-user', username);
+  // Attach copy handler for posting key
   attachCopyHandler(container, 'copy-key', postingKey);
+
+  // Auto-copy posting key to clipboard when the login button is clicked
+  const peakdLink = container.querySelector('#peakd-link') as HTMLAnchorElement | null;
+  if (peakdLink) {
+    peakdLink.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(postingKey); } catch { /* clipboard may not be available */ }
+    });
+  }
 };

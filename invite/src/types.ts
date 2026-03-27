@@ -14,7 +14,7 @@ export interface GiftCardPayload {
   promiseParams?: Record<string, unknown>;
   /** Compact-encoded Merkle inclusion proof */
   merkleProof?: string;
-  /** Card variant: 'standard' (HiveSigner redirect) or 'robust' (proxy + bootstrap) */
+  /** Card variant: 'standard' (PeakLock login on peakd.com) or 'robust' (proxy + bootstrap) */
   variant: 'standard' | 'robust';
   /** Wallet locale for robust invites (determines which on-chain wallet to fetch) */
   locale?: string;

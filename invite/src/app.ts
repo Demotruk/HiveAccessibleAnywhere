@@ -49,6 +49,25 @@ export class InviteApp {
   }
 
   private detectFragment(): void {
+    // Dev-only: ?dev-success skips to success screen with mock data
+    if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('dev-success')) {
+      this.state.payload = {
+        token: 'test', provider: 'demotruktest27', serviceUrl: '', endpoints: [],
+        batchId: 'test', expires: '', signature: '', promiseType: 'account-creation',
+        variant: 'standard',
+      };
+      this.state.username = 'testuser123';
+      this.state.keys = {
+        owner:   { wif: '5JTestOwnerKeyxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', pub: 'STM...' },
+        active:  { wif: '5JTestActiveKeyxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', pub: 'STM...' },
+        posting: { wif: '5JTestPostingKeyxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', pub: 'STM...' },
+        memo:    { wif: '5JTestMemoKeyxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', pub: 'STM...' },
+      };
+      this.state.claimResult = { account: 'testuser123', tx_id: 'abc123def456abc123def456abc123def456abc1' };
+      this.showScreen('success');
+      return;
+    }
+
     const hash = window.location.hash.slice(1); // strip '#'
     if (hash) {
       this.state.encryptedBlob = hash;

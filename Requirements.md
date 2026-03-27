@@ -219,54 +219,28 @@ The invite app is deliberately separate from the wallet to keep both codebases f
 **Gift card variants:**
 Gift cards come in two variants, determined at batch generation time. The variant is a batch-level attribute stored in the encrypted payload as the `variant` field.
 
-1. **Standard invites** — for countries with unrestricted internet access. The encrypted payload does not include proxy endpoints. The invite app uses public Hive API nodes directly for on-chain operations (signature verification, username availability checks). After account creation, the invite app redirects the user to peakd.com via HiveSigner OAuth login — the target end state is the user logged into peakd.com, on any device. PeakLock (Peakd's built-in browser key storage) is available as a fallback. The gift card service does not enroll the new user in the proxy endpoint feed. Standard invites are simpler to operate: the provider does not need proxy infrastructure, only a gift card service and sufficient account creation tokens.
+1. **Standard invites** — for countries with unrestricted internet access. The encrypted payload does not include proxy endpoints. The invite app uses public Hive API nodes directly for on-chain operations (signature verification, username availability checks). After account creation, the invite app opens `peakd.com/signin?mode=peaklock&account=<username>&r=/trending` with the posting key auto-copied to clipboard — the user pastes their key and sets a 5-digit PIN to log in via PeakLock (Peakd's built-in non-custodial browser key storage). The gift card service does not enroll the new user in the proxy endpoint feed. Standard invites are simpler to operate: the provider does not need proxy infrastructure, only a gift card service and sufficient account creation tokens.
 
    **Standard invite handoff — staged onboarding:**
    The handoff prioritises getting the user active on Hive immediately, with security upgrades deferred to a follow-up prompt.
 
    *Stage 1 — Immediate (seconds after account creation):*
-   The invite app shows a congratulations screen confirming the account exists on-chain, then guides the user to log into peakd.com using **HiveSigner** — an open-source OAuth2 provider that requires no install or extension. The invite app redirects the user to HiveSigner's import page with peakd.com pre-configured as the OAuth callback. The user enters their username and posting key, clicks Login, and is redirected back to peakd.com fully authenticated. The user is browsing Hive within a minute of account creation.
+   The invite app shows a congratulations screen confirming the account exists on-chain, then guides the user to log into peakd.com using **PeakLock** — Peakd's built-in browser key storage. The invite app auto-copies the posting key to clipboard and opens `peakd.com/signin?mode=peaklock&account=<username>&r=/trending`. The username is pre-filled; the user pastes their posting key and sets a 5-digit PIN. PeakLock stores keys non-custodially in the browser's localStorage. The user is browsing Hive within a minute of account creation.
 
-   **PeakLock** (Peakd's built-in browser key storage) remains available as a fallback option if HiveSigner is unavailable or if a PeakLock deep link feature is implemented by the Peakd team (see implementation notes below).
+   **PeakLock** (Peakd's built-in browser key storage) is the primary login method. The invite app opens `peakd.com/signin?mode=peaklock&account=<username>&r=/trending` with the posting key auto-copied to clipboard. The user pastes their key and sets a 5-digit PIN. PeakLock deep link support was added by @asgarth (March 2026).
 
    *Stage 2 — Follow-up (days later, optional):*
    The gift card service sends a small transfer (e.g. 0.001 HBD) to the new account with a welcome memo containing a link to Hive Keychain setup instructions. This appears in the user's transaction history on Peakd, serving as a gentle nudge to upgrade their security. The memo could link to a guide for installing the Hive Keychain mobile app (Android/iOS) or browser extension (Chrome/Firefox/Brave), which provides better key management and multi-app support than HiveSigner or PeakLock.
 
-   *HiveSigner implementation notes (investigated March 2026):*
-   HiveSigner is an open-source (MIT, `ecency/hivesigner-ui`) OAuth2 provider. Its `/import` page accepts query parameters: `client_id`, `redirect_uri`, `scope`, `response_type`, `state`, `authority`. The form has two fields (username, private key) and an optional "Save and encrypt" checkbox. After successful login, the user is redirected back to the callback URL (peakd.com) with an authorization code.
+   *PeakLock implementation (March 2026):*
+   PeakLock is Peakd's built-in browser key storage. It stores posting keys encrypted with a 5-digit PIN in the browser's localStorage (non-custodial). @asgarth added query-string login support: `peakd.com/signin?mode=peaklock&account=<username>` pre-fills the username and opens the PeakLock login form directly. An `&r=<path>` parameter redirects after login (e.g. `&r=/trending`).
 
-   Confirmed behaviour:
-   - The `&username=` URL parameter is **not** currently supported (confirmed by source code review — the username is stored in Vuex, not read from the URL)
-   - If `scope=posting` and the client app (peakd.app) is not in the account's posting authorities, HiveSigner requires an active key or master password to add the authority — a posting key alone will trigger an error
-   - Keys are stored encrypted on HiveSigner's servers (semi-custodial), not in the browser
-   - The OAuth redirect flow provides a clean UX: invite app → HiveSigner → peakd.com, all automatic
+   The invite app flow (~2 user actions): tap "Log into Peakd" button (auto-copies posting key to clipboard) → peakd.com opens with username pre-filled → paste posting key → set 5-digit PIN → done.
 
-   Step comparison (HiveSigner vs PeakLock):
-   - **HiveSigner** (~3-5 user actions): paste username, paste key, click Login, [possibly click Authorize if peakd.app not pre-authorized], auto-redirect to peakd.com
-   - **PeakLock** (~7 user actions): click link to peakd.com, click login icon, click PeakLock, click Add Account, paste username, paste posting key, enter 5-digit PIN
+   *HiveSigner (deprecated for standard invites):*
+   HiveSigner was previously used as the OAuth login method. It required ~3-5 user actions (paste username, paste key, click Login, possibly authorize peakd.app) and stored keys semi-custodially on HiveSigner's servers. Replaced by PeakLock direct login which is simpler (fewer steps, no middleman redirect) and non-custodial.
 
-   Options for reducing HiveSigner friction, in order of preference:
-   - **Pre-authorize peakd.app during account creation** *(no cooperation needed)*: Add `["peakd.app", 1]` to the posting authority's `account_auths` in the `create_claimed_account` operation. This eliminates the authorization step entirely — the user only needs to paste username + posting key + click Login (~3 actions). This is the recommended approach.
-   - **Submit PR for `&username=` URL parameter** *(no cooperation needed — open source)*: A trivial change to `import.vue` to read `this.$route.query.username` and initialize `PersistentFormsModule.import.username`. Would reduce to ~2 user actions (paste key + click Login) when combined with pre-authorization.
-   - **Programmatic form fill via native input setter** *(technically proven but impractical)*: Works from same-origin JavaScript but blocked by cross-origin restrictions from the invite app domain.
-
-   *PeakLock implementation notes (investigated March 2026):*
-   PeakLock is a Vue 2 component within peakd.com that stores posting keys encrypted with a 5-digit PIN in the browser's localStorage. The PeakLock "Add Account" form has three fields: Hive account (text), Hive Posting Key (password), and a 5-digit PIN code. Investigation confirmed that form fields can be programmatically pre-filled using native input value setters with Vue-compatible event dispatch — but only from JavaScript running on peakd.com itself. The invite app (hosted on a different domain) cannot manipulate peakd.com's DOM due to cross-origin restrictions.
-
-   Confirmed constraints:
-   - PeakLock source is not publicly available (shared privately by the PeakD team with select developers)
-   - No URL parameter or deep link support exists — `peakd.com/?login=peaklock&username=x` has no effect
-   - No `postMessage` API for cross-origin PeakLock interaction
-   - The login modal is triggered only by clicking the UI login button → PeakLock → Add Account
-
-   PeakLock fallback options:
-   - **Deep link with pre-fill** *(requires Peakd cooperation — feature request to @asgarth)*: A URL like `peakd.com/?action=peaklock&account=username` that auto-opens the PeakLock modal with the username pre-filled. The user would only need to paste their posting key and choose a PIN. This is technically straightforward on Peakd's side (the form-fill code already works, it just needs a URL trigger) and benefits any Hive onboarding tool, not just this project.
-   - **Clipboard + instructions** *(works today, no cooperation needed)*: Copy the posting key to clipboard, open peakd.com in a new tab, and display step-by-step instructions: (1) click login icon, (2) click PeakLock, (3) click Add Account, (4) type username (shown prominently in invite app), (5) paste key, (6) choose PIN, (7) Save. The invite app retains the username and key in memory so they can be re-displayed at any point.
-
-   *Tradeoffs — HiveSigner vs PeakLock:*
-   HiveSigner is semi-custodial (keys stored encrypted on HiveSigner's servers) while PeakLock is non-custodial (keys in browser localStorage). For new users in the immediate handoff, the HiveSigner convenience tradeoff is acceptable — the Stage 2 follow-up encourages upgrading to Hive Keychain, which is fully non-custodial and replaces both HiveSigner and PeakLock.
-
-   The handoff flow should be as hand-held as possible — the user has just created their first Hive account and may have no prior blockchain experience. Each step should include clear instructions and confirmation that the step was completed before advancing. The invite app retains the user's keys in memory during this flow so they can be copied or re-displayed at each stage; keys are cleared from memory once the user confirms they have successfully logged into Peakd, or when the page is closed.
+   The handoff flow should be as hand-held as possible — the user has just created their first Hive account and may have no prior blockchain experience. The invite app retains the user's keys in memory during this flow so they can be copied or re-displayed; keys are cleared from memory when the page is closed.
 
 2. **Robust invites** — for countries with restrictive internet where Hive infrastructure may be blocked. The encrypted payload includes one or more proxy endpoint URLs and a locale identifier. The invite app uses these proxy endpoints for all on-chain operations during onboarding. After account creation, the invite app fetches the locale-appropriate Propolis wallet directly from the Hive blockchain (using the same `bridge.get_discussion` chunk-fetching mechanism as the wallet bootstrap — see section 1.2.1) and transitions seamlessly into the wallet via `document.open()/write()/close()`. The gift card service also enrolls the new user in the proxy endpoint feed. Robust invites require the full Phase 2 infrastructure (proxy network, endpoint feed, Propolis wallet published on-chain).
 
@@ -463,8 +437,7 @@ This creates a verifiable chain: batch declaration (merkle root + count + promis
 - Gift cards have a shelf life determined by both the token expiry (default: 1 year) and the longevity of the invite app URL and service URL
 - The gift card service must be reachable at redemption time — if the service is down, the token remains valid for later use (assuming it has not expired)
 - The initial HP delegation is a cost borne by the gift card provider; it should be small enough to enable basic transactions but represents a capital commitment that is recovered when the delegation is eventually removed
-- After account creation, the user must transition from the invite app to their target wallet experience. For robust invites, the invite app generates a personalized bootstrap file for the user to save, then fetches the wallet from the blockchain and transitions into it seamlessly via `document.open()/write()/close()` — no cross-domain redirect or manual steps required. For standard invites, the invite app redirects the user to peakd.com via HiveSigner OAuth — this involves a cross-domain redirect where the user must enter their username, paste their posting key, and click Login (~3 user actions). If peakd.app is pre-authorized during account creation, no additional authorization step is needed. The invite app must retain keys in memory throughout this handoff so the user can re-access them at each step
-- **HiveSigner username pre-fill limitation**: HiveSigner does not currently read a `username` URL parameter (confirmed by source code review, March 2026). Since HiveSigner is open source (MIT, `ecency/hivesigner-ui`), a PR can be submitted to add this trivial feature. PeakLock likewise has no URL-based pre-fill (closed source, feature request made to @asgarth)
+- After account creation, the user must transition from the invite app to their target wallet experience. For robust invites, the invite app generates a personalized bootstrap file for the user to save, then fetches the wallet from the blockchain and transitions into it seamlessly via `document.open()/write()/close()` — no cross-domain redirect or manual steps required. For standard invites, the invite app opens `peakd.com/signin?mode=peaklock&account=<username>&r=/trending` with the posting key auto-copied to clipboard — the user pastes their key and sets a 5-digit PIN (~2 user actions). PeakLock stores keys non-custodially in the browser's localStorage. The invite app retains keys in memory throughout this handoff so the user can re-access them if needed
 - **TLS certificate acceptance for LAN deployments:** When the gift card service runs on a local network (e.g. internet café, community centre, offline kiosk) rather than behind a public domain with a valid certificate, the invite app's `fetch()` requests to the service will silently fail unless the user has previously accepted the self-signed certificate warning by visiting the service URL directly. This is a browser security constraint — `fetch()` to an untrusted HTTPS origin is rejected without user interaction, and the invite app cannot trigger the browser's certificate acceptance UI programmatically. A future UX improvement could detect LAN/IP-based service URLs and prompt the user to verify the connection (opening the service health endpoint in a new tab) before attempting the claim. This is not an issue for public deployments with valid TLS certificates (e.g. Let's Encrypt)
 
 **Open questions (robust invites):**
@@ -584,15 +557,13 @@ Key pain points identified:
 - **QR scanning unreliable:** Tester A's phone camera failed to scan the QR code initially, requiring a workaround. QR codes must be tested across a range of devices and camera apps.
 - **Key backup screenshot not taken:** Tester B did not save the screenshot at the key backup step and could not proceed to account creation. The screenshot step needs to be more prominent or enforced — the current emphasis (commit `014df33`) may help but was not yet deployed during this test. Tester B was using an older version without the emphasis. Options to further increase emphasis: (a) flashing "Important" text animation (red/yellow pulse), (b) pulsing border/glow on the banner, (c) one-time entrance animation (shake/slide), (d) blocking confirmation — require user to check "I've taken a screenshot" before proceeding. Option (d) is most effective but adds friction; could combine with (a) or (b).
 - **Account creation slow / failed:** Account creation was consistently slow for all testers who reached that step. Investigation shows two compounding causes: (1) the giftcard service on Fly.io is configured with `min_machines_running: 0` and `auto_stop_machines: 'stop'`, meaning cold starts of 10-30+ seconds before the service can even process a request; (2) the on-chain `create_claimed_account` transaction adds 3-10 seconds on top. ~~The wallet has no timeout, no retry logic, and no pre-flight wake-up call — the `/health` endpoint exists on the service but is never used by the client. A warm-up ping earlier in the flow (e.g. during username selection or validation) would mask cold-start latency.~~ ✅ **Partially addressed** — the warm-up ping has been moved to the PIN entry screen, giving the service several screens of warm-up time before the `/claim` request. Timeout handling with a retry button has been added to the claiming screen (60-second timeout). Estimated wait time UX is not yet implemented.
-- **HiveSigner handoff incomplete:** Tester A created an account and proceeded to HiveSigner but did not complete login. The multi-step handoff (copy username, copy key, navigate to HiveSigner, paste credentials) is too many steps for a first-time user with no blockchain experience. Two improvements are in progress from upstream maintainers:
-  - **Option A — PeakLock direct login (preferred):** @asgarth (peakd.com) will add a query-string login endpoint so the invite app can open `peakd.com/?username=foo&login=peaklock` directly. The user only needs to paste one key. Eliminates the HiveSigner middleman entirely — fewer redirects, user lands on the destination site immediately. Pending @asgarth's implementation (peakd.com is closed-source).
-  - **Option B — HiveSigner username pre-fill (fallback):** @good-karma (hivesigner) is open to a PR adding `&username=` query parameter support to the OAuth flow. The invite app would copy the posting key to clipboard before opening HiveSigner, reducing the flow to: click button → paste key → login. PR target: `ecency/hivesigner-ui`. Security consideration: the username parameter must only pre-fill the input field, never bypass authentication or auto-submit.
+- ~~**HiveSigner handoff incomplete:** Tester A created an account and proceeded to HiveSigner but did not complete login. The multi-step handoff (copy username, copy key, navigate to HiveSigner, paste credentials) is too many steps for a first-time user with no blockchain experience.~~ ✅ **Fixed** — replaced HiveSigner with PeakLock direct login. The invite app now opens `peakd.com/signin?mode=peaklock&account=<username>&r=/trending`, auto-copies the posting key to clipboard, and the user only needs to paste their key and set a 5-digit PIN (~2 user actions). Implemented after @asgarth added query-string login support to peakd.com (March 2026).
 - **Overall flow too clunky:** The end-to-end process has too many discrete steps requiring user action. Each step is a drop-off point. The flow should be streamlined to minimise the number of user decisions and manual actions between scanning the QR and reaching a usable Hive experience.
 
 **Additional UX improvements (standard invite flow):**
 
 - ~~**Step progress indicator:** Users have no sense of where they are in the flow or how many steps remain. A simple step counter or progress bar (e.g. "Step 2 of 5") at the top of each screen would set expectations and reduce abandonment. The flow has 5 user-facing stages: PIN → Verifying → Username → Backup → Claiming/Success.~~ ✅ **Done** — step progress bar implemented.
-- **Auto-copy posting key on HiveSigner redirect:** Copy buttons are implemented for both username and posting key on the success screen, with visual "Copied" feedback. However, the posting key is not auto-copied when the HiveSigner tab opens — the user must click the copy button separately before clicking the HiveSigner link. Auto-copy on redirect would further reduce friction.
+- ~~**Auto-copy posting key on HiveSigner redirect:** Copy buttons are implemented for both username and posting key on the success screen, with visual "Copied" feedback. However, the posting key is not auto-copied when the HiveSigner tab opens — the user must click the copy button separately before clicking the HiveSigner link. Auto-copy on redirect would further reduce friction.~~ ✅ **Done** — posting key is auto-copied to clipboard when the user clicks the PeakLock login button.
 - **Estimated wait time on claiming/verifying screens:** Not yet implemented. The claiming screen shows "Connecting..." / "Claiming account..." with a spinner but no time estimate. Adding "This usually takes 10–20 seconds" would reduce perceived abandonment.
 - ~~**Timeout with actionable message:** Neither the verifying nor claiming screen has visible timeout handling. After ~30 seconds, show an actionable message: "This is taking longer than usual — your gift card is still valid. You can retry or try again later." rather than spinning indefinitely.~~ ✅ **Partially done** — the claiming screen detects a 60-second timeout and shows a retry button with guidance. The verifying screen has error handling with retry but no explicit timeout.
 - ~~**Service warm-up at PIN entry:** The `/health` warm-up ping currently fires on the verifying screen. Moving it to the PIN entry screen gives Fly.io 2–3 additional screens of warm-up time (PIN entry + verifying + username selection) before the `/claim` request, further masking cold-start latency.~~ ✅ **Done** — warm-up ping moved to PIN entry screen.
@@ -878,14 +849,54 @@ The follow-up should be non-intrusive and timed appropriately — e.g. after the
 
 ### Gift Card Purchases via Transfer
 
-Allow users to purchase gift cards by transferring Hive or HBD to the gift card provider account. If the transfer amount meets a configurable price threshold and the memo contains an email address, the gift card service produces a gift card and emails it to that address. The gift card is redeemable by the main gift card provider account.
+Allow users to purchase gift cards by transferring Hive or HBD to the gift card provider account. The gift card service monitors the provider account for incoming transfers, generates a gift card, and emails it to the recipient address specified in the memo.
 
 To support this, the gift card service may also need to claim accounts using the alternative method that consumes Hive tokens (via `account_create` or the fee-based path), rather than relying solely on RC-based `claim_account` tokens.
 
-**Later enhancements:**
-- Accept additional arguments in the transfer memo beyond the email address, such as:
-  - A chosen number of cards (e.g. bulk purchase)
-  - A specific card design or template
+**Transfer memo format:**
+
+The memo must be encrypted using Hive's native encrypted memo mechanism (`#` prefix). This is essential because transfer memos are permanently public on the blockchain — an unencrypted email address would be a permanent privacy leak. Wallets like Peakd and Hive Keychain support sending encrypted memos natively. The gift card service decrypts using the provider account's memo private key.
+
+The decrypted memo contains the recipient email address. Later enhancements may accept additional arguments beyond the email address, such as:
+- A chosen number of cards (e.g. bulk purchase)
+- A specific card design or template
+- A locale preference for robust invites
+
+The service rejects transfers with unencrypted memos containing email-like strings, returning a refund with a memo explaining that encryption is required.
+
+**Price and validation:**
+
+The transfer amount must meet a configurable price threshold (e.g. 3.000 HBD per invite). The service should:
+- Refund transfers below the price threshold, with an explanatory memo
+- Refund transfers when invite stock is exhausted, with an explanatory memo
+- Refund transfers with invalid or unparseable memos
+- Handle overpayment: either refund the excess, or issue multiple cards if the amount covers more than one (TBD — operator-configurable behaviour)
+- All refund memos should be encrypted back to the buyer
+
+**Email delivery:**
+
+The service sends invite emails using a transactional email provider via HTTP API (not raw SMTP). Candidates include SendGrid, Postmark, AWS SES, and Mailgun. Key considerations:
+
+- *Deliverability* — transactional email services handle SPF/DKIM/DMARC, bounce management, and sender reputation automatically. Without this, invite emails are likely to land in spam, especially since they contain links and images (both spam triggers).
+- *Architecture fit* — the gift card service runs on Fly.io. HTTP API integration (single env var for the API key) is simpler and more reliable than SMTP connections from containers.
+- *Email content* — what to include in the email is TBD. Options range from a direct invite link + PIN in the email body, to an attached PDF card image, to a link-only approach. Attachments are heavier spam signals. Inline images or a simple link with the PIN may deliver more reliably.
+- *Sender identity* — requires a verified sender domain. Whether this is the provider's own domain, a shared "Hive Invites" domain, or a project-level domain (e.g. `hiveaccessible.com`) is TBD. The sender should have a valid reply-to address for recipient questions.
+- *Regulatory* — CAN-SPAM and GDPR technically apply even to transactional email. Single one-off invite emails are low risk, but bulk purchase flows (where one buyer sends many invites) need care — the recipients did not opt in, so the email should clearly identify the sender (the buyer's Hive account) and avoid marketing language.
+- *Cost* — most providers have free tiers sufficient for early usage (SendGrid: 100/day, Postmark: 100/month, SES: ~$0.10/1,000). Provider choice can be deferred.
+
+**Confirmation:**
+
+After successfully generating and sending the invite email, the service sends a small transfer (e.g. 0.001 HBD) back to the buyer with an encrypted memo confirming delivery (e.g. "Invite sent to r\*\*\*\*\*@example.com"). This provides on-chain confirmation without fully exposing the recipient's email.
+
+**Gift card variant:**
+
+Which variant (standard vs robust) the purchased card uses is determined by the provider's service configuration, not by the buyer. The provider configures their service to issue one variant or the other (or could expose this as a memo argument in a later enhancement).
+
+**Rate limiting and abuse prevention:**
+
+- Per-account rate limits on purchases (e.g. max N invites per hour/day) to prevent abuse
+- Optional blocklist for accounts that have sent spam invites
+- The service should log purchase events for operator review
 
 ### Backup Restore App
 
