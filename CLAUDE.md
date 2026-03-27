@@ -87,8 +87,8 @@ Security: Only comments from the publisher account are processed. All chunks ver
 ## Git Workflow
 
 - `develop` branch for active work
-- `main` branch for production
-- **Never merge to main without asking permission first**
+- `master` branch for production
+- **Never merge to master without explicit user permission** — always ask first, even if the user just asked you to push develop
 - Tagging and production publishing also require explicit approval
 - Dev builds → `propolis-dev` account; production → `propolis-publish`
 
