@@ -9,6 +9,9 @@ giftcard/data/*.db-wal
 giftcard/data/*.db-shm
 scripts/giftcard-output/
 
+# Drafts (blog posts, charts — working files)
+docs/drafts/
+
 # OS
 .DS_Store
 Thumbs.db
