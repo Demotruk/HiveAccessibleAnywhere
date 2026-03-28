@@ -19,7 +19,7 @@ import { getTokenWithBatch, markTokenSpent, isTokenSpent, markTokenSpentByHash, 
 import { verifyMerkleProof, verifyCardSignature, decodeMerkleProof } from '../crypto/signing.js';
 import { fetchBatchDeclaration } from '../hive/batch-lookup.js';
 import { isValidUsername } from '../hive/username.js';
-import { createAccountFull, isUsernameAvailable, type PublicKeys } from '../hive/account.js';
+import { createAccountFull, isUsernameAvailable, type PublicKeys, type CreationMethod } from '../hive/account.js';
 
 /**
  * Compute the SHA-256 hash of a token for inclusion in on-chain fulfillment
@@ -251,7 +251,7 @@ async function handleAccountCreation(
 
     console.log(
       `[CLAIM OK] @${body.username} | Token: ${body.token.slice(0, 8)}... | ` +
-      `Mode: ${validated.mode} | ` +
+      `Mode: ${validated.mode} | Method: ${result.method} | ` +
       `TX: ${result.tx_id.slice(0, 12)}... | ` +
       `Delegation: ${result.delegationOk ? 'OK' : 'FAILED'} | ` +
       `IP: ${ip}`
@@ -261,6 +261,7 @@ async function handleAccountCreation(
       success: true,
       account: body.username,
       tx_id: result.tx_id,
+      method: result.method,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
