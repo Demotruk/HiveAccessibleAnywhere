@@ -811,6 +811,30 @@ Phase 2 browser testing is deferred until the proxy infrastructure exists to act
 
 ## Future Considerations
 
+### Customizable Post-Claim Onboarding Flows
+
+The invite app currently sends all newly onboarded users to PeakD (standard invites) or the Propolis wallet (robust invites). Hive service providers — games, video platforms, finance apps — would benefit from directing new users into their own application instead.
+
+**Goal:** Allow invite providers to select from a set of hardcoded destination options built into the invite app, without forking. The provider specifies which destination at batch generation time, and the invite app handles the appropriate handoff after account creation.
+
+**Hardcoded destinations** (initial set, expanded over time):
+- PeakD (current default for standard invites)
+- Propolis wallet (current default for robust invites)
+- 3Speak
+- Splinterlands
+- LeoFinance
+- Ecency
+
+Each destination includes its own branded success screen, relevant instructions, and the appropriate key handoff mechanism (e.g. HiveSigner, PeakLock, or Hive Keychain prompt).
+
+**Design considerations:**
+
+- **Configuration source:** The destination is embedded in the invite payload at batch generation time. Different batches from the same provider can target different apps.
+- **Backwards compatibility:** Invites generated before this feature exists must continue to work. The invite app falls back to the current default flow when no destination is specified in the payload.
+- **Adding new destinations:** New options require a code change to the invite app. Service providers who want to be included can request addition to the hardcoded list. This keeps the app simple and avoids open-redirect risks.
+
+**Implementation scope:** Future consideration. Today, providers who want custom onboarding flows can fork the invite app.
+
 ### Optional Email Collection During Onboarding
 
 The invite app should support a lightweight mechanism for collecting user contact details to enable follow-up communication. To avoid adding friction to the onboarding flow, this should be presented **during the account creation wait** — while the spinner is displayed and the user is already waiting for the on-chain operation to complete. This is otherwise idle time from the user's perspective, making it a natural moment to ask.
