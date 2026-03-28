@@ -7,6 +7,7 @@
 
 import { Transaction, PrivateKey, config as hiveTxConfig } from 'hive-tx';
 import type { GiftcardConfig } from '../config.js';
+import { getSigningKey } from '../config.js';
 
 // -- Types --
 
@@ -47,15 +48,61 @@ function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// -- Token count cache --
+
+/**
+ * Tiered TTL for pending account token cache. Higher counts mean the provider
+ * is far from exhaustion, so we query less frequently. Low counts need frequent
+ * checks to catch the zero-token transition promptly.
+ */
+function tokenCacheTtlMs(count: number): number {
+  if (count > 1000) return 24 * 60 * 60 * 1000; // 24 hours
+  if (count > 100)  return  4 * 60 * 60 * 1000;  //  4 hours
+  if (count > 10)   return      30 * 60 * 1000;   // 30 minutes
+  if (count > 0)    return       5 * 60 * 1000;    //  5 minutes
+  return 0;                                         //  never cache zero — always re-check
+}
+
+let cachedTokenCount: number | null = null;
+let cacheExpiresAt = 0;
+
+/**
+ * Notify the cache that a token was just consumed by create_claimed_account.
+ * Decrements the cached count so subsequent calls see the updated value
+ * without an RPC round-trip.
+ */
+function decrementCachedTokenCount(): void {
+  if (cachedTokenCount !== null && cachedTokenCount > 0) {
+    cachedTokenCount--;
+    // If the decremented count crosses into a shorter TTL tier, let it
+    // expire sooner by recalculating. This ensures we start querying more
+    // frequently as we approach zero.
+    const remaining = cacheExpiresAt - Date.now();
+    const newTtl = tokenCacheTtlMs(cachedTokenCount);
+    if (newTtl < remaining) {
+      cacheExpiresAt = Date.now() + newTtl;
+    }
+  }
+}
+
 // -- Queries --
 
 /**
  * Get the number of pending (unclaimed) account creation tokens for a provider.
  * Returns the `pending_claimed_accounts` field from the provider's on-chain account.
+ *
+ * Results are cached with a tiered TTL: high token counts cache for up to 24h,
+ * low counts for minutes, and zero is never cached.
  */
 export async function getPendingAccountTokens(
   config: GiftcardConfig,
 ): Promise<number> {
+  // Return cached value if still valid
+  if (cachedTokenCount !== null && Date.now() < cacheExpiresAt) {
+    console.log(`[TOKENS] Using cached count: ${cachedTokenCount} (expires in ${Math.round((cacheExpiresAt - Date.now()) / 1000)}s)`);
+    return cachedTokenCount;
+  }
+
   for (const node of config.hiveNodes) {
     try {
       const ctrl = new AbortController();
@@ -77,7 +124,13 @@ export async function getPendingAccountTokens(
       const account = data.result?.[0];
       if (!account) throw new Error(`Account @${config.providerAccount} not found`);
       const count = account.pending_claimed_accounts ?? 0;
-      console.log(`[TOKENS] @${config.providerAccount} has ${count} pending account creation tokens (via ${node})`);
+
+      // Update cache
+      const ttl = tokenCacheTtlMs(count);
+      cachedTokenCount = count;
+      cacheExpiresAt = Date.now() + ttl;
+
+      console.log(`[TOKENS] @${config.providerAccount} has ${count} pending account creation tokens (via ${node}, cached for ${Math.round(ttl / 1000)}s)`);
       return count;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -133,14 +186,21 @@ export async function getAccountCreationFee(
  *
  * Requires the provider account to have previously claimed account creation
  * tokens via the claim_account operation.
+ *
+ * In multi-tenant mode, `providerAccount` overrides the default config provider.
+ * The transaction is signed with the service account's key (delegated authority)
+ * or the provider's own active key in single-tenant mode.
  */
 export async function createAccount(
   config: GiftcardConfig,
   username: string,
   keys: PublicKeys,
   tokenHash?: string,
+  providerAccount?: string,
 ): Promise<{ tx_id: string }> {
   hiveTxConfig.nodes = config.hiveNodes;
+
+  const creator = providerAccount || config.providerAccount;
 
   // Include the gift card token hash in json_metadata so the account creation
   // can be linked back to the specific gift card token on-chain. This enables
@@ -153,7 +213,7 @@ export async function createAccount(
 
   const tx = new Transaction();
   await tx.addOperation('create_claimed_account' as any, {
-    creator: config.providerAccount,
+    creator,
     new_account_name: username,
     owner: makeAuthority(keys.owner),
     active: makeAuthority(keys.active),
@@ -163,7 +223,7 @@ export async function createAccount(
     extensions: [],
   } as any);
 
-  const key = PrivateKey.from(config.activeKey);
+  const key = PrivateKey.from(getSigningKey(config));
   tx.sign(key);
   const result = await tx.broadcast(true) as any;
   return { tx_id: result.tx_id ?? result.id ?? 'unknown' };
@@ -181,8 +241,11 @@ export async function createAccountWithFee(
   keys: PublicKeys,
   fee: string,
   tokenHash?: string,
+  providerAccount?: string,
 ): Promise<{ tx_id: string }> {
   hiveTxConfig.nodes = config.hiveNodes;
+
+  const creator = providerAccount || config.providerAccount;
 
   const metadata: Record<string, unknown> = { created_by: 'propolis-giftcard' };
   if (tokenHash) {
@@ -192,7 +255,7 @@ export async function createAccountWithFee(
   const tx = new Transaction();
   await tx.addOperation('account_create' as any, {
     fee,
-    creator: config.providerAccount,
+    creator,
     new_account_name: username,
     owner: makeAuthority(keys.owner),
     active: makeAuthority(keys.active),
@@ -201,7 +264,7 @@ export async function createAccountWithFee(
     json_metadata: JSON.stringify(metadata),
   } as any);
 
-  const key = PrivateKey.from(config.activeKey);
+  const key = PrivateKey.from(getSigningKey(config));
   tx.sign(key);
   const result = await tx.broadcast(true) as any;
   return { tx_id: result.tx_id ?? result.id ?? 'unknown' };
@@ -210,22 +273,26 @@ export async function createAccountWithFee(
 /**
  * Delegate vesting shares (HP) to a new account so they have Resource Credits.
  *
+ * In multi-tenant mode, `providerAccount` overrides the default delegator and
+ * `delegationVests` can override the default amount (e.g. from batch promise_params).
  * Should be called after a short delay following account creation.
  */
 export async function delegateVests(
   config: GiftcardConfig,
   username: string,
+  providerAccount?: string,
+  delegationVests?: string,
 ): Promise<void> {
   hiveTxConfig.nodes = config.hiveNodes;
 
   const tx = new Transaction();
   await tx.addOperation('delegate_vesting_shares' as any, {
-    delegator: config.providerAccount,
+    delegator: providerAccount || config.providerAccount,
     delegatee: username,
-    vesting_shares: config.delegationVests,
+    vesting_shares: delegationVests || config.delegationVests,
   } as any);
 
-  const key = PrivateKey.from(config.activeKey);
+  const key = PrivateKey.from(getSigningKey(config));
   tx.sign(key);
   await tx.broadcast(true);
 }
@@ -240,18 +307,19 @@ export async function delegateVests(
 export async function enrollInFeed(
   config: GiftcardConfig,
   username: string,
+  providerAccount?: string,
 ): Promise<void> {
   hiveTxConfig.nodes = config.hiveNodes;
 
   const tx = new Transaction();
   await tx.addOperation('transfer' as any, {
-    from: config.providerAccount,
+    from: providerAccount || config.providerAccount,
     to: config.haaServiceAccount,
     amount: '0.001 HBD',
     memo: username,
   } as any);
 
-  const key = PrivateKey.from(config.activeKey);
+  const key = PrivateKey.from(getSigningKey(config));
   tx.sign(key);
   await tx.broadcast(true);
 }
@@ -305,13 +373,28 @@ export type CreationMethod = 'claimed' | 'paid';
  * Falls back to paying the on-chain creation fee if no tokens are available.
  * Returns immediately after account creation so the client gets a fast response.
  */
+/**
+ * Execute the full account creation flow:
+ * 1. Check pending account creation tokens
+ * 2. Create account via token (create_claimed_account) or fee (account_create)
+ * 3. Delegate HP (async — runs in background after 3s delay)
+ *
+ * Falls back to paying the on-chain creation fee if no tokens are available.
+ * Returns immediately after account creation so the client gets a fast response.
+ *
+ * In multi-tenant mode, `providerAccount` overrides the default provider and
+ * `delegationVests` can override the default amount (e.g. from batch promise_params).
+ */
 export async function createAccountFull(
   config: GiftcardConfig,
   username: string,
   keys: PublicKeys,
   tokenHash?: string,
+  providerAccount?: string,
+  delegationVests?: string,
 ): Promise<{ tx_id: string; delegationOk: boolean; method: CreationMethod }> {
   const t0 = Date.now();
+  const effectiveProvider = providerAccount || config.providerAccount;
 
   // Step 1: Check if provider has account creation tokens
   const pendingTokens = await getPendingAccountTokens(config);
@@ -322,21 +405,22 @@ export async function createAccountFull(
   if (pendingTokens > 0) {
     // Use free token path
     method = 'claimed';
-    console.log(`[ACCOUNT] Broadcasting create_claimed_account for @${username} (${pendingTokens} tokens remaining)`);
-    result = await createAccount(config, username, keys, tokenHash);
+    console.log(`[ACCOUNT] Broadcasting create_claimed_account for @${username} by @${effectiveProvider} (${pendingTokens} tokens remaining)`);
+    result = await createAccount(config, username, keys, tokenHash, providerAccount);
+    decrementCachedTokenCount();
   } else {
     // Fallback: pay on-chain fee
     method = 'paid';
-    console.log(`[ACCOUNT] No account creation tokens — falling back to paid account_create for @${username}`);
+    console.log(`[ACCOUNT] No account creation tokens — falling back to paid account_create for @${username} by @${effectiveProvider}`);
     const fee = await getAccountCreationFee(config);
-    result = await createAccountWithFee(config, username, keys, fee, tokenHash);
+    result = await createAccountWithFee(config, username, keys, fee, tokenHash, providerAccount);
   }
 
   console.log(`[ACCOUNT] Account @${username} created via ${method} in ${Date.now() - t0}ms (tx: ${result.tx_id.slice(0, 12)}...)`);
 
   // Step 2: Delegate HP in background — don't block the response
   delay(3000)
-    .then(() => delegateVests(config, username))
+    .then(() => delegateVests(config, username, providerAccount, delegationVests))
     .then(() => console.log(`[DELEGATION OK] @${username}`))
     .catch((err) => {
       console.error(`[DELEGATION FAILED] @${username}: ${err instanceof Error ? err.message : String(err)}`);

@@ -87,6 +87,8 @@ export const ClaimingScreen: ScreenFn = async (container, state, advance) => {
         token: payload.token,
         username: state.username,
         keys,
+        // Provider (multi-tenant support)
+        provider: payload.provider,
         // Merkle proof validation fields
         batchId: payload.batchId,
         signature: payload.signature,

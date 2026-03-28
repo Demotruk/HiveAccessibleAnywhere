@@ -15,9 +15,11 @@ import { PrivateKey } from 'hive-tx';
 import type { Request, Response } from 'express';
 import type Database from 'better-sqlite3';
 import type { GiftcardConfig } from '../config.js';
+import { isMultiTenant } from '../config.js';
 import { getTokenWithBatch, markTokenSpent, isTokenSpent, markTokenSpentByHash, type TokenWithPromise } from '../db.js';
 import { verifyMerkleProof, verifyCardSignature, decodeMerkleProof } from '../crypto/signing.js';
 import { fetchBatchDeclaration } from '../hive/batch-lookup.js';
+import { resolveProvider, isProviderAllowed } from '../hive/provider.js';
 import { isValidUsername } from '../hive/username.js';
 import { createAccountFull, isUsernameAvailable, type PublicKeys, type CreationMethod } from '../hive/account.js';
 
@@ -34,6 +36,8 @@ function tokenHash(token: string): string {
 
 interface ClaimRequest {
   token: string;
+  /** Provider account (multi-tenant). Falls back to config default if absent. */
+  provider?: string;
   // Merkle proof validation fields (sent by updated clients):
   batchId?: string;
   signature?: string;
@@ -58,22 +62,36 @@ interface ValidatedToken {
   promiseParams: string | null;
   expiresAt: string;
   batchId: string;
+  /** Effective provider account (resolved from request or config default) */
+  effectiveProvider: string;
+  /** Delegation vests override from batch promise_params (if any) */
+  delegationVests?: string;
 }
 
 export function claimHandler(db: Database.Database, config: GiftcardConfig) {
-  // Derive the provider's public memo key once at startup
-  const memoPublicKey = PrivateKey.from(config.memoKey).createPublic().toString();
+  // Derive the default provider's public memo key once at startup (single-tenant fallback)
+  const defaultMemoPublicKey = PrivateKey.from(config.memoKey).createPublic().toString();
 
   return async (req: Request, res: Response): Promise<void> => {
     const body = req.body as ClaimRequest;
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
     const reqStart = Date.now();
 
-    console.log(`[CLAIM START] Token: ${body.token?.slice(0, 8) || '(none)'}... | Username: ${body.username || '(none)'} | Mode: ${body.merkleProof ? 'merkle' : 'db'} | IP: ${ip}`);
+    // Determine the effective provider account
+    const effectiveProvider = body.provider || config.providerAccount;
+
+    console.log(`[CLAIM START] Token: ${body.token?.slice(0, 8) || '(none)'}... | Username: ${body.username || '(none)'} | Provider: @${effectiveProvider} | Mode: ${body.merkleProof ? 'merkle' : 'db'} | IP: ${ip}`);
 
     // 1. Validate token is present
     if (!body.token) {
       res.status(400).json({ success: false, error: 'Missing required field: token' });
+      return;
+    }
+
+    // 1b. In multi-tenant mode, check provider is allowed
+    if (isMultiTenant(config) && !isProviderAllowed(effectiveProvider, config)) {
+      console.log(`[CLAIM DENIED] Provider not allowed: @${effectiveProvider} | IP: ${ip}`);
+      res.status(403).json({ success: false, error: 'Provider not authorized' });
       return;
     }
 
@@ -98,11 +116,11 @@ export function claimHandler(db: Database.Database, config: GiftcardConfig) {
         return;
       }
 
-      // Fetch batch declaration from chain
+      // Fetch batch declaration from the effective provider's account history
       let declaration;
       try {
-        console.log(`[CLAIM] Fetching batch declaration: ${body.batchId} (${Date.now() - reqStart}ms)`);
-        declaration = await fetchBatchDeclaration(config.providerAccount, body.batchId, config.hiveNodes);
+        console.log(`[CLAIM] Fetching batch declaration: ${body.batchId} from @${effectiveProvider} (${Date.now() - reqStart}ms)`);
+        declaration = await fetchBatchDeclaration(effectiveProvider, body.batchId, config.hiveNodes);
         console.log(`[CLAIM] Batch lookup complete: ${declaration ? 'found' : 'not found'} (${Date.now() - reqStart}ms)`);
       } catch (err) {
         console.error(`[CLAIM ERROR] Batch lookup failed after ${Date.now() - reqStart}ms: ${err instanceof Error ? err.message : String(err)}`);
@@ -111,7 +129,7 @@ export function claimHandler(db: Database.Database, config: GiftcardConfig) {
       }
 
       if (!declaration) {
-        console.log(`[CLAIM DENIED] Unknown batch: ${body.batchId} | IP: ${ip}`);
+        console.log(`[CLAIM DENIED] Unknown batch: ${body.batchId} on @${effectiveProvider} | IP: ${ip}`);
         res.status(400).json({ success: false, error: 'Unknown batch' });
         return;
       }
@@ -124,9 +142,26 @@ export function claimHandler(db: Database.Database, config: GiftcardConfig) {
         return;
       }
 
+      // Resolve the provider's memo public key for signature verification.
+      // In single-tenant mode (no explicit provider), use the pre-derived key.
+      // In multi-tenant mode, fetch from chain.
+      let memoPublicKey: string;
+      if (body.provider && isMultiTenant(config)) {
+        try {
+          const resolved = await resolveProvider(effectiveProvider, config.hiveNodes);
+          memoPublicKey = resolved.memoPublicKey;
+        } catch (err) {
+          console.error(`[CLAIM ERROR] Provider resolution failed: ${err instanceof Error ? err.message : String(err)}`);
+          res.status(500).json({ success: false, error: 'Could not resolve provider' });
+          return;
+        }
+      } else {
+        memoPublicKey = defaultMemoPublicKey;
+      }
+
       // Verify signature
       if (!verifyCardSignature(
-        body.token, body.batchId, config.providerAccount,
+        body.token, body.batchId, effectiveProvider,
         body.expires, body.promiseType, body.signature, memoPublicKey,
       )) {
         console.log(`[CLAIM DENIED] Invalid signature (merkle) | Token: ${body.token.slice(0, 8)}... | IP: ${ip}`);
@@ -134,12 +169,17 @@ export function claimHandler(db: Database.Database, config: GiftcardConfig) {
         return;
       }
 
+      // Extract delegation_vests from batch promise_params if present
+      const batchDelegationVests = declaration.promiseParams?.delegation_vests as string | undefined;
+
       validated = {
         mode: 'merkle',
         promiseType: body.promiseType,
         promiseParams: body.promiseParams ? JSON.stringify(body.promiseParams) : null,
         expiresAt: body.expires,
         batchId: body.batchId,
+        effectiveProvider,
+        delegationVests: batchDelegationVests,
       };
     } else {
       // --- DB lookup fallback ---
@@ -168,6 +208,7 @@ export function claimHandler(db: Database.Database, config: GiftcardConfig) {
         promiseParams: row.promise_params,
         expiresAt: row.expires_at,
         batchId: row.batch_id,
+        effectiveProvider,
       };
     }
 
@@ -239,12 +280,18 @@ async function handleAccountCreation(
   // Create account and delegate
   try {
     const hash = tokenHash(body.token);
-    console.log(`[CLAIM] Creating account @${body.username} (${Date.now() - reqStart}ms)`);
-    const result = await createAccountFull(config, body.username, body.keys, hash);
+    // In multi-tenant mode, pass the effective provider and per-batch delegation amount
+    const providerOverride = validated.effectiveProvider !== config.providerAccount
+      ? validated.effectiveProvider : undefined;
+    console.log(`[CLAIM] Creating account @${body.username} by @${validated.effectiveProvider} (${Date.now() - reqStart}ms)`);
+    const result = await createAccountFull(
+      config, body.username, body.keys, hash,
+      providerOverride, validated.delegationVests,
+    );
 
     // Mark token as spent using the appropriate method
     if (validated.mode === 'merkle') {
-      markTokenSpentByHash(db, hash, validated.batchId, body.username, ip, result.tx_id);
+      markTokenSpentByHash(db, hash, validated.batchId, body.username, ip, result.tx_id, validated.effectiveProvider);
     } else {
       markTokenSpent(db, body.token, body.username, ip, result.tx_id);
     }

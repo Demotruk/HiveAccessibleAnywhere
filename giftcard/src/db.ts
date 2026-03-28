@@ -88,13 +88,30 @@ export function initDatabase(dbPath: string): Database.Database {
       claimed_by   TEXT NOT NULL,
       claimed_at   TEXT NOT NULL DEFAULT (datetime('now')),
       claimed_ip   TEXT,
-      tx_id        TEXT
+      tx_id        TEXT,
+      provider     TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_spent_tokens_batch ON spent_tokens(batch_id);
   `);
 
+  // -- Migrations for existing databases --
+  migrateSpentTokensProvider(db);
+
   return db;
+}
+
+/**
+ * Add the `provider` column to spent_tokens if it doesn't exist.
+ * Safe to run on both new and existing databases.
+ */
+function migrateSpentTokensProvider(db: Database.Database): void {
+  const columns = db.pragma('table_info(spent_tokens)') as Array<{ name: string }>;
+  const hasProvider = columns.some(c => c.name === 'provider');
+  if (!hasProvider) {
+    db.exec('ALTER TABLE spent_tokens ADD COLUMN provider TEXT');
+    console.log('[DB] Migrated spent_tokens: added provider column');
+  }
 }
 
 // -- Batch operations --
@@ -306,6 +323,7 @@ export function isTokenSpent(db: Database.Database, tokenHash: string): boolean 
 /**
  * Record a token as spent after successful claim via Merkle proof validation.
  * Stores only the SHA-256 hash of the token (not the raw token) for privacy.
+ * In multi-tenant mode, also records which provider the token belongs to.
  */
 export function markTokenSpentByHash(
   db: Database.Database,
@@ -314,9 +332,10 @@ export function markTokenSpentByHash(
   claimedBy: string,
   ip: string,
   txId: string,
+  provider?: string,
 ): void {
   db.prepare(`
-    INSERT INTO spent_tokens (token_hash, batch_id, claimed_by, claimed_ip, tx_id)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(tokenHash, batchId, claimedBy, ip, txId);
+    INSERT INTO spent_tokens (token_hash, batch_id, claimed_by, claimed_ip, tx_id, provider)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(tokenHash, batchId, claimedBy, ip, txId, provider ?? null);
 }

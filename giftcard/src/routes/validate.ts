@@ -14,12 +14,16 @@ import { PrivateKey } from 'hive-tx';
 import type { Request, Response } from 'express';
 import type Database from 'better-sqlite3';
 import type { GiftcardConfig } from '../config.js';
+import { isMultiTenant } from '../config.js';
 import { getTokenWithBatch, isTokenSpent } from '../db.js';
 import { verifyMerkleProof, verifyCardSignature, decodeMerkleProof } from '../crypto/signing.js';
 import { fetchBatchDeclaration } from '../hive/batch-lookup.js';
+import { resolveProvider, isProviderAllowed } from '../hive/provider.js';
 
 interface ValidateRequest {
   token: string;
+  /** Provider account (multi-tenant). Falls back to config default if absent. */
+  provider?: string;
   batchId?: string;
   signature?: string;
   expires?: string;
@@ -28,16 +32,24 @@ interface ValidateRequest {
 }
 
 export function validateHandler(db: Database.Database, config: GiftcardConfig) {
-  const memoPublicKey = PrivateKey.from(config.memoKey).createPublic().toString();
+  const defaultMemoPublicKey = PrivateKey.from(config.memoKey).createPublic().toString();
 
   return async (req: Request, res: Response): Promise<void> => {
     const body = req.body as ValidateRequest;
     const reqStart = Date.now();
 
-    console.log(`[VALIDATE] Token: ${body.token?.slice(0, 8) || '(none)'}... | Mode: ${body.merkleProof ? 'merkle' : 'db'}`);
+    const effectiveProvider = body.provider || config.providerAccount;
+
+    console.log(`[VALIDATE] Token: ${body.token?.slice(0, 8) || '(none)'}... | Provider: @${effectiveProvider} | Mode: ${body.merkleProof ? 'merkle' : 'db'}`);
 
     if (!body.token || typeof body.token !== 'string') {
       res.status(400).json({ valid: false, reason: 'Missing token' });
+      return;
+    }
+
+    // In multi-tenant mode, check provider is allowed
+    if (isMultiTenant(config) && !isProviderAllowed(effectiveProvider, config)) {
+      res.status(403).json({ valid: false, reason: 'Provider not authorized' });
       return;
     }
 
@@ -57,8 +69,8 @@ export function validateHandler(db: Database.Database, config: GiftcardConfig) {
 
       let declaration;
       try {
-        console.log(`[VALIDATE] Fetching batch declaration: ${body.batchId} (${Date.now() - reqStart}ms)`);
-        declaration = await fetchBatchDeclaration(config.providerAccount, body.batchId, config.hiveNodes);
+        console.log(`[VALIDATE] Fetching batch declaration: ${body.batchId} from @${effectiveProvider} (${Date.now() - reqStart}ms)`);
+        declaration = await fetchBatchDeclaration(effectiveProvider, body.batchId, config.hiveNodes);
         console.log(`[VALIDATE] Batch lookup complete: ${declaration ? 'found' : 'not found'} (${Date.now() - reqStart}ms)`);
       } catch (err) {
         console.error(`[VALIDATE ERROR] Batch lookup failed after ${Date.now() - reqStart}ms: ${err instanceof Error ? err.message : String(err)}`);
@@ -77,8 +89,23 @@ export function validateHandler(db: Database.Database, config: GiftcardConfig) {
         return;
       }
 
+      // Resolve memo public key: from chain in multi-tenant, pre-derived in single-tenant
+      let memoPublicKey: string;
+      if (body.provider && isMultiTenant(config)) {
+        try {
+          const resolved = await resolveProvider(effectiveProvider, config.hiveNodes);
+          memoPublicKey = resolved.memoPublicKey;
+        } catch (err) {
+          console.error(`[VALIDATE ERROR] Provider resolution failed: ${err instanceof Error ? err.message : String(err)}`);
+          res.status(500).json({ valid: false, reason: 'Could not resolve provider' });
+          return;
+        }
+      } else {
+        memoPublicKey = defaultMemoPublicKey;
+      }
+
       if (!verifyCardSignature(
-        body.token, body.batchId, config.providerAccount,
+        body.token, body.batchId, effectiveProvider,
         body.expires, body.promiseType, body.signature, memoPublicKey,
       )) {
         res.json({ valid: false, reason: 'Invalid signature' });

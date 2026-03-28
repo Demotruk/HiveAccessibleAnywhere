@@ -3,18 +3,24 @@
  *
  * Loads and validates environment variables at startup.
  * Exits with a clear error message if required variables are missing.
+ *
+ * Supports two modes:
+ * - **Single-tenant** (default): one provider, service holds their keys directly.
+ * - **Multi-tenant**: multiple providers delegate active authority to a shared
+ *   service account. Enabled when GIFTCARD_SERVICE_ACCOUNT and
+ *   GIFTCARD_SERVICE_ACTIVE_KEY are set.
  */
 
 export interface GiftcardConfig {
-  /** Hive account with claimed account tokens */
+  /** Hive account with claimed account tokens (default provider in multi-tenant) */
   providerAccount: string;
-  /** Provider's active key (WIF) for create_claimed_account + delegate */
+  /** Provider's active key (WIF) — used directly in single-tenant mode */
   activeKey: string;
-  /** Provider's memo key (WIF) for signing card authenticity */
+  /** Provider's memo key (WIF) — used in single-tenant mode for signature verification */
   memoKey: string;
   /** Feed service account name (e.g. 'haa-service') */
   haaServiceAccount: string;
-  /** Amount of VESTS to delegate (e.g. '30000.000000 VESTS') */
+  /** Default amount of VESTS to delegate (e.g. '30000.000000 VESTS') */
   delegationVests: string;
   /** SQLite database path */
   dbPath: string;
@@ -24,6 +30,32 @@ export interface GiftcardConfig {
   coverSiteTheme: string;
   /** Hive API nodes for broadcasting */
   hiveNodes: string[];
+
+  // -- Multi-tenant fields (optional) --
+
+  /** Service account name that providers delegate active authority to */
+  serviceAccount?: string;
+  /** Service account's own active key (WIF) — signs on behalf of providers */
+  serviceActiveKey?: string;
+  /** Approved provider accounts. Claims for unlisted providers are rejected. */
+  allowedProviders?: Set<string>;
+}
+
+/**
+ * Whether multi-tenant mode is active.
+ * True when both service account and its active key are configured.
+ */
+export function isMultiTenant(config: GiftcardConfig): boolean {
+  return !!(config.serviceAccount && config.serviceActiveKey);
+}
+
+/**
+ * Get the signing key (WIF) for blockchain operations.
+ * In multi-tenant mode, uses the service account's key (delegated authority).
+ * In single-tenant mode, uses the provider's active key directly.
+ */
+export function getSigningKey(config: GiftcardConfig): string {
+  return config.serviceActiveKey || config.activeKey;
 }
 
 /**
@@ -55,6 +87,25 @@ export function loadConfig(): GiftcardConfig {
     ? nodesRaw.split(',').map(s => s.trim())
     : ['https://api.hive.blog', 'https://api.deathwing.me', 'https://hive-api.arcange.eu'];
 
+  // Multi-tenant: service account + allowed providers
+  const serviceAccount = process.env.GIFTCARD_SERVICE_ACCOUNT || undefined;
+  const serviceActiveKey = process.env.GIFTCARD_SERVICE_ACTIVE_KEY || undefined;
+
+  // Validate: both must be set, or neither
+  if ((serviceAccount && !serviceActiveKey) || (!serviceAccount && serviceActiveKey)) {
+    console.error('Multi-tenant mode requires both GIFTCARD_SERVICE_ACCOUNT and GIFTCARD_SERVICE_ACTIVE_KEY');
+    process.exit(1);
+  }
+
+  let allowedProviders: Set<string> | undefined;
+  const allowedRaw = process.env.GIFTCARD_ALLOWED_PROVIDERS;
+  if (allowedRaw) {
+    allowedProviders = new Set(allowedRaw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean));
+  }
+
+  // In multi-tenant mode, memo key is resolved per-provider from chain,
+  // but we still require GIFTCARD_MEMO_KEY for the default provider (backward compat)
+
   return {
     providerAccount: providerAccount!,
     activeKey: activeKey!,
@@ -65,5 +116,8 @@ export function loadConfig(): GiftcardConfig {
     port: parseInt(process.env.PORT || '3200', 10),
     coverSiteTheme: process.env.COVER_SITE_THEME || 'tech',
     hiveNodes,
+    serviceAccount,
+    serviceActiveKey,
+    allowedProviders,
   };
 }

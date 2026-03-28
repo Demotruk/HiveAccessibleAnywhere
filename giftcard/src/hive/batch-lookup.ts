@@ -1,7 +1,7 @@
 /**
  * On-chain batch declaration lookup.
  *
- * Fetches gift card batch declarations from the provider's Hive account
+ * Fetches gift card batch declarations from a provider's Hive account
  * history by scanning for custom_json operations with the
  * 'propolis_giftcard_batch' ID.
  *
@@ -9,8 +9,10 @@
  * found. A full scan is only performed on explicit warm-up or when a
  * batch isn't found in recent history.
  *
- * Results are cached in memory — batch declarations are immutable once
- * published on-chain, so cache entries never expire.
+ * Results are cached in memory per provider — batch declarations are
+ * immutable once published on-chain, so cache entries never expire.
+ * In multi-tenant mode, each provider has its own cache partition
+ * and scan watermark.
  */
 
 // -- Types --
@@ -33,15 +35,22 @@ interface AccountHistoryOp {
 
 // -- Cache --
 
+// Cache keyed by "provider:batchId" for multi-tenant isolation
 const cache = new Map<string, BatchDeclaration>();
-let scanHighWaterMark = -1; // lowest history index we've scanned so far
+// Per-provider scan watermark: lowest history index scanned so far
+const scanWatermarks = new Map<string, number>();
+
+/** Build the cache key for a provider + batch pair */
+function cacheKey(provider: string, batchId: string): string {
+  return `${provider}:${batchId}`;
+}
 
 /**
  * Clear the in-memory cache. Mainly useful for testing.
  */
 export function clearBatchCache(): void {
   cache.clear();
-  scanHighWaterMark = -1;
+  scanWatermarks.clear();
 }
 
 // -- Helpers --
@@ -93,9 +102,10 @@ function extractBatches(
     try {
       const json = JSON.parse(opData.json as string) as Record<string, unknown>;
       const batchId = json.batch_id as string;
+      const key = cacheKey(providerAccount, batchId);
 
-      if (batchId && !cache.has(batchId)) {
-        cache.set(batchId, {
+      if (batchId && !cache.has(key)) {
+        cache.set(key, {
           batchId,
           count: json.count as number,
           expires: json.expires as string,
@@ -130,7 +140,8 @@ async function scanAccountHistory(
   maxPages?: number,
 ): Promise<void> {
   const PAGE_SIZE = 1000;
-  let start = scanHighWaterMark > 0 ? scanHighWaterMark - 1 : -1;
+  const watermark = scanWatermarks.get(providerAccount) ?? -1;
+  let start = watermark > 0 ? watermark - 1 : -1;
   let lastError: Error | null = null;
   let pages = 0;
 
@@ -166,14 +177,15 @@ async function scanAccountHistory(
     pages++;
     extractBatches(history, providerAccount);
 
-    // Track how far back we've scanned
+    // Track how far back we've scanned for this provider
     const earliest = history[0][0];
-    if (scanHighWaterMark < 0 || earliest < scanHighWaterMark) {
-      scanHighWaterMark = earliest;
+    const currentWatermark = scanWatermarks.get(providerAccount) ?? -1;
+    if (currentWatermark < 0 || earliest < currentWatermark) {
+      scanWatermarks.set(providerAccount, earliest);
     }
 
     // Early exit: found the target batch
-    if (targetBatchId && cache.has(targetBatchId)) {
+    if (targetBatchId && cache.has(cacheKey(providerAccount, targetBatchId))) {
       console.log(`[BATCH] Found target batch ${targetBatchId} after ${pages} page(s)`);
       return;
     }
@@ -210,18 +222,20 @@ export async function fetchBatchDeclaration(
   batchId: string,
   hiveNodes: string[],
 ): Promise<BatchDeclaration | null> {
+  const key = cacheKey(providerAccount, batchId);
+
   // Check cache first
-  const cached = cache.get(batchId);
+  const cached = cache.get(key);
   if (cached) return cached;
 
   // Quick scan of recent history (batch declarations are typically recent)
   await scanAccountHistory(providerAccount, hiveNodes, batchId, 10);
-  const found = cache.get(batchId);
+  const found = cache.get(key);
   if (found) return found;
 
   // Full scan of remaining history (continues from where quick scan stopped)
   await scanAccountHistory(providerAccount, hiveNodes, batchId);
-  return cache.get(batchId) ?? null;
+  return cache.get(key) ?? null;
 }
 
 /**
