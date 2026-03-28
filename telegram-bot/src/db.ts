@@ -265,7 +265,7 @@ export function confirmPayment(db: Database.Database, paymentId: string, hiveTxI
 
 export function getExpiredPayments(db: Database.Database): PaymentRow[] {
   return db.prepare(
-    "SELECT * FROM payments WHERE status = 'pending' AND expires_at <= datetime('now')"
+    "SELECT * FROM payments WHERE status = 'pending' AND datetime(expires_at) <= datetime('now')"
   ).all() as PaymentRow[];
 }
 
