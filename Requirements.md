@@ -582,7 +582,7 @@ The gift card system (section 2.4) is the primary onboarding mechanism. This sec
 
 The onboarding service:
 - Is reachable through channels that are accessible in restricted regions (e.g. CDN-fronted website, Telegram bot, or in-person via gift cards)
-- Provisions new Hive accounts using account creation tokens
+- Provisions new Hive accounts using account creation tokens, falling back to burning HIVE via `account_create` if no tokens are available (see "Account Creation Fallback" below)
 - Delegates initial HP to new accounts so they have sufficient Resource Credits to transact
 - Enrolls new users in the endpoint subscription feed via transfer memo to the feed service account
 - For the proof-of-concept phase, payments are ad hoc or free — the focus is on validating the technical flow
@@ -875,7 +875,19 @@ The follow-up should be non-intrusive and timed appropriately — e.g. after the
 
 Allow users to purchase gift cards by transferring Hive or HBD to the gift card provider account. The gift card service monitors the provider account for incoming transfers, generates a gift card, and emails it to the recipient address specified in the memo.
 
-To support this, the gift card service may also need to claim accounts using the alternative method that consumes Hive tokens (via `account_create` or the fee-based path), rather than relying solely on RC-based `claim_account` tokens.
+This relies on the account creation fallback described below.
+
+### Account Creation Fallback
+
+The gift card service normally creates accounts by consuming pre-claimed account creation tokens via `create_claimed_account`. If no tokens are available (i.e. the provider's `pending_claimed_accounts` count is zero), the service should fall back to creating the account by burning HIVE via the `account_create` operation, which requires paying the current account creation fee (queried from chain properties).
+
+**Behaviour:**
+- On each account creation request, check the provider account's `pending_claimed_accounts` count
+- If tokens are available, use `create_claimed_account` (no HIVE cost beyond RC)
+- If no tokens are available, use `account_create`, paying the on-chain account creation fee from the provider account's liquid HIVE balance
+- If the provider also has insufficient liquid HIVE to cover the fee, reject the request with an appropriate error rather than silently failing
+
+**Rationale:** Account creation tokens are earned passively through Resource Credits and must be claimed periodically. A provider may exhaust their token supply during high-demand periods (e.g. a successful gift card campaign) or if they haven't claimed tokens recently. The fallback ensures uninterrupted onboarding — a new user scanning a gift card should never fail because of a provider's token management. The HIVE cost is modest (currently ~3 HIVE) and is a reasonable fallback cost for the provider.
 
 **Transfer memo format:**
 
