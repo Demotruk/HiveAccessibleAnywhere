@@ -76,6 +76,12 @@
       }
     },
     {
+      "name": "drafts-preview",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8092", "--directory", "docs/drafts"],
+      "port": 8092
+    },
+    {
       "name": "proxy-food",
       "runtimeExecutable": "node",
       "runtimeArgs": ["--import", "tsx", "src/server.ts"],
