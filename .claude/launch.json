@@ -82,6 +82,12 @@
       "port": 8092
     },
     {
+      "name": "hiveinvite-preview",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8093", "--directory", "hiveinvite-site"],
+      "port": 8093
+    },
+    {
       "name": "proxy-food",
       "runtimeExecutable": "node",
       "runtimeArgs": ["--import", "tsx", "src/server.ts"],

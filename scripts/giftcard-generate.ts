@@ -230,7 +230,7 @@ async function main() {
   }
 
   const note = parsed['note'] || null;
-  const bootstrapUrl = parsed['bootstrap-url'] || 'https://demotruk.github.io/HiveAccessibleAnywhere';
+  const bootstrapUrl = parsed['bootstrap-url'] || 'https://hiveinvite.com';
   const serviceUrl = parsed['service-url'] || '';
   const dbPath = parsed['db-path'] || process.env.GIFTCARD_DB_PATH || resolve(import.meta.dirname, '..', 'giftcard', 'data', 'tokens.db');
 
