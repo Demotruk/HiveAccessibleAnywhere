@@ -219,7 +219,7 @@ The invite app is deliberately separate from the wallet to keep both codebases f
 **Gift card variants:**
 Gift cards come in two variants, determined at batch generation time. The variant is a batch-level attribute stored in the encrypted payload as the `variant` field.
 
-1. **Standard invites** — for countries with unrestricted internet access. The encrypted payload does not include proxy endpoints. The invite app uses public Hive API nodes directly for on-chain operations (signature verification, username availability checks). After account creation, the invite app opens `peakd.com/signin?mode=peaklock&account=<username>&r=/trending` with the posting key auto-copied to clipboard — the user pastes their key and sets a 5-digit PIN to log in via PeakLock (Peakd's built-in non-custodial browser key storage). The gift card service does not enroll the new user in the proxy endpoint feed. Standard invites are simpler to operate: the provider does not need proxy infrastructure, only a gift card service and sufficient account creation tokens.
+1. **Standard invites** — for countries with unrestricted internet access. The encrypted payload does not include proxy endpoints. The invite app uses public Hive API nodes directly for on-chain operations (signature verification, username availability checks). After account creation, the invite app opens `peakd.com/signin?mode=peaklock&account=<username>&r=/trending` with the posting key auto-copied to clipboard — the user pastes their key and sets a 5-digit PIN to log in via PeakLock (Peakd's built-in non-custodial browser key storage). The gift card service does not enroll the new user in the proxy endpoint feed. Standard invites are simpler to operate: the issuer does not need proxy infrastructure, only a gift card service and sufficient account creation tokens.
 
    **Standard invite handoff — staged onboarding:**
    The handoff prioritises getting the user active on Hive immediately, with security upgrades deferred to a follow-up prompt.
@@ -271,21 +271,21 @@ https://<invite-app-url>/invite#<encrypted-blob>
 
 **Encrypted blob contents** (revealed after PIN decryption):
 - `token` — the single-use claim token
-- `provider` — the Hive account name of the gift card provider
-- `serviceUrl` — the URL of the provider's gift card service (for redemption requests)
+- `provider` — the Hive account name of the gift card issuer (field name retained as `provider` for backwards compatibility with existing QR payloads)
+- `serviceUrl` — the URL of the issuer's gift card service (for redemption requests)
 - `variant` — `"standard"` or `"robust"` (determines flow behaviour; see Gift card variants above)
 - `endpoints` — *(robust only)* one or more proxy endpoint URLs from the **dedicated onboarding pool** (separate from the subscriber endpoint pool). Used by the invite app for RPC access during onboarding. These endpoints have a one-week grace window and are not passed to the wallet for long-term use — the wallet receives fresh per-subscriber endpoints via the endpoint feed after enrollment. Omitted or empty for standard invites
 - `locale` — *(robust only)* the locale code for the wallet variant to fetch from the blockchain after account creation (e.g. `"en"`, `"zh"`, `"ar"`, `"fa"`, `"ru"`, `"tr"`, `"vi"`). Determines which on-chain wallet post to fetch (e.g. `propolis-wallet-v1-zh`). Set at batch generation time. Omitted for standard invites (which redirect to peakd.com rather than bootstrapping a wallet)
 - `batchId` — identifier of the batch this card belongs to
 - `expires` — expiry date of the token (ISO 8601)
-- `signature` — digital signature from the provider's memo key over the card's data (see Authenticity below)
+- `signature` — digital signature from the issuer's memo key over the card's data (see Authenticity below)
 - `promiseType` — the type of promise this card makes (e.g. `account-creation`, `transfer`, `delegation`)
 - `promiseParams` — (optional) type-specific parameters for the promise (e.g. `{ "amount": "10.000 HIVE" }` for a transfer card)
 
 **PIN protection:**
 - Each gift card includes a 6-character alphanumeric PIN, printed on the card alongside the QR code (in future versions, hidden under scratch-off foil)
 - The PIN decrypts the QR fragment data using AES-256-GCM with a key derived via a suitable KDF
-- Without the PIN, the QR reveals only the public invite app URL — no proxy domains, claim tokens, or provider information are exposed
+- Without the PIN, the QR reveals only the public invite app URL — no proxy domains, claim tokens, or issuer information are exposed
 - **Threat model:** The PIN protects against casual and automated scanning (e.g. surveillance systems bulk-scanning QR codes). A determined adversary who physically intercepts both the card and the PIN obtains everything, but this is inherent to physical distribution. The 6-character alphanumeric space (~2.2 billion combinations) provides meaningful resistance to brute-force attempts against captured QR data.
 
 **Claim tokens:**
@@ -294,10 +294,10 @@ https://<invite-app-url>/invite#<encrypted-blob>
 - All tokens in a batch share the same promise type — the type is a batch-level attribute
 - Tokens are stored in a SQLite database on the gift card service, mapped to their redemption status, batch, and expiry
 - A token can only be redeemed once — after fulfilment, it is marked as spent
-- **Expiry:** Tokens expire after a configurable period (default: 1 year). The expiry date should be clearly printed on the gift card. Expired tokens cannot be redeemed, freeing the provider from reserving account creation tokens indefinitely for cards that may have been lost, abandoned, or destroyed
+- **Expiry:** Tokens expire after a configurable period (default: 1 year). The expiry date should be clearly printed on the gift card. Expired tokens cannot be redeemed, freeing the issuer from reserving account creation tokens indefinitely for cards that may have been lost, abandoned, or destroyed
 
 **On-chain batch declaration:**
-When a batch of gift cards is generated, the provider broadcasts a `custom_json` transaction declaring the batch on-chain. This creates a public, immutable record of issuance. The declaration includes:
+When a batch of gift cards is generated, the issuer broadcasts a `custom_json` transaction declaring the batch on-chain. This creates a public, immutable record of issuance. The declaration includes:
 - Batch ID
 - Number of tokens in the batch
 - Expiry date
@@ -305,34 +305,34 @@ When a batch of gift cards is generated, the provider broadcasts a `custom_json`
 - Promise parameters (if applicable, e.g. `{ "amount": "10.000 HIVE" }`)
 - A Merkle root of the token hashes (SHA-256 of each token), which commits to the full set of tokens without revealing them individually
 
-This enables anyone to verify that a specific token belongs to a declared batch (by providing the Merkle proof), and provides transparency into how many tokens a provider has allocated to gift cards and what they promise.
+This enables anyone to verify that a specific token belongs to a declared batch (by providing the Merkle proof), and provides transparency into how many tokens an issuer has allocated to gift cards and what they promise.
 
 **Authenticity signature:**
-Each gift card includes a digital signature from the provider's memo key, proving the card was genuinely issued by the stated provider. The signature is over a canonical string of the card's data:
+Each gift card includes a digital signature from the issuer's memo key, proving the card was genuinely issued by the stated issuer. The signature is over a canonical string of the card's data:
 
 ```
 <token>:<batchId>:<provider>:<expires>:<promiseType>
 ```
 
-The `promiseType` field in the canonical string ensures that a signature for one type of card (e.g. `account-creation`) cannot be reinterpreted as a different type (e.g. `transfer`). The signature is included in the encrypted blob. On decryption, the invite app verifies the signature against the provider's public memo key (which is available on-chain via `condenser_api.get_accounts`). If verification fails, the invite app rejects the card as counterfeit. This prevents an attacker from creating fake gift cards that claim to be from a legitimate provider.
+The `promiseType` field in the canonical string ensures that a signature for one type of card (e.g. `account-creation`) cannot be reinterpreted as a different type (e.g. `transfer`). The signature is included in the encrypted blob. On decryption, the invite app verifies the signature against the issuer's public memo key (which is available on-chain via `condenser_api.get_accounts`). If verification fails, the invite app rejects the card as counterfeit. This prevents an attacker from creating fake gift cards that claim to be from a legitimate issuer.
 
 **Gift card service:**
 The gift card service is a **separate service from the RPC proxy**, deployed independently. This separation exists for two reasons:
-1. **Security isolation.** The gift card service holds sensitive keys — either the provider's active key or account creation token authority — needed to create Hive accounts. The proxy holds no such keys.
+1. **Security isolation.** The gift card service holds sensitive keys — either the issuer's active key or account creation token authority — needed to create Hive accounts. The proxy holds no such keys.
 2. **Multi-operator support.** Any Hive account with sufficient account creation tokens can run their own gift card service independently. This enables Hive whales to operate their own gift card programs, potentially earning a return on their Hive Power by selling account creation as a service.
 
-**Multi-provider accounts:**
-A single gift card service instance supports multiple provider accounts. Other Hive users can request to be added as providers on an existing gift card service. The workflow is:
+**Multi-issuer support:**
+A single gift card service instance supports multiple issuer accounts. Other Hive users can apply to become issuers on an existing gift card service (see section 2.9 for the full application and approval flow). The workflow is:
 
-1. A Hive user submits a request to the gift card service operator to be added as a provider
+1. A Hive user applies to become an issuer on the gift card service (via on-chain `custom_json` — see section 2.9.1)
 2. The operator reviews and approves the request
-3. The approved provider delegates their account's active key authority to the gift card service's `invite-authority` active key (via `update_account` to add the service's public active key to their account's active authority list)
-4. The gift card service can now broadcast `create_claimed_account` transactions on behalf of the provider, consuming the provider's own account creation tokens
+3. The approved issuer delegates their account's active key authority to the gift card service's service account active key (via `update_account` to add the service's public active key to their account's active authority list)
+4. The gift card service can now broadcast `create_claimed_account` transactions on behalf of the issuer, consuming the issuer's own account creation tokens
 
-This enables providers who do not want to run their own infrastructure to participate in gift card distribution by leveraging an existing service operator's deployment. The provider supplies the account creation tokens (earned through Hive Power), and the service operator supplies the infrastructure.
+This enables issuers who do not want to run their own infrastructure to participate in gift card distribution by leveraging an existing service operator's deployment. The issuer supplies the account creation tokens (earned through Hive Power), and the service operator supplies the infrastructure.
 
-**Trust and security considerations for delegating providers:**
-Delegating active key authority to a third-party service is a significant trust decision. The active key controls account creation tokens, token transfers, and other high-value operations. Providers considering this delegation should be aware of the following:
+**Trust and security considerations for delegating issuers:**
+Delegating active key authority to a third-party service is a significant trust decision. The active key controls account creation tokens, token transfers, and other high-value operations. Issuers considering this delegation should be aware of the following:
 
 - They are trusting the service operator not to misuse their active key authority (e.g. transferring funds, changing account settings)
 - They should set up **key monitoring** on their account to detect any unexpected operations — anything other than `create_claimed_account` and `delegate_vesting_shares` (the only operations the gift card service should perform). Hive ecosystem tools exist for this (e.g. account history watchers, custom_json monitors)
@@ -340,20 +340,20 @@ Delegating active key authority to a third-party service is a significant trust 
 - They should consider starting with a small allocation of account creation tokens to limit exposure while building trust with the operator
 - The service operator should clearly communicate the scope of operations the service will perform on their behalf
 
-The gift card service itself has no obligation beyond making providers aware of the trust implications at onboarding time. Key monitoring, risk management, and revocation decisions are the provider's responsibility.
+The gift card service itself has no obligation beyond making issuers aware of the trust implications at onboarding time. Key monitoring, risk management, and revocation decisions are the issuer's responsibility.
 
 **On-chain service discovery:**
-Gift card providers register their service URL on-chain so the invite app can discover it from the provider account name. Registration is via `custom_json` on the provider's account or via a transfer memo to a known discovery account. This enables the invite app to look up the service URL at redemption time without the QR needing to embed a domain that might change.
+Gift card issuers register their service URL on-chain so the invite app can discover it from the issuer account name. Registration is via `custom_json` on the issuer's account or via a transfer memo to a known discovery account. This enables the invite app to look up the service URL at redemption time without the QR needing to embed a domain that might change.
 
 Note: The QR's encrypted blob also includes the `serviceUrl` directly as a fallback, so the invite app can contact the service even if on-chain lookup fails. The on-chain record is the canonical source and takes precedence when available.
 
 **Flow:**
-1. Gift card provider generates a batch of claim tokens with a configured variant and expiry (default: 1 year), signs each card's data with the provider's memo key, broadcasts a batch declaration `custom_json` on-chain, and produces gift cards with unique QR codes and PINs
+1. Gift card issuer generates a batch of claim tokens with a configured variant and expiry (default: 1 year), signs each card's data with the issuer's memo key, broadcasts a batch declaration `custom_json` on-chain, and produces gift cards with unique QR codes and PINs
 2. Gift cards are distributed (in person, by post, via trusted channel)
 3. User scans QR → phone opens browser → invite app loads from the public URL (e.g. GitHub Pages)
 4. Invite app detects the encrypted fragment and prompts the user to enter the PIN from the gift card
-5. Invite app decrypts the fragment, extracting the claim token, provider account, batch ID, service URL, variant, authenticity signature, and (for robust invites) proxy endpoints. The fragment is immediately cleared from the address bar
-6. Invite app looks up the provider's public memo key on-chain and verifies the authenticity signature. For robust invites, this uses a proxy endpoint from the decrypted data; for standard invites, this uses public Hive API nodes directly. If verification fails, the invite app rejects the card as counterfeit
+5. Invite app decrypts the fragment, extracting the claim token, issuer account, batch ID, service URL, variant, authenticity signature, and (for robust invites) proxy endpoints. The fragment is immediately cleared from the address bar
+6. Invite app looks up the issuer's public memo key on-chain and verifies the authenticity signature. For robust invites, this uses a proxy endpoint from the decrypted data; for standard invites, this uses public Hive API nodes directly. If verification fails, the invite app rejects the card as counterfeit
 7. Invite app generates keys locally and prompts the user to choose a username
 8. Invite app prompts the user to back up their keys (QR code export, manual copy, or both) **before** proceeding
 9. Invite app sends an account creation request to the gift card service, including: the claim token, the user's chosen username, and the user's public keys
@@ -412,7 +412,7 @@ For gift cards that attach monetary value (e.g. `promiseType: "transfer"`), a st
 - The claim token is a single-use secret; once redeemed it cannot be used again
 - The invite app clears the URL fragment from the address bar immediately after decryption
 - PIN encryption ensures the QR code alone reveals nothing about proxy infrastructure or claim tokens
-- **Authenticity verification:** Each card carries a digital signature from the provider's memo key. The invite app verifies this signature on-chain before proceeding, preventing counterfeit cards from impersonating a legitimate provider
+- **Authenticity verification:** Each card carries a digital signature from the issuer's memo key. The invite app verifies this signature on-chain before proceeding, preventing counterfeit cards from impersonating a legitimate issuer
 - **On-chain batch transparency:** Batch declarations are recorded on-chain, providing a public audit trail of issuance. The Merkle root commitment allows individual tokens to be verified as belonging to a declared batch
 - If a gift card is intercepted (QR + PIN), the attacker can create an account but the original user's card simply fails to redeem — no funds are at risk since the account is empty at creation
 - The gift card service never sees private keys — it receives only public keys and broadcasts a standard `create_claimed_account` transaction
@@ -427,7 +427,7 @@ This creates a verifiable chain: batch declaration (merkle root + count + promis
 *Merkle membership proofs.* A claimant who holds a token can hash it and, given a merkle proof path, verify membership in the on-chain batch root. The gift card service can provide merkle proof paths on request. This allows a claimant (or any third party given a revealed token) to prove that a specific token was part of a legitimately declared batch.
 
 *Future considerations* (not yet implemented but architecturally supported):
-- **Signed claim receipts:** The gift card service could sign a receipt at claim time (token hash, timestamp, batch ID, fulfillment TX ID) using the provider's memo key, giving the claimant cryptographic evidence of their claim attempt.
+- **Signed claim receipts:** The gift card service could sign a receipt at claim time (token hash, timestamp, batch ID, fulfillment TX ID) using the issuer's memo key, giving the claimant cryptographic evidence of their claim attempt.
 - **Claimant-published claim records:** For non-account-creation promise types where the claimant already has a Hive account, the claimant could publish their own `custom_json` claim record before the service fulfils, creating an independent on-chain timeline that the issuer cannot deny.
 - **Issuer reputation scoring:** By aggregating batch declarations and fulfilment TX counts across an issuer's history, a wallet could display a trust score when a user scans a gift card from that issuer.
 - **Robust invite celebration UX A/B testing:** The initial robust success screen design is deliberately understated (checkmark + text confirmation). A future iteration may experiment with more celebratory confirmation UX (animations, illustrations, etc.) and A/B test the effect on engagement and flow completion rates. The screen architecture should accommodate swapping the confirmation component without affecting the blocking file save or wallet loading phases.
@@ -436,7 +436,7 @@ This creates a verifiable chain: batch declaration (merkle root + count + promis
 - **Invite app accessibility in restricted regions.** The invite app URL in the QR must be accessible in the user's region. For standard invites, GitHub Pages is sufficient. For robust invites targeting restricted regions, the invite app is served via a censorship-resistant hosting layer (see resolved question 2 below). The QR URL uses a custom domain controlled by the project, allowing DNS-level failover between hosting providers without reprinting cards. The domain should be acquired before any robust invite cards are printed, as the URL is baked into physical cards and cannot be changed retroactively
 - Gift cards have a shelf life determined by both the token expiry (default: 1 year) and the longevity of the invite app URL and service URL
 - The gift card service must be reachable at redemption time — if the service is down, the token remains valid for later use (assuming it has not expired)
-- The initial HP delegation is a cost borne by the gift card provider; it should be small enough to enable basic transactions but represents a capital commitment that is recovered when the delegation is eventually removed
+- The initial HP delegation is a cost borne by the gift card issuer; it should be small enough to enable basic transactions but represents a capital commitment that is recovered when the delegation is eventually removed
 - After account creation, the user must transition from the invite app to their target wallet experience. For robust invites, the invite app generates a personalized bootstrap file for the user to save, then fetches the wallet from the blockchain and transitions into it seamlessly via `document.open()/write()/close()` — no cross-domain redirect or manual steps required. For standard invites, the invite app opens `peakd.com/signin?mode=peaklock&account=<username>&r=/trending` with the posting key auto-copied to clipboard — the user pastes their key and sets a 5-digit PIN (~2 user actions). PeakLock stores keys non-custodially in the browser's localStorage. The invite app retains keys in memory throughout this handoff so the user can re-access them if needed
 - **TLS certificate acceptance for LAN deployments:** When the gift card service runs on a local network (e.g. internet café, community centre, offline kiosk) rather than behind a public domain with a valid certificate, the invite app's `fetch()` requests to the service will silently fail unless the user has previously accepted the self-signed certificate warning by visiting the service URL directly. This is a browser security constraint — `fetch()` to an untrusted HTTPS origin is rejected without user interaction, and the invite app cannot trigger the browser's certificate acceptance UI programmatically. A future UX improvement could detect LAN/IP-based service URLs and prompt the user to verify the connection (opening the service health endpoint in a new tab) before attempting the claim. This is not an issue for public deployments with valid TLS certificates (e.g. Let's Encrypt)
 
@@ -496,7 +496,7 @@ The following design questions were identified during requirements review (March
 
    **(c) Locale — RESOLVED.** The `locale` field is a per-batch CLI flag (e.g. `--locale zh`) matching the wallet locale codes (`en`, `zh`, `ar`, `fa`, `ru`, `tr`, `vi`). Locale and variant (`--variant standard|robust`) are independent flags — a batch can be standard `zh` (for Taiwan or overseas Chinese) or robust `zh` (for mainland China). Neither flag implies the other.
 
-   **(a) Onboarding pool endpoint sourcing — RESOLVED.** Endpoints are delivered via **encrypted on-chain memo** from `haa-service` to the giftcard provider account, reusing the existing feed mechanism that already delivers subscriber endpoints. The giftcard provider account is enrolled as a special recipient that receives onboarding pool endpoints (distinct from the subscriber pool, per open question 3). The generation script reads the latest memo from `haa-service`, decrypts it with the provider's private memo key, and extracts the onboarding endpoint list.
+   **(a) Onboarding pool endpoint sourcing — RESOLVED.** Endpoints are delivered via **encrypted on-chain memo** from `haa-service` to the giftcard issuer account, reusing the existing feed mechanism that already delivers subscriber endpoints. The giftcard issuer account is enrolled as a special recipient that receives onboarding pool endpoints (distinct from the subscriber pool, per open question 3). The generation script reads the latest memo from `haa-service`, decrypts it with the issuer's private memo key, and extracts the onboarding endpoint list.
 
    This approach was chosen over a dedicated API endpoint because it: (1) requires zero additional infrastructure — reuses the proven feed mechanism, (2) avoids a new API surface that would need deployment, maintenance, URL bootstrapping, and mutual authentication, (3) provides implicit server authentication — the memo sender is verifiable on-chain as `haa-service`, eliminating the risk of a network adversary serving fake endpoints from a spoofed API, and (4) produces no new network metadata — the generation script's only network activity is standard Hive API calls, indistinguishable from normal blockchain usage.
 
@@ -512,12 +512,12 @@ Users in restricted regions — particularly mainland China — will encounter d
 
 The mitigation strategy has two parts: (1) reduce the need for external help by making the invite flow self-explanatory with inline guidance and clear error messages, and (2) provide a secure support channel for when help is genuinely needed.
 
-**Signal as the primary support channel.** Signal is preferred over Telegram for the highest-risk regions because of its stronger metadata protection (sealed sender, no server-side message retention) and lower profile with Chinese authorities compared to Telegram. The support channel is a **dedicated Signal number** operated by the gift card provider, not a group chat. Rationale:
+**Signal as the primary support channel.** Signal is preferred over Telegram for the highest-risk regions because of its stronger metadata protection (sealed sender, no server-side message retention) and lower profile with Chinese authorities compared to Telegram. The support channel is a **dedicated Signal number** operated by the gift card issuer (or operator), not a group chat. Rationale:
 
 - **No group invite link to leak.** A group invite link shared on WeChat would defeat the purpose — anyone (including surveillance actors) could join. A 1:1 support number avoids this entirely.
 - **No member exposure.** Group chats expose member phone numbers to admins and potentially to other members. 1:1 conversations expose only the support number, which is already public.
 - **No moderation overhead.** Groups require active moderation to prevent spam, scams, and off-topic discussion. A support number is point-to-point.
-- **Signal lacks bot support.** Unlike Telegram, Signal has no bot API, so a group chat cannot be automated. A support number staffed by the provider (or a small team) is the natural model.
+- **Signal lacks bot support.** Unlike Telegram, Signal has no bot API, so a group chat cannot be automated. A support number staffed by the issuer or operator (or a small team) is the natural model.
 
 **Integration points:**
 
@@ -601,11 +601,11 @@ Existing users can onboard new users, enabling organic growth without centralize
 
 The service requires payment to cover infrastructure costs. For the proof-of-concept phase, onboarding is free or ad hoc — the priority is validating the technical flow. The payment model below applies to production operation.
 
-- **Onboarding fee (one-time)**: Covers Hive account creation, initial HP delegation, and setup. For gift card onboarding, this fee is paid by the gift card provider when generating a batch (effectively the cost of account creation tokens + infrastructure). End users do not pay at redemption time.
+- **Onboarding fee (one-time)**: Covers Hive account creation, initial HP delegation, and setup. For gift card onboarding, this fee is paid by the gift card issuer when generating a batch (effectively the cost of account creation tokens + infrastructure). End users do not pay at redemption time.
 - **Endpoint subscription (recurring)**: Covers ongoing provision of personal RPC endpoints and proxy infrastructure. Payable in HBD via on-chain transfer to the service account.
 - **Self-sustaining from interest**: A user staking HBD in savings earns ~20% APR. Even modest stakes generate enough interest to cover subscription fees. For example, 100 HBD earns ~20 HBD/year — the subscription should be priced well below this to ensure the service is a clear net positive for users.
 - **Grace periods**: New users should receive an initial service period included in the onboarding fee, giving them time to acquire and stake HBD before the first subscription payment is due.
-- **Gift card provider economics**: Hive whales with substantial account creation tokens can run independent gift card services, selling cards at a modest markup over their costs (account tokens + HP delegation + infrastructure). This provides a return on Hive Power and distributes the operational burden across multiple independent providers.
+- **Gift card issuer economics**: Hive whales with substantial account creation tokens can run independent gift card services, selling cards at a modest markup over their costs (account tokens + HP delegation + infrastructure). This provides a return on Hive Power and distributes the operational burden across multiple independent issuers.
 
 ### 2.8 Modified Hive Keychain
 
@@ -803,7 +803,7 @@ The dashboard guides the issuer through this:
 - Displays the exact authority change needed
 - Provides a Hive Keychain signing prompt to execute the `update_account` operation directly from the dashboard
 - Verifies the delegation was successful by checking the issuer's account authorities on-chain
-- Clearly communicates the trust implications (same warnings as section 2.4's "Trust and security considerations for delegating providers")
+- Clearly communicates the trust implications (same warnings as section 2.4's "Trust and security considerations for delegating issuers")
 
 **Step 3 — Account creation tokens.**
 The issuer is responsible for having sufficient account creation tokens (claimed via Resource Credits from their Hive Power) or liquid HIVE (for the paid fallback). The dashboard displays:
@@ -973,12 +973,12 @@ The dashboard is delivered incrementally:
 - **Leak tracing is built in.** Endpoint-to-user-group mapping allows identification of compromised users when endpoints are blocked.
 - **Users must understand the 3-day unstaking delay** for HBD savings — this is a blockchain-level property, not a limitation of the tool.
 - **Invite chains create accountability.** Users who invite others are implicitly vouching for them, creating a social trust layer.
-- **Gift card QR codes are PIN-encrypted.** The QR alone reveals only a public invite app URL — proxy endpoints, claim tokens, and provider information are encrypted with a 6-character alphanumeric PIN. This prevents proxy infrastructure from being discovered through bulk QR scanning.
-- **Gift card authenticity is cryptographically verifiable.** Each card carries a digital signature from the provider's memo key. The invite app verifies this against the on-chain public key before proceeding, preventing counterfeit cards.
+- **Gift card QR codes are PIN-encrypted.** The QR alone reveals only a public invite app URL — proxy endpoints, claim tokens, and issuer information are encrypted with a 6-character alphanumeric PIN. This prevents proxy infrastructure from being discovered through bulk QR scanning.
+- **Gift card authenticity is cryptographically verifiable.** Each card carries a digital signature from the issuer's memo key. The invite app verifies this against the on-chain public key before proceeding, preventing counterfeit cards.
 - **Gift card batches are declared on-chain.** Batch declarations with Merkle root commitments provide a transparent audit trail of token issuance and enable verification that individual tokens belong to a declared batch.
 - **Gift card claim tokens are single-use and expire.** A stolen token lets an attacker claim an empty account, but does not compromise any existing user. Keys are generated locally on the user's device, never embedded in the QR or transmitted. Expired tokens cannot be redeemed.
 - **Gift card services are security-isolated from proxies.** The gift card service holds account creation keys; the proxy holds no such keys. Compromise of a proxy does not grant account creation capability.
-- **Gift card service account alerting.** The gift card provider account's active key is held persistently by the claim service (required for autonomous account creation). To mitigate the risk of key compromise, the provider should be alerted immediately when any unexpected operation is broadcast from the account — i.e. any operation other than `create_claimed_account`, `delegate_vesting_shares`, or small HBD transfers to the feed service account. On alert, the provider can revoke the active key via a wallet that holds the owner key (e.g. Peakd with Hive Keychain). Existing Hive ecosystem monitoring tools should be evaluated before building a custom solution.
+- **Gift card service account alerting.** The gift card issuer account's active key is held persistently by the claim service (required for autonomous account creation). To mitigate the risk of key compromise, the issuer should be alerted immediately when any unexpected operation is broadcast from the account — i.e. any operation other than `create_claimed_account`, `delegate_vesting_shares`, or small HBD transfers to the feed service account. On alert, the issuer can revoke the active key via a wallet that holds the owner key (e.g. Peakd with Hive Keychain). Existing Hive ecosystem monitoring tools should be evaluated before building a custom solution.
 - **User communication security.** Users in restricted regions (particularly mainland China) may instinctively share gift card details, PINs, or screenshots on familiar but surveilled platforms (e.g. WeChat, QQ). This risks exposing the user, the card contents, and potentially the proxy infrastructure. User-facing materials use normalised, non-alarming language ("this card is personal — don't share the PIN") and provide a secure support channel (Signal) as the obvious help path. Explicit platform-risk guidance is reserved for distributors only — warning end users against specific platforms like WeChat risks scaring them off the invite entirely (see "Secure support channel" under section 2.4).
 
 ## Operational Model
@@ -993,7 +993,7 @@ This means:
 - Multiple independent operators can coexist, each managing their own subscriber base and proxy infrastructure
 - Users can switch between service providers by simply subscribing to a different operator's feed
 - The RPC proxy protocol is open, so anyone can stand up proxy nodes
-- Any Hive account with account creation tokens can independently run a gift card service, registering their service URL on-chain for wallet discovery
+- Any Hive account with account creation tokens can independently operate as an issuer or run their own gift card service, registering their service URL on-chain for wallet discovery
 
 ### Why This Matters
 
@@ -1049,7 +1049,7 @@ Phase 2 browser testing is deferred until the proxy infrastructure exists to act
 
 The invite app currently sends all newly onboarded users to PeakD (standard invites) or the Propolis wallet (robust invites). Hive service providers — games, video platforms, finance apps — would benefit from directing new users into their own application instead.
 
-**Goal:** Allow invite providers to select from a set of hardcoded destination options built into the invite app, without forking. The provider specifies which destination at batch generation time, and the invite app handles the appropriate handoff after account creation.
+**Goal:** Allow invite issuers to select from a set of hardcoded destination options built into the invite app, without forking. The issuer specifies which destination at batch generation time, and the invite app handles the appropriate handoff after account creation.
 
 **Hardcoded destinations** (initial set, expanded over time):
 - PeakD (current default for standard invites)
@@ -1063,11 +1063,11 @@ Each destination includes its own branded success screen, relevant instructions,
 
 **Design considerations:**
 
-- **Configuration source:** The destination is embedded in the invite payload at batch generation time. Different batches from the same provider can target different apps.
+- **Configuration source:** The destination is embedded in the invite payload at batch generation time. Different batches from the same issuer can target different apps.
 - **Backwards compatibility:** Invites generated before this feature exists must continue to work. The invite app falls back to the current default flow when no destination is specified in the payload.
-- **Adding new destinations:** New options require a code change to the invite app. Service providers who want to be included can request addition to the hardcoded list. This keeps the app simple and avoids open-redirect risks.
+- **Adding new destinations:** New options require a code change to the invite app. Hive service providers who want to be included can request addition to the hardcoded list. This keeps the app simple and avoids open-redirect risks.
 
-**Implementation scope:** Future consideration. Today, providers who want custom onboarding flows can fork the invite app.
+**Implementation scope:** Future consideration. Today, issuers who want custom onboarding flows can fork the invite app.
 
 ### Optional Email Collection During Onboarding
 
@@ -1107,25 +1107,25 @@ The follow-up should be non-intrusive and timed appropriately — e.g. after the
 
 ### Gift Card Purchases via Transfer
 
-Allow users to purchase gift cards by transferring Hive or HBD to the gift card provider account. The gift card service monitors the provider account for incoming transfers, generates a gift card, and emails it to the recipient address specified in the memo.
+Allow users to purchase gift cards by transferring Hive or HBD to the gift card issuer account. The gift card service monitors the issuer account for incoming transfers, generates a gift card, and emails it to the recipient address specified in the memo.
 
 This relies on the account creation fallback described below.
 
 ### Account Creation Fallback
 
-The gift card service normally creates accounts by consuming pre-claimed account creation tokens via `create_claimed_account`. If no tokens are available (i.e. the provider's `pending_claimed_accounts` count is zero), the service should fall back to creating the account by burning HIVE via the `account_create` operation, which requires paying the current account creation fee (queried from chain properties).
+The gift card service normally creates accounts by consuming pre-claimed account creation tokens via `create_claimed_account`. If no tokens are available (i.e. the issuer's `pending_claimed_accounts` count is zero), the service should fall back to creating the account by burning HIVE via the `account_create` operation, which requires paying the current account creation fee (queried from chain properties).
 
 **Behaviour:**
-- On each account creation request, check the provider account's `pending_claimed_accounts` count
+- On each account creation request, check the issuer account's `pending_claimed_accounts` count
 - If tokens are available, use `create_claimed_account` (no HIVE cost beyond RC)
-- If no tokens are available, use `account_create`, paying the on-chain account creation fee from the provider account's liquid HIVE balance
-- If the provider also has insufficient liquid HIVE to cover the fee, reject the request with an appropriate error rather than silently failing
+- If no tokens are available, use `account_create`, paying the on-chain account creation fee from the issuer account's liquid HIVE balance
+- If the issuer also has insufficient liquid HIVE to cover the fee, reject the request with an appropriate error rather than silently failing
 
-**Rationale:** Account creation tokens are earned passively through Resource Credits and must be claimed periodically. A provider may exhaust their token supply during high-demand periods (e.g. a successful gift card campaign) or if they haven't claimed tokens recently. The fallback ensures uninterrupted onboarding — a new user scanning a gift card should never fail because of a provider's token management. The HIVE cost is modest (currently ~3 HIVE) and is a reasonable fallback cost for the provider.
+**Rationale:** Account creation tokens are earned passively through Resource Credits and must be claimed periodically. An issuer may exhaust their token supply during high-demand periods (e.g. a successful gift card campaign) or if they haven't claimed tokens recently. The fallback ensures uninterrupted onboarding — a new user scanning a gift card should never fail because of an issuer's token management. The HIVE cost is modest (currently ~3 HIVE) and is a reasonable fallback cost for the issuer.
 
 **Transfer memo format:**
 
-The memo must be encrypted using Hive's native encrypted memo mechanism (`#` prefix). This is essential because transfer memos are permanently public on the blockchain — an unencrypted email address would be a permanent privacy leak. Wallets like Peakd and Hive Keychain support sending encrypted memos natively. The gift card service decrypts using the provider account's memo private key.
+The memo must be encrypted using Hive's native encrypted memo mechanism (`#` prefix). This is essential because transfer memos are permanently public on the blockchain — an unencrypted email address would be a permanent privacy leak. Wallets like Peakd and Hive Keychain support sending encrypted memos natively. The gift card service decrypts using the issuer account's memo private key.
 
 The decrypted memo contains the recipient email address. Later enhancements may accept additional arguments beyond the email address, such as:
 - A chosen number of cards (e.g. bulk purchase)
@@ -1150,7 +1150,7 @@ The service sends invite emails using a transactional email provider via HTTP AP
 - *Deliverability* — transactional email services handle SPF/DKIM/DMARC, bounce management, and sender reputation automatically. Without this, invite emails are likely to land in spam, especially since they contain links and images (both spam triggers).
 - *Architecture fit* — the gift card service runs on Fly.io. HTTP API integration (single env var for the API key) is simpler and more reliable than SMTP connections from containers.
 - *Email content* — what to include in the email is TBD. Options range from a direct invite link + PIN in the email body, to an attached PDF card image, to a link-only approach. Attachments are heavier spam signals. Inline images or a simple link with the PIN may deliver more reliably.
-- *Sender identity* — requires a verified sender domain. Whether this is the provider's own domain, a shared "Hive Invites" domain, or a project-level domain (e.g. `hiveaccessible.com`) is TBD. The sender should have a valid reply-to address for recipient questions.
+- *Sender identity* — requires a verified sender domain. Whether this is the issuer's own domain, a shared "Hive Invites" domain, or a project-level domain (e.g. `hiveaccessible.com`) is TBD. The sender should have a valid reply-to address for recipient questions.
 - *Regulatory* — CAN-SPAM and GDPR technically apply even to transactional email. Single one-off invite emails are low risk, but bulk purchase flows (where one buyer sends many invites) need care — the recipients did not opt in, so the email should clearly identify the sender (the buyer's Hive account) and avoid marketing language.
 - *Cost* — most providers have free tiers sufficient for early usage (SendGrid: 100/day, Postmark: 100/month, SES: ~$0.10/1,000). Provider choice can be deferred.
 
@@ -1160,7 +1160,7 @@ After successfully generating and sending the invite email, the service sends a 
 
 **Gift card variant:**
 
-Which variant (standard vs robust) the purchased card uses is determined by the provider's service configuration, not by the buyer. The provider configures their service to issue one variant or the other (or could expose this as a memo argument in a later enhancement).
+Which variant (standard vs robust) the purchased card uses is determined by the issuer's service configuration, not by the buyer. The issuer configures their service to issue one variant or the other (or could expose this as a memo argument in a later enhancement).
 
 **Rate limiting and abuse prevention:**
 
@@ -1206,7 +1206,7 @@ The physical/digital invite card design should include a small QR code linking t
 - **Zero additional signup.** The user already has a Hive account after the invite flow — Sting Chat uses native Hive authentication, so there is no separate registration, phone number, or app install required.
 - **Already present on PeakD.** Standard invite users who land on PeakD have Sting Chat available immediately. No onboarding friction.
 - **Ecosystem-native.** Support conversations happen within the Hive ecosystem rather than on an external platform, reinforcing the user's relationship with the tools they're learning to use.
-- **Decentralized operation.** The gift card provider can run their own Sting node, ensuring availability independent of PeakD's infrastructure.
+- **Decentralized operation.** The gift card issuer or operator can run their own Sting node, ensuring availability independent of PeakD's infrastructure.
 
 **Limitations and why Signal remains primary for robust invites:**
 
@@ -1220,13 +1220,13 @@ The physical/digital invite card design should include a small QR code linking t
 1. **Signal** — primary support channel during onboarding and for users in restricted regions who are stuck. Works independently of the Hive ecosystem, proven in adversarial environments, accessible via APK distribution through the proxy.
 2. **Sting Chat** — post-onboarding support and ongoing community channel once the user has a working Hive account and is active on PeakD or another Sting-integrated frontend. Replaces the need for external community platforms (Telegram groups, Discord servers) for Hive-native users.
 
-**Implementation scope:** This is a future consideration. The initial release relies on Signal only. Sting Chat integration should be evaluated once the core onboarding flow is stable and there is an active user base to support. Potential integration points include: a "Community Chat" link on the Propolis wallet's settings or help screen, and a welcome message from the provider's Hive account via Sting Chat after successful onboarding (analogous to the Stage 2 follow-up memo).
+**Implementation scope:** This is a future consideration. The initial release relies on Signal only. Sting Chat integration should be evaluated once the core onboarding flow is stable and there is an active user base to support. Potential integration points include: a "Community Chat" link on the Propolis wallet's settings or help screen, and a welcome message from the issuer's Hive account via Sting Chat after successful onboarding (analogous to the Stage 2 follow-up memo).
 
 ### Telegram Gift Card Bot
 
 ✅ **Implemented and deployed on Fly.io.** See `telegram-bot/` and `telegram-bot/CLAUDE.md`.
 
-A Telegram bot that distributes Propolis gift cards within group chats. The bot operator (issuer) supplies gift cards to the bot, and group members can trigger delivery of cards to other users — either free (for the operator) or paid (for everyone else).
+A Telegram bot that distributes Propolis gift cards within group chats. The bot operator (typically an issuer or distributor — see section 2.9 for terminology) supplies gift cards to the bot, and group members can trigger delivery of cards to other users — either free (for the bot operator) or paid (for everyone else). Note: "operator" in this section refers to whoever controls the bot instance, which predates the formal Operator/Issuer/Distributor role model in section 2.9. Section 2.9.5 describes how the bot will be updated for multi-issuer distributor support.
 
 **Core functionality:**
 
