@@ -727,6 +727,240 @@ The fork **retains Keychain's existing security architecture** with no degradati
 - Both share the same endpoint discovery protocol and obfuscation layer, ensuring compatibility with the same proxy infrastructure
 - The proxy method allowlist expansion benefits both: the wallet tool could optionally surface more features if the proxy supports the additional methods
 
+### 2.9 Multi-Tenant Onboarder Dashboard
+
+A self-service dashboard on HiveInvite.com that enables independent Hive users to become gift card issuers — generating, managing, and distributing gift cards under their own authority, using the shared gift card service infrastructure.
+
+**Terminology:**
+
+| Role | Description |
+|------|-------------|
+| **Operator** | Runs the gift card service, distribution bots, and proxy infrastructure. Reviews and approves issuer applications. Integrates custom design templates. |
+| **Issuer** | A Hive user approved to create gift cards. Funds their own account creation tokens. Redemptions happen under their authority (their account's active key, delegated to the service). Manages their own batches and distributors. |
+| **Distributor** | A user authorized by an issuer to share gift cards via distribution channels (Telegram bot, Discord bot, etc.). Cannot create cards — only distributes cards from the issuer's pool. |
+
+These terms replace the earlier "provider" terminology used in section 2.4. In the existing codebase and on-chain declarations, "provider" maps to "issuer" in this model.
+
+#### 2.9.1 Issuer Application and Approval
+
+Any Hive user can apply to become an issuer. Approval is a manual decision by the operator.
+
+**Application (on-chain):**
+
+The applicant broadcasts a `custom_json` transaction signed with their **active key**:
+
+```json
+{
+  "id": "propolis_issuer_apply",
+  "json": {
+    "service": "<operator-service-account>",
+    "description": "Brief description of community/use case",
+    "contact": "Optional contact method (Telegram, Discord, etc.)"
+  }
+}
+```
+
+The active key signature proves the applicant controls the account. The `service` field identifies which operator's service they're applying to (supports future multi-operator scenarios). The application is a public, auditable record — anyone can see who applied.
+
+**Approval (on-chain):**
+
+The operator broadcasts a `custom_json` from the service account:
+
+```json
+{
+  "id": "propolis_issuer_approve",
+  "json": {
+    "issuer": "<applicant-username>",
+    "approved_at": "<ISO 8601 timestamp>"
+  }
+}
+```
+
+**Rejection:** No on-chain record is broadcast. Silence = not approved. The operator may optionally contact the applicant off-chain to explain, but the system does not require or record rejections. This avoids creating a permanent public record of denied applications.
+
+**Operator notification:**
+
+The gift card service watches for `propolis_issuer_apply` custom_json operations targeting its service account. When a new application is detected:
+- The operator receives a Telegram notification (via the existing bot infrastructure) with the applicant's username, description, and a link to review their Hive profile
+- The dashboard includes an admin view listing pending applications
+
+Both notification channels ensure the operator is aware of new applications promptly.
+
+#### 2.9.2 Issuer Onboarding Flow
+
+After approval, the issuer must complete setup before they can generate cards:
+
+**Step 1 — Notification.**
+The operator's approval `custom_json` triggers a Hive transfer (e.g. 0.001 HBD) from the service account to the issuer with an encrypted memo containing:
+- Confirmation of approval
+- A link to the dashboard setup page on HiveInvite.com
+- Instructions for the next step (active authority delegation)
+
+**Step 2 — Active authority delegation.**
+The issuer must add the service account's public active key to their account's active authority list (via `update_account`). This grants the service the ability to sign transactions on the issuer's behalf (specifically `create_claimed_account` and `delegate_vesting_shares`).
+
+The dashboard guides the issuer through this:
+- Displays the exact authority change needed
+- Provides a Hive Keychain signing prompt to execute the `update_account` operation directly from the dashboard
+- Verifies the delegation was successful by checking the issuer's account authorities on-chain
+- Clearly communicates the trust implications (same warnings as section 2.4's "Trust and security considerations for delegating providers")
+
+**Step 3 — Account creation tokens.**
+The issuer is responsible for having sufficient account creation tokens (claimed via Resource Credits from their Hive Power) or liquid HIVE (for the paid fallback). The dashboard displays:
+- Current `pending_claimed_accounts` count
+- Estimated account creation cost if tokens are exhausted
+- Guidance on claiming more tokens (link to relevant Hive documentation or tooling)
+
+**Step 4 — Ready.**
+Once active authority is delegated and verified, the issuer can access the full dashboard and generate their first batch.
+
+#### 2.9.3 Dashboard (HiveInvite.com)
+
+The dashboard is a static site hosted on HiveInvite.com (GitHub Pages), making API calls to the gift card service on Fly.io. Authentication is via **Hive Keychain** — the dashboard presents a challenge, the issuer signs it with their posting key via Keychain, and the service verifies the signature.
+
+**Public pages (unauthenticated):**
+- Landing page — explains the gift card system, how it works, benefits of becoming an onboarder
+- "Become an Onboarder" — application form that triggers the `propolis_issuer_apply` custom_json via Keychain
+
+**Issuer dashboard (Keychain-authenticated):**
+
+- **Overview** — account creation tokens remaining, total cards issued, total cards claimed, active batches
+- **Generate batch** — single form:
+  - Count (number of cards)
+  - Design (default with issuer username, or issuer's approved custom design if available)
+  - Locale (en, zh, ar, fa, ru, tr, vi)
+  - Expiry (days until expiration, default: 365)
+  - Distribute (toggle: automatically push tokens to distribution bots after generation)
+- **Batch history** — list of all batches with status summary (total, claimed, expired, remaining)
+- **Batch detail** — per-card status, download manifest, download PDFs (individual or combined), retroactive push to distribution bots
+- **Distributors** — manage authorized distributors (see section 2.9.5)
+- **Design** — preview the default design with their username; submit custom design assets for operator review (see section 2.9.6)
+- **Setup** — authority delegation status, account creation token balance, issuer profile
+
+**Operator admin view (operator Keychain-authenticated):**
+- Pending issuer applications (approve/ignore)
+- Active issuers list with summary stats
+- Pending custom design submissions
+- System health overview
+
+#### 2.9.4 Batch Generation via Dashboard
+
+When an issuer requests a new batch through the dashboard:
+
+1. Dashboard sends an authenticated request to the gift card service: count, locale, design, expiry, distribute flag
+2. The gift card service generates the batch entirely server-side (same pipeline as the existing `giftcard-generate.ts` script):
+   - Generates tokens and PINs
+   - Builds Merkle tree
+   - Stores tokens in SQLite
+   - Broadcasts batch declaration `custom_json` on-chain (signed by the service account using delegated authority from the issuer)
+   - Generates QR codes and PDFs using the specified design
+3. Service returns the batch ID and download URLs to the dashboard
+4. Issuer downloads the combined PDF and/or manifest from the dashboard
+5. If the "distribute" flag was set, the service pushes tokens to connected distribution bots (see section 2.9.5)
+
+The issuer can also download the full manifest (containing tokens, PINs, and invite URLs) for their records. The manifest is sensitive — the dashboard displays a clear warning that it contains all card secrets.
+
+**Issuer responsibility notice:**
+The dashboard displays a persistent notice that the issuer is responsible for:
+- Maintaining sufficient account creation tokens or HIVE balance to cover redemptions for all active (unredeemed, unexpired) cards
+- Managing the volume of cards they generate — generating more cards than they can fund creates a poor experience for recipients whose cards fail to redeem
+- The operator does not guarantee redemption if the issuer's account lacks tokens or funds
+
+#### 2.9.5 Distributors
+
+An issuer can authorize other Hive users to distribute their gift cards via bots. Distributors cannot generate cards — they can only share cards from the issuer's pool through connected distribution channels.
+
+**Authorization (on-chain):**
+
+The issuer broadcasts a `custom_json` signed with their posting key:
+
+```json
+{
+  "id": "propolis_distributor_authorize",
+  "json": {
+    "distributor": "<hive-username>",
+    "platforms": {
+      "telegram": "<telegram-user-id>",
+      "discord": "<discord-user-id>"
+    }
+  }
+}
+```
+
+Revocation uses the same structure with `"propolis_distributor_revoke"` as the ID.
+
+**Platform identity mapping:**
+Distributors need their Telegram and/or Discord accounts mapped to their Hive username so that distribution bots can verify authorization. The `platforms` field in the authorization `custom_json` provides this mapping. The issuer is responsible for verifying the distributor's platform identities before broadcasting the authorization.
+
+**Bot integration:**
+- Distribution bots (Telegram, Discord) read distributor authorizations from the chain (cached, refreshed periodically)
+- When a distributor issues a command (e.g. `/invite issuername`), the bot verifies the distributor is authorized by that issuer
+- If the distributor is authorized by exactly one issuer, the issuer argument can be omitted (default issuer mode): `/invite` is equivalent to `/invite <their-sole-issuer>`
+- The bot dispenses a card from the issuer's pool and sends it to the recipient
+
+**Token distribution to bots:**
+When a batch is created with the "distribute" flag, or when an issuer retroactively pushes a batch from the dashboard, the gift card service sends the card tokens to the connected distribution bots via an internal REST callback. The bot stores these in its local inventory, associated with the issuer.
+
+The Telegram and Discord bot commands need to be updated to accept a Hive username argument for the issuer:
+- Telegram: `/invite [issuer]` — dispense a card from the specified (or default) issuer's pool
+- Discord: `/invite [issuer]` — same behaviour via slash command
+
+#### 2.9.6 Gift Card Designs
+
+**Default design (v1):**
+Every issuer has access to the default Hive Community design. When used by an issuer, their Hive username is automatically inserted as the issuer line on the card front (e.g. "Issued by @username"). No additional configuration needed.
+
+The dashboard provides a live preview of the default design with the issuer's username before batch generation.
+
+**Custom designs (future phase):**
+Custom designs are not self-service — they require operator involvement for quality control and security review (preventing malicious content in uploaded assets).
+
+The workflow:
+1. Issuer submits design assets via the dashboard: logo image, color preferences, optional background image, any text overrides
+2. The operator receives a notification of the new design submission
+3. The operator reviews the assets, builds a proper `DesignConfig` template following the existing design system (see `scripts/designs/types.ts`), tests the output, and deploys it to the service
+4. The new design appears in the issuer's design dropdown on the dashboard
+
+Custom design support is **deferred from v1**. The initial release supports only the default design with issuer username.
+
+#### 2.9.7 On-Chain Data Model
+
+All role relationships and authorizations are stored on-chain via `custom_json` operations, providing transparency and auditability.
+
+| Operation ID | Signed by | Purpose |
+|---|---|---|
+| `propolis_issuer_apply` | Applicant (active key) | Request to become an issuer |
+| `propolis_issuer_approve` | Operator (service account) | Approve an issuer application |
+| `propolis_distributor_authorize` | Issuer (posting key) | Authorize a distributor + platform mapping |
+| `propolis_distributor_revoke` | Issuer (posting key) | Revoke a distributor's authorization |
+| `propolis_giftcard_batch` | Service account (delegated from issuer) | Batch declaration (existing, unchanged) |
+
+The gift card service scans for these operations and caches the results to build its view of the issuer/distributor relationships. The on-chain record is the source of truth — the service's cache is reconstructible from chain history at any time.
+
+#### 2.9.8 Implementation Priorities
+
+The dashboard is delivered incrementally:
+
+**v1 — Core dashboard:**
+- Issuer application and approval flow (on-chain custom_json)
+- Dashboard with Keychain authentication
+- Batch generation via dashboard (server-side, full pipeline)
+- Default design with issuer username auto-filled
+- Batch history and card status
+- Operator notification of new applications (Telegram + dashboard admin view)
+- Issuer responsibility notice
+
+**v2 — Distribution integration:**
+- Distributor authorization (on-chain custom_json with platform mapping)
+- Automatic batch push to Telegram/Discord bots
+- Default issuer mode for distributors
+- Bot command updates to accept issuer argument
+
+**v3 — Design and polish:**
+- Custom design submission and operator review workflow
+- Design preview in dashboard
+- Issuer profile and public stats
+
 ---
 
 ## Security Considerations
