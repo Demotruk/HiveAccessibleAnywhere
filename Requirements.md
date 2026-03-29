@@ -941,14 +941,21 @@ The gift card service scans for these operations and caches the results to build
 
 The dashboard is delivered incrementally:
 
-**v1 — Core dashboard:**
-- Issuer application and approval flow (on-chain custom_json)
-- Dashboard with Keychain authentication
-- Batch generation via dashboard (server-side, full pipeline)
+**v1.0 — Minimum viable loop (first PR):**
+The smallest end-to-end slice that delivers value: an issuer can log in, generate a batch, and download the PDFs.
+- Hive Keychain authentication (challenge-response with posting key)
+- Giftcard service API endpoints: auth, batch generation, batch listing, PDF/manifest download
+- Dashboard UI: login, generate batch form, batch history with download links
 - Default design with issuer username auto-filled
-- Batch history and card status
+- Issuer must already be whitelisted (manual `GIFTCARD_ALLOWED_PROVIDERS` env var) — on-chain application flow is deferred
+
+**v1.1 — Full issuer lifecycle:**
+- Issuer application and approval flow (on-chain custom_json)
 - Operator notification of new applications (Telegram + dashboard admin view)
+- Guided active authority delegation via Keychain in the dashboard
+- Account creation token balance display
 - Issuer responsibility notice
+- Operator admin view (pending applications, active issuers)
 
 **v2 — Distribution integration:**
 - Distributor authorization (on-chain custom_json with platform mapping)
@@ -960,6 +967,28 @@ The dashboard is delivered incrementally:
 - Custom design submission and operator review workflow
 - Design preview in dashboard
 - Issuer profile and public stats
+
+#### 2.9.9 Technical Architecture
+
+**Dashboard frontend:**
+- Lives in `dashboard/` in the monorepo, alongside `invite/` and `restore/`
+- Built with **Preact + HTM** (tagged template literals, no JSX build step) and Vite
+- Deployed to HiveInvite.com via the existing `deploy-hiveinvite.ts` script, which assembles all apps into `hiveinvite-site/dist/` for the GitHub Pages repo
+- URL structure: `https://hiveinvite.com/dashboard/`
+- Authentication via Hive Keychain browser extension (`window.hive_keychain`) — challenge-response signing with the issuer's posting key
+
+**Giftcard service API (new endpoints on Fly.io):**
+- `POST /auth/challenge` — generate a random challenge string for Keychain signing
+- `POST /auth/verify` — verify signed challenge, return session token
+- `POST /api/batches` — generate a new batch (authenticated, issuer only)
+- `GET /api/batches` — list batches for the authenticated issuer
+- `GET /api/batches/:id` — batch detail with per-card status
+- `GET /api/batches/:id/pdf` — download combined PDF
+- `GET /api/batches/:id/manifest` — download manifest (JSON with tokens/PINs)
+- All authenticated endpoints require a valid session token (JWT or similar)
+
+**Hive Keychain integration:**
+This is the project's first use of Hive Keychain. The Keychain browser extension injects `window.hive_keychain` into the page, providing methods for signing transactions and messages without exposing private keys. The dashboard uses `requestSignBuffer` to sign authentication challenges with the issuer's posting key. The service verifies the signature against the issuer's on-chain posting public key (fetched via `condenser_api.get_accounts`).
 
 ---
 
