@@ -16,7 +16,7 @@
  *   restore/index.html — backup restore app (from restore/ build)
  */
 
-import { copyFileSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { copyFileSync, cpSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '..');
@@ -68,6 +68,15 @@ if (existsSync(restoreSrc)) {
   console.log('Copied: restore/index.html');
 } else {
   console.warn('Warning: restore app build not found — run "cd restore && npm run build" first');
+}
+
+// 5. Dashboard app (multi-file Vite build — copy entire dist directory)
+const dashboardDist = resolve(ROOT, 'dashboard', 'dist');
+if (existsSync(dashboardDist)) {
+  cpSync(dashboardDist, resolve(OUTPUT, 'dashboard'), { recursive: true });
+  console.log('Copied: dashboard/ (multi-file build)');
+} else {
+  console.warn('Warning: dashboard app build not found — run "cd dashboard && npm run build" first');
 }
 
 console.log(`\nSite assembled in: ${OUTPUT}`);

@@ -1,0 +1,73 @@
+import { html } from 'htm/preact';
+import { useState } from 'preact/hooks';
+import { isKeychainAvailable, login } from '../auth.js';
+import { setState } from '../state.js';
+
+export function Login() {
+  const [username, setUsername] = useState('');
+  const [error, setError] = useState('');
+  const [signing, setSigning] = useState(false);
+
+  async function handleLogin(e: Event) {
+    e.preventDefault();
+    setError('');
+
+    const name = username.toLowerCase().replace(/^@/, '').trim();
+    if (!name) {
+      setError('Enter your Hive username');
+      return;
+    }
+
+    if (!isKeychainAvailable()) {
+      setError('Hive Keychain extension not detected. Install it from hivekeychain.com');
+      return;
+    }
+
+    setSigning(true);
+    try {
+      const jwt = await login(name);
+      setState({ jwt, username: name });
+      window.location.hash = '#batches';
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('Not an authorized issuer')) {
+        setError(`@${name} is not an authorized issuer`);
+      } else {
+        setError(msg);
+      }
+    } finally {
+      setSigning(false);
+    }
+  }
+
+  return html`
+    <div class="ct" style="max-width:420px;margin-top:80px">
+      <div class="center mb">
+        <h1>Gift Card Dashboard</h1>
+        <p class="sm mt">Sign in with Hive Keychain to manage your gift card batches.</p>
+      </div>
+
+      <form onSubmit=${handleLogin}>
+        <div class="form-row">
+          <label for="username">Hive Username</label>
+          <input
+            id="username"
+            type="text"
+            placeholder="yourusername"
+            value=${username}
+            onInput=${(e: Event) => setUsername((e.target as HTMLInputElement).value)}
+            disabled=${signing}
+            autocomplete="username"
+            autofocus
+          />
+        </div>
+
+        <button type="submit" disabled=${signing}>
+          ${signing ? html`<span class="spinner" style="width:14px;height:14px;border-width:2px;vertical-align:middle;margin-right:8px" /> Signing with Keychain...` : 'Sign in with Keychain'}
+        </button>
+      </form>
+
+      ${error && html`<p class="err mt1">${error}</p>`}
+    </div>
+  `;
+}

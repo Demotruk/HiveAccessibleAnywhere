@@ -88,6 +88,13 @@
       "port": 8093
     },
     {
+      "name": "dashboard-dev",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["node_modules/vite/bin/vite.js", "--port", "5179", "--host", "127.0.0.1"],
+      "port": 5179,
+      "cwd": "dashboard"
+    },
+    {
       "name": "proxy-food",
       "runtimeExecutable": "node",
       "runtimeArgs": ["--import", "tsx", "src/server.ts"],

@@ -11,7 +11,9 @@
     "dev:invite": "cd invite && npm run dev",
     "dev:restore": "cd restore && npm run dev",
     "dev:proxy": "cd proxy && npm run dev",
-    "build": "npm run build:wallet && npm run build:invite",
+    "dev:dashboard": "cd dashboard && npm run dev",
+    "build:dashboard": "cd dashboard && npm run build",
+    "build": "npm run build:wallet && npm run build:invite && npm run build:dashboard",
     "deploy:pages": "cd scripts && npm run deploy-pages && npm run generate-qr"
   }
 }
