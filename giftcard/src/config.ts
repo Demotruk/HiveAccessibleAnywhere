@@ -37,8 +37,15 @@ export interface GiftcardConfig {
   serviceAccount?: string;
   /** Service account's own active key (WIF) — signs on behalf of providers */
   serviceActiveKey?: string;
+  /** Service account's memo key (WIF) — signs gift cards on behalf of issuers in multi-tenant mode */
+  serviceMemoKey?: string;
   /** Approved provider accounts. Claims for unlisted providers are rejected. */
   allowedProviders?: Set<string>;
+
+  // -- Dashboard API fields (optional) --
+
+  /** JWT secret for dashboard session tokens. Required for dashboard API endpoints. */
+  jwtSecret?: string;
 }
 
 /**
@@ -106,6 +113,9 @@ export function loadConfig(): GiftcardConfig {
   // In multi-tenant mode, memo key is resolved per-provider from chain,
   // but we still require GIFTCARD_MEMO_KEY for the default provider (backward compat)
 
+  const serviceMemoKey = process.env.GIFTCARD_SERVICE_MEMO_KEY || undefined;
+  const jwtSecret = process.env.GIFTCARD_JWT_SECRET || undefined;
+
   return {
     providerAccount: providerAccount!,
     activeKey: activeKey!,
@@ -118,6 +128,8 @@ export function loadConfig(): GiftcardConfig {
     hiveNodes,
     serviceAccount,
     serviceActiveKey,
+    serviceMemoKey,
     allowedProviders,
+    jwtSecret,
   };
 }

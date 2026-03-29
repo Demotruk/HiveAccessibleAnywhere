@@ -21,6 +21,9 @@ export interface BatchRow {
   note: string | null;
   promise_type: string;
   promise_params: string | null;
+  provider: string | null;
+  pdf_data: Buffer | null;
+  manifest_data: string | null;
 }
 
 export interface TokenRow {
@@ -97,6 +100,7 @@ export function initDatabase(dbPath: string): Database.Database {
 
   // -- Migrations for existing databases --
   migrateSpentTokensProvider(db);
+  migrateBatchesForDashboard(db);
 
   return db;
 }
@@ -111,6 +115,26 @@ function migrateSpentTokensProvider(db: Database.Database): void {
   if (!hasProvider) {
     db.exec('ALTER TABLE spent_tokens ADD COLUMN provider TEXT');
     console.log('[DB] Migrated spent_tokens: added provider column');
+  }
+}
+
+/**
+ * Add dashboard columns to batches table if they don't exist.
+ */
+function migrateBatchesForDashboard(db: Database.Database): void {
+  const columns = db.pragma('table_info(batches)') as Array<{ name: string }>;
+  const colNames = new Set(columns.map(c => c.name));
+  if (!colNames.has('provider')) {
+    db.exec('ALTER TABLE batches ADD COLUMN provider TEXT');
+    console.log('[DB] Migrated batches: added provider column');
+  }
+  if (!colNames.has('pdf_data')) {
+    db.exec('ALTER TABLE batches ADD COLUMN pdf_data BLOB');
+    console.log('[DB] Migrated batches: added pdf_data column');
+  }
+  if (!colNames.has('manifest_data')) {
+    db.exec('ALTER TABLE batches ADD COLUMN manifest_data TEXT');
+    console.log('[DB] Migrated batches: added manifest_data column');
   }
 }
 
@@ -338,4 +362,96 @@ export function markTokenSpentByHash(
     INSERT INTO spent_tokens (token_hash, batch_id, claimed_by, claimed_ip, tx_id, provider)
     VALUES (?, ?, ?, ?, ?, ?)
   `).run(tokenHash, batchId, claimedBy, ip, txId, provider ?? null);
+}
+
+// -- Dashboard query functions --
+
+/**
+ * Create a batch record with provider (issuer) attribution.
+ */
+export function createBatchWithProvider(
+  db: Database.Database,
+  id: string,
+  expiresAt: string,
+  count: number,
+  provider: string,
+  merkleRoot?: string,
+  declarationTx?: string,
+  note?: string,
+  promiseType: string = 'account-creation',
+  promiseParams?: Record<string, unknown>,
+): void {
+  db.prepare(`
+    INSERT INTO batches (id, expires_at, count, merkle_root, declaration_tx, note, promise_type, promise_params, provider)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id, expiresAt, count,
+    merkleRoot ?? null, declarationTx ?? null, note ?? null,
+    promiseType, promiseParams ? JSON.stringify(promiseParams) : null,
+    provider,
+  );
+}
+
+/**
+ * List batches belonging to a specific provider (issuer).
+ */
+export function listBatchesByProvider(db: Database.Database, provider: string): BatchRow[] {
+  return db.prepare(
+    'SELECT * FROM batches WHERE provider = ? ORDER BY created_at DESC',
+  ).all(provider) as BatchRow[];
+}
+
+/**
+ * Get a batch by ID, scoped to a specific provider for security.
+ */
+export function getBatchByIdForProvider(
+  db: Database.Database,
+  batchId: string,
+  provider: string,
+): BatchRow | null {
+  return (db.prepare(
+    'SELECT * FROM batches WHERE id = ? AND provider = ?',
+  ).get(batchId, provider) as BatchRow | undefined) ?? null;
+}
+
+/**
+ * Store generated PDF and manifest data for a batch.
+ */
+export function updateBatchArtifacts(
+  db: Database.Database,
+  batchId: string,
+  pdfData: Buffer,
+  manifestData: string,
+): void {
+  db.prepare(
+    'UPDATE batches SET pdf_data = ?, manifest_data = ? WHERE id = ?',
+  ).run(pdfData, manifestData, batchId);
+}
+
+/**
+ * Retrieve the combined PDF for a batch, scoped to provider.
+ */
+export function getBatchPdf(
+  db: Database.Database,
+  batchId: string,
+  provider: string,
+): Buffer | null {
+  const row = db.prepare(
+    'SELECT pdf_data FROM batches WHERE id = ? AND provider = ?',
+  ).get(batchId, provider) as { pdf_data: Buffer | null } | undefined;
+  return row?.pdf_data ?? null;
+}
+
+/**
+ * Retrieve the manifest JSON for a batch, scoped to provider.
+ */
+export function getBatchManifest(
+  db: Database.Database,
+  batchId: string,
+  provider: string,
+): string | null {
+  const row = db.prepare(
+    'SELECT manifest_data FROM batches WHERE id = ? AND provider = ?',
+  ).get(batchId, provider) as { manifest_data: string | null } | undefined;
+  return row?.manifest_data ?? null;
 }

@@ -24,9 +24,15 @@ import helmet from 'helmet';
 import https from 'node:https';
 import { readFileSync, existsSync } from 'node:fs';
 import { rateLimit } from './middleware/rate-limit.js';
+import { requireAuth } from './middleware/auth.js';
 import { serveCoverPage, getThemeName } from './cover-site.js';
 import { claimHandler } from './routes/claim.js';
 import { validateHandler } from './routes/validate.js';
+import { challengeHandler, verifyHandler } from './routes/auth.js';
+import {
+  createBatchHandler, listBatchesHandler, getBatchDetailHandler,
+  downloadPdfHandler, downloadManifestHandler,
+} from './routes/batches.js';
 import { loadConfig, isMultiTenant } from './config.js';
 import { initDatabase } from './db.js';
 import { warmBatchCache } from './hive/batch-lookup.js';
@@ -76,7 +82,7 @@ app.use(helmet({
 app.use((_req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (_req.method === 'OPTIONS') {
     res.status(204).end();
     return;
@@ -87,9 +93,11 @@ app.use((_req, res, next) => {
 // Parse JSON bodies (small limit — claim payloads are tiny)
 app.use(express.json({ limit: '16kb' }));
 
-// Rate limiters — aggressive on claim, moderate on validate
+// Rate limiters — aggressive on claim, moderate on validate and auth
 const claimLimiter = rateLimit({ max: 10, windowMs: 60_000 });
 const validateLimiter = rateLimit({ max: 30, windowMs: 60_000 });
+const authLimiter = rateLimit({ max: 20, windowMs: 60_000 });
+const apiLimiter = rateLimit({ max: 30, windowMs: 60_000 });
 
 // --- Routes ---
 
@@ -106,6 +114,20 @@ app.post('/claim', claimLimiter, claimHandler(db, config));
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
+
+// --- Dashboard API ---
+
+// Auth routes (public, rate-limited)
+app.post('/auth/challenge', authLimiter, challengeHandler(config));
+app.post('/auth/verify', authLimiter, verifyHandler(config));
+
+// Batch routes (authenticated)
+const auth = requireAuth(config);
+app.post('/api/batches', apiLimiter, auth, createBatchHandler(db, config));
+app.get('/api/batches', apiLimiter, auth, listBatchesHandler(db));
+app.get('/api/batches/:id', apiLimiter, auth, getBatchDetailHandler(db));
+app.get('/api/batches/:id/pdf', apiLimiter, auth, downloadPdfHandler(db));
+app.get('/api/batches/:id/manifest', apiLimiter, auth, downloadManifestHandler(db));
 
 // 404 for everything else (looks like a normal site)
 app.use((_req, res) => {
@@ -131,6 +153,10 @@ if (useHttps) {
     console.log(`Claim:      POST https://localhost:${config.port}/claim`);
     console.log(`Validate:   POST https://localhost:${config.port}/validate`);
     console.log(`Health:     https://localhost:${config.port}/health`);
+    console.log(`Auth:       POST https://localhost:${config.port}/auth/challenge`);
+    console.log(`            POST https://localhost:${config.port}/auth/verify`);
+    console.log(`Batches:    POST https://localhost:${config.port}/api/batches`);
+    console.log(`            GET  https://localhost:${config.port}/api/batches`);
     console.log(`Database:   ${config.dbPath}`);
   });
 } else {
@@ -141,6 +167,10 @@ if (useHttps) {
     console.log(`Claim:      POST http://localhost:${config.port}/claim`);
     console.log(`Validate:   POST http://localhost:${config.port}/validate`);
     console.log(`Health:     http://localhost:${config.port}/health`);
+    console.log(`Auth:       POST http://localhost:${config.port}/auth/challenge`);
+    console.log(`            POST http://localhost:${config.port}/auth/verify`);
+    console.log(`Batches:    POST http://localhost:${config.port}/api/batches`);
+    console.log(`            GET  http://localhost:${config.port}/api/batches`);
     console.log(`Database:   ${config.dbPath}`);
   });
 }

@@ -1,71 +1,121 @@
 # Gift Card Service
 
-An Express server that redeems single-use claim tokens to create Hive accounts. Deployed separately from the proxy for security isolation — this service holds account creation keys.
+An Express server that redeems single-use claim tokens to create Hive accounts and provides a dashboard API for issuer batch management. Deployed separately from the proxy for security isolation — this service holds account creation keys.
 
 ## Architecture
 
 ```
 src/
   server.ts           # Express app, routes, startup
-  claim.ts            # Token validation + account creation logic
-  batch-cache.ts      # In-memory batch cache (pre-warmed from on-chain history)
+  config.ts           # Environment config, multi-tenant mode detection
+  db.ts               # SQLite schema + queries + migrations
   cover-site.ts       # Cover page (blog theme, same pattern as proxy)
-  db.ts               # SQLite schema + queries (audit log)
+  auth/
+    challenge.ts      # In-memory challenge store (5-min TTL)
+    verify.ts         # Hive posting key signature verification
+    jwt.ts            # JWT sign/verify utilities
   middleware/
-    rate-limit.ts     # Aggressive rate limiting on /claim
+    rate-limit.ts     # Per-IP rate limiting
+    auth.ts           # JWT authentication middleware (requireAuth)
+  routes/
+    claim.ts          # POST /claim — redeem token → create account
+    validate.ts       # POST /validate — pre-flight token check
+    auth.ts           # POST /auth/challenge, /auth/verify — Keychain login
+    batches.ts        # CRUD for batch management (dashboard API)
+  generate/
+    batch.ts          # Server-side batch generation pipeline
+    declare.ts        # On-chain batch declaration (custom_json)
+    pdf.ts            # Invite card PDF generation (pdf-lib)
+    design-loader.ts  # Design template loading (v1: Hive design only)
+    design-types.ts   # Design config type definitions
+  hive/
+    account.ts        # Account creation + delegation
+    batch-lookup.ts   # On-chain batch declaration cache
+    provider.ts       # Provider memo key resolution
+  crypto/
+    signing.ts        # Token/PIN generation, Merkle tree, encryption
+  types/
+    express.d.ts      # Express Request augmentation (req.issuer)
+assets/
+  hive-logo.png       # Hive logo for default card design
 ```
 
 ## Routes
 
-| Route | Method | Purpose |
-|-------|--------|---------|
-| `/` | GET | Cover site (blog theme) |
-| `/claim` | POST | Redeem a claim token → create Hive account |
-| `/validate` | POST | Pre-flight token validation (no side effects) |
-| `/health` | GET | Health check (used by invite app for warm-up) |
+### Core (Gift Card Redemption)
 
-## Claim Flow
+| Route | Method | Auth | Purpose |
+|-------|--------|------|---------|
+| `/` | GET | No | Cover site (blog theme) |
+| `/claim` | POST | No | Redeem a claim token → create Hive account |
+| `/validate` | POST | No | Pre-flight token validation (no side effects) |
+| `/health` | GET | No | Health check (used by invite app for warm-up) |
 
-1. Invite app sends POST `/claim` with `{ token, username, publicKeys }`
-2. Service validates token (not expired, not spent, signature valid)
-3. Service broadcasts `create_claimed_account` on-chain with user's public keys
-4. Service delegates initial HP to new account (for Resource Credits)
-5. Service marks token as spent in SQLite
-6. *(Robust invites only)* Service sends enrollment transfer to `haa-service`
+### Dashboard API
 
-## Key Constraints
+| Route | Method | Auth | Purpose |
+|-------|--------|------|---------|
+| `/auth/challenge` | POST | No | Get a challenge string for Keychain signing |
+| `/auth/verify` | POST | No | Verify signed challenge → JWT session token |
+| `/api/batches` | POST | JWT | Generate a new batch of gift cards |
+| `/api/batches` | GET | JWT | List batches for the authenticated issuer |
+| `/api/batches/:id` | GET | JWT | Batch detail with per-card status |
+| `/api/batches/:id/pdf` | GET | JWT | Download combined PDF |
+| `/api/batches/:id/manifest` | GET | JWT | Download manifest (contains PINs) |
 
-- **Cold start latency** — Fly.io auto-stop means 10-30s cold starts. The invite app pings `/health` early in the flow to warm up the service.
-- **Single-use tokens** — each token can only be redeemed once. Idempotent retries (same token + username) should return success.
-- **Security isolation** — this service holds the provider's active key (or delegated authority). The proxy does NOT hold account creation keys.
-- **Rate limiting** — aggressive throttling on `/claim` to prevent abuse.
+## Authentication
 
-## Multi-Provider Support
+Dashboard API uses Hive Keychain challenge-response:
+1. Client requests `POST /auth/challenge` with `{ username }`
+2. Client signs the challenge with Keychain (posting key)
+3. Client sends `POST /auth/verify` with `{ username, challenge, signature }`
+4. Service verifies against on-chain posting key, returns JWT (24h expiry)
+5. Subsequent API calls use `Authorization: Bearer <jwt>`
 
-Multiple Hive accounts can use the same service instance. Providers delegate their active key authority to the service's `invite-authority` key. The service uses the provider's own account creation tokens.
+Only issuers in `GIFTCARD_ALLOWED_PROVIDERS` can authenticate.
+
+## Environment Variables
+
+### Required
+- `GIFTCARD_PROVIDER_ACCOUNT` — default provider account
+- `GIFTCARD_ACTIVE_KEY` — provider's active key (WIF)
+- `GIFTCARD_MEMO_KEY` — provider's memo key (WIF)
+- `HAA_SERVICE_ACCOUNT` — feed service account
+- `GIFTCARD_DELEGATION_VESTS` — HP delegation amount
+
+### Dashboard API
+- `GIFTCARD_JWT_SECRET` — JWT signing secret (required for dashboard)
+
+### Multi-Tenant
+- `GIFTCARD_SERVICE_ACCOUNT` — shared service account
+- `GIFTCARD_SERVICE_ACTIVE_KEY` — service active key
+- `GIFTCARD_SERVICE_MEMO_KEY` — service memo key (for card signing)
+- `GIFTCARD_ALLOWED_PROVIDERS` — comma-separated issuer allowlist
 
 ## Database
 
-SQLite via `better-sqlite3`. Stores:
-- Claim audit log (token hash, username, status, timestamp)
-- Batch metadata
+SQLite via `better-sqlite3`. Tables:
+- `batches` — batch metadata, provider attribution, PDF/manifest blobs
+- `tokens` — individual card tokens with status tracking
+- `spent_tokens` — Merkle proof validation path (token hashes only)
 
 ## Deployment
 
 - Fly.io with persistent volume (for SQLite)
 - `min_machines_running: 0` with auto-stop
-- Secrets: provider active key, service configuration
+- Secrets: provider keys, JWT secret, service configuration
 
 ## Dev
 
 ```bash
 npm run dev    # tsx watch
 npm start      # production
+npm test       # vitest
 ```
 
 ## Related
 
 - `invite/` — the frontend that calls this service
-- `scripts/giftcard-generate.ts` — generates card batches + tokens
-- `scripts/giftcard-manage.ts` — admin tools for batches
-- Requirements.md section 2.4 for full gift card design
+- `dashboard/` — the issuer dashboard (calls dashboard API)
+- `scripts/giftcard-generate.ts` — CLI batch generation (independent copy)
+- Requirements.md section 2.4 (gift card design) and 2.9 (dashboard)
