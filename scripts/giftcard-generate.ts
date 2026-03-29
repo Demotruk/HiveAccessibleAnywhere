@@ -25,6 +25,8 @@ import 'dotenv/config';
  *   --db-path <path>      SQLite database path (default: ../giftcard/data/tokens.db)
  *   --dry-run             Show what would happen without writing DB or broadcasting
  *   --skip-onchain        Skip on-chain batch declaration (for testing)
+ *   --signal-contact <s>  Signal contact for robust variant
+ *   --design <name>       Card design template (default: hive)
  *   --print               Send postcards to default printer after generation
  *
  * Environment variables (from scripts/.env):
@@ -69,6 +71,7 @@ import {
 } from '../giftcard/src/db.js';
 import { PDFDocument } from 'pdf-lib';
 import { generateInvitePdf } from './generate-invite-pdf.js';
+import type { ResolvedDesign } from './designs/types.js';
 
 // -- CLI Arguments --
 
@@ -196,6 +199,8 @@ async function main() {
     console.error('  --bootstrap-url <url> Bootstrap URL for QR codes');
     console.error('  --service-url <url>   Gift card service URL');
     console.error('  --db-path <path>      SQLite database path');
+    console.error('  --signal-contact <s>  Signal contact for robust variant');
+    console.error('  --design <name>       Card design template (default: hive). See scripts/designs/');
     console.error('  --dry-run             Preview without writing');
     console.error('  --skip-onchain        Skip on-chain declaration');
     console.error('  --print               Send postcards to default printer');
@@ -228,6 +233,7 @@ async function main() {
     console.error('Invalid --locale. Must be one of: ' + VALID_LOCALES.join(', '));
     process.exit(1);
   }
+  const designName = parsed['design'] || 'hive';
 
   const note = parsed['note'] || null;
   const bootstrapUrl = parsed['bootstrap-url'] || 'https://hiveinvite.com';
@@ -272,6 +278,7 @@ async function main() {
 
   console.log('=== HAA Gift Card Batch Generator ===');
   console.log(`Provider:     @${providerAccount}`);
+  console.log(`Design:       ${designName}`);
   console.log(`Variant:      ${variant}${locale ? ' (' + locale + ')' : ''}`);
   console.log(`Promise:      ${promiseType}${promiseParams ? ' ' + JSON.stringify(promiseParams) : ''}`);
   console.log(`Count:        ${count}`);
@@ -369,14 +376,26 @@ async function main() {
   const cardsDir = resolve(outputDir, 'cards');
   mkdirSync(cardsDir, { recursive: true });
 
-  // Load Hive logo for invite PDFs
-  const logoPath = resolve(import.meta.dirname, '..', 'hive-branding', 'logo', 'png', 'logo_transparent@2.png');
-  let logoPngBytes: Uint8Array | undefined;
-  if (existsSync(logoPath)) {
-    logoPngBytes = new Uint8Array(readFileSync(logoPath));
-    console.log(`Loaded Hive logo: ${logoPath}`);
-  } else {
-    console.warn('Warning: Hive logo not found — PDFs will use text fallback');
+  // Load design template
+  const { loadDesign } = await import('./designs/loader.js');
+  let design: ResolvedDesign;
+  try {
+    design = await loadDesign(designName);
+    console.log(`Loaded design: ${design.config.name}`);
+  } catch (err) {
+    console.error(`Failed to load design "${designName}": ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  }
+
+  // Load CJK font for zh locale if not provided by the design
+  if (locale === 'zh' && !design.fontBytes) {
+    const fontPath = resolve(import.meta.dirname, 'fonts', 'NotoSansSC.ttf');
+    if (existsSync(fontPath)) {
+      design = { ...design, fontBytes: new Uint8Array(readFileSync(fontPath)) };
+      console.log(`Loaded CJK font: ${fontPath}`);
+    } else {
+      console.warn(`CJK font not found at ${fontPath} — Chinese text will not render correctly`);
+    }
   }
 
   console.log('Generating QR codes...');
@@ -441,13 +460,16 @@ async function main() {
     ].join('\n');
     writeFileSync(resolve(cardsDir, `${prefix}-card.txt`), cardTxt);
 
-    // Printable invite postcard PDF (A6 landscape, 2-page)
+    // Printable invite postcard PDF
     const pdfBytes = await generateInvitePdf({
       qrPngBytes: new Uint8Array(png),
       pin: card.pin,
       issuer: providerAccount,
       expires: expiresIso.split('T')[0],
-      logoPngBytes,
+      locale,
+      variant,
+      signalContact: variant === 'robust' ? (parsed['signal-contact'] || undefined) : undefined,
+      design,
     });
     const pdfPath = resolve(cardsDir, `${prefix}-invite.pdf`);
     writeFileSync(pdfPath, pdfBytes);
@@ -521,6 +543,7 @@ async function main() {
     provider: providerAccount,
     variant,
     locale: locale || null,
+    design: designName,
     promiseType,
     promiseParams: promiseParams || null,
     count,

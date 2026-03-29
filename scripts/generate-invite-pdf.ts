@@ -1,62 +1,47 @@
 /**
- * Generate printable A6 postcard PDFs for gift card invite tokens.
+ * Generate printable postcard PDFs for gift card invite tokens.
  *
- * Each card produces a 2-page A6 landscape PDF:
- *   Page 1 (front): Hive logo, large QR code (hero element), invitation text
+ * Each card produces a 2-page landscape PDF:
+ *   Page 1 (front): Logo, large QR code (hero element), invitation text
  *   Page 2 (back):  "To:"/"From:" lines, PIN display, instruction text
  *
- * Supports localized text (en, zh) and robust invite variant extras
- * (PIN confidentiality notice, Signal support contact).
- *
- * Uses pdf-lib to build PDFs from scratch — no template file required.
- * The Hive logo is embedded from a PNG asset for crisp, correct rendering.
- *
- * CJK locales (zh) require a font file — pass fontBytes (e.g. Noto Sans SC)
- * for Chinese character rendering. Without it, Chinese text will show as tofu.
+ * Supports pluggable design templates via DesignConfig. When no design is
+ * provided, uses hardcoded defaults matching the original Hive design.
  *
  * Usage (standalone test):
  *   npx tsx generate-invite-pdf.ts
  *   npx tsx generate-invite-pdf.ts --locale zh --variant robust
+ *   npx tsx generate-invite-pdf.ts --design minimal
  *
  * Programmatic:
  *   import { generateInvitePdf } from './generate-invite-pdf.js';
- *   const pdfBytes = await generateInvitePdf({ qrPngBytes, pin, issuer, logoPngBytes });
+ *   const pdfBytes = await generateInvitePdf({ qrPngBytes, pin, issuer, design });
  */
 
-import { PDFDocument, PDFFont, rgb, StandardFonts } from 'pdf-lib';
+import { PDFDocument, PDFFont, PDFImage, PDFPage, rgb, StandardFonts } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import QRCode from 'qrcode';
+import type { CardStrings, ResolvedDesign, RgbColor } from './designs/types.js';
 
 const RESTORE_URL = 'https://demotruk.github.io/HiveAccessibleAnywhere/restore/';
 
-// A6 landscape in points (148mm × 105mm)
-const A6_WIDTH = 419.53;
-const A6_HEIGHT = 297.64;
+// ---------------------------------------------------------------------------
+// Default values (match original Hive design for backward compatibility)
+// ---------------------------------------------------------------------------
 
-// Hive brand red
-const HIVE_RED = rgb(0.898, 0.133, 0.157); // #E5222A approx
+const DEFAULT_WIDTH = 419.53;  // A6 landscape
+const DEFAULT_HEIGHT = 297.64;
+
+const DEFAULT_PRIMARY: RgbColor = { r: 0.898, g: 0.133, b: 0.157 };  // #E5222A
+const DEFAULT_BODY_TEXT: RgbColor = { r: 0.15, g: 0.15, b: 0.15 };
+const DEFAULT_MUTED_TEXT: RgbColor = { r: 0.35, g: 0.35, b: 0.35 };
+const DEFAULT_PIN_BOX_BG: RgbColor = { r: 0.97, g: 0.97, b: 0.97 };
+const DEFAULT_PIN_BOX_BORDER: RgbColor = { r: 0.3, g: 0.3, b: 0.3 };
+const DEFAULT_PIN_TEXT: RgbColor = { r: 0.1, g: 0.1, b: 0.1 };
 
 // ---------------------------------------------------------------------------
 // Locale text maps
 // ---------------------------------------------------------------------------
-
-interface CardStrings {
-  inviteLine1: string;
-  inviteLine2: string;
-  issuedBy: (issuer: string) => string;
-  expires: (date: string) => string;
-  flipHint: string;
-  to: string;
-  from: string;
-  pinHeading: string;
-  pinInstruction: string;
-  restoreHeading: string;
-  restoreBody: string;
-  /** Robust-only: PIN confidentiality notice */
-  pinNotice: string;
-  /** Robust-only: Signal support prompt */
-  signalPrompt: string;
-}
 
 const STRINGS_EN: CardStrings = {
   inviteLine1: 'Your invitation to the Hive Community.',
@@ -108,15 +93,23 @@ export interface InviteCardOptions {
   issuer: string;
   /** Optional expiry date string for the card */
   expires?: string;
-  /** Hive logo as PNG bytes (loaded once, passed per card for efficiency) */
-  logoPngBytes?: Uint8Array;
   /** Locale code — determines card text language (default: 'en') */
   locale?: string;
   /** Card variant — 'robust' adds PIN notice and Signal contact (default: 'standard') */
   variant?: 'standard' | 'robust';
   /** Signal contact number or signal.me link (robust variant only) */
   signalContact?: string;
-  /** Custom font bytes for CJK support (e.g. Noto Sans SC .ttf) */
+  /** Resolved design template. When omitted, uses built-in Hive defaults. */
+  design?: ResolvedDesign;
+  /**
+   * @deprecated Pass design.logoPngBytes via ResolvedDesign instead.
+   * Kept for backward compatibility with callers that don't use designs yet.
+   */
+  logoPngBytes?: Uint8Array;
+  /**
+   * @deprecated Pass design.fontBytes via ResolvedDesign instead.
+   * Kept for backward compatibility with callers that don't use designs yet.
+   */
   fontBytes?: Uint8Array;
 }
 
@@ -124,9 +117,10 @@ export interface InviteCardOptions {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Simple word-wrap helper: splits text into lines that fit within maxWidth.
- */
+function c(color: RgbColor) {
+  return rgb(color.r, color.g, color.b);
+}
+
 function wrapText(
   text: string,
   font: { widthOfTextAtSize(text: string, size: number): number },
@@ -152,20 +146,18 @@ function wrapText(
   return lines;
 }
 
-/**
- * Draw centered text helper — returns the Y position after drawing.
- */
 function drawCentered(
-  page: ReturnType<PDFDocument['addPage']>,
+  page: PDFPage,
   text: string,
   y: number,
   font: PDFFont,
   size: number,
   color: ReturnType<typeof rgb>,
+  pageWidth: number,
 ): number {
   const w = font.widthOfTextAtSize(text, size);
   page.drawText(text, {
-    x: A6_WIDTH / 2 - w / 2,
+    x: pageWidth / 2 - w / 2,
     y,
     size,
     font,
@@ -175,96 +167,121 @@ function drawCentered(
 }
 
 // ---------------------------------------------------------------------------
-// Main PDF generator
+// Background rendering
 // ---------------------------------------------------------------------------
 
-/**
- * Generate a printable A6 postcard PDF for a single invite card.
- *
- * Page 1 layout (front):
- *   ┌─────────────────────────────────┐
- *   │  [Hive Logo]                    │
- *   │                                 │
- *   │        ┌──────────────┐         │
- *   │        │              │         │
- *   │        │   QR CODE    │         │
- *   │        │   (large)    │         │
- *   │        │              │         │
- *   │        └──────────────┘         │
- *   │                                 │
- *   │  Your invitation to Hive.       │
- *   │  Scan the QR code to begin.     │
- *   │  Issued by: @issuer             │
- *   │                  Expires: date  │
- *   └─────────────────────────────────┘
- *
- * Page 2 layout (back — robust variant shown):
- *   ┌─────────────────────────────────┐
- *   │  To:   ________________________ │
- *   │  From: ________________________ │
- *   │                                 │
- *   │       Your Invite PIN           │
- *   │      ┌──────────────┐           │
- *   │      │   ABC123     │           │
- *   │      └──────────────┘           │
- *   │  Enter this PIN when prompted   │
- *   │  after scanning the QR code.    │
- *   │  (PIN confidentiality notice)   │
- *   │                                 │
- *   │  ┌─────┐ Restore backup  Signal │
- *   │  │ QR  │ Scan to recover +1-XXX │
- *   │  └─────┘ keys from backup       │
- *   └─────────────────────────────────┘
- */
-export async function generateInvitePdf(options: InviteCardOptions): Promise<Uint8Array> {
-  const {
-    qrPngBytes, pin, issuer, expires, logoPngBytes,
-    locale = 'en',
-    variant = 'standard',
-    signalContact,
-    fontBytes,
-  } = options;
+async function drawBackground(
+  doc: PDFDocument,
+  page: PDFPage,
+  backgroundBytes: Uint8Array,
+  mode: 'fill' | 'fit' | 'stretch',
+  pageWidth: number,
+  pageHeight: number,
+): Promise<void> {
+  // Detect format: JPG starts with FF D8, PNG starts with 89 50 4E 47
+  const isJpg = backgroundBytes[0] === 0xFF && backgroundBytes[1] === 0xD8;
+  const bgImage = isJpg
+    ? await doc.embedJpg(backgroundBytes)
+    : await doc.embedPng(backgroundBytes);
 
-  const strings = LOCALE_STRINGS[locale] ?? STRINGS_EN;
-  const isRobust = variant === 'robust';
+  let drawWidth: number;
+  let drawHeight: number;
+  let drawX = 0;
+  let drawY = 0;
 
-  const doc = await PDFDocument.create();
-
-  // Register fontkit for custom font embedding (required by pdf-lib)
-  if (fontBytes) {
-    doc.registerFontkit(fontkit);
+  if (mode === 'stretch') {
+    drawWidth = pageWidth;
+    drawHeight = pageHeight;
+  } else if (mode === 'fit') {
+    const scale = Math.min(pageWidth / bgImage.width, pageHeight / bgImage.height);
+    drawWidth = bgImage.width * scale;
+    drawHeight = bgImage.height * scale;
+    drawX = (pageWidth - drawWidth) / 2;
+    drawY = (pageHeight - drawHeight) / 2;
+  } else {
+    // fill: cover the page, crop overflow
+    const scale = Math.max(pageWidth / bgImage.width, pageHeight / bgImage.height);
+    drawWidth = bgImage.width * scale;
+    drawHeight = bgImage.height * scale;
+    drawX = (pageWidth - drawWidth) / 2;
+    drawY = (pageHeight - drawHeight) / 2;
   }
 
-  // Embed fonts — use custom font for CJK, Helvetica as fallback / for Latin text
-  const helvetica = await doc.embedFont(StandardFonts.Helvetica);
-  const helveticaBold = await doc.embedFont(StandardFonts.HelveticaBold);
+  page.drawImage(bgImage, {
+    x: drawX,
+    y: drawY,
+    width: drawWidth,
+    height: drawHeight,
+  });
+}
 
-  let cjkFont: PDFFont | undefined;
-  if (fontBytes) {
-    cjkFont = await doc.embedFont(fontBytes);
-  }
+// ---------------------------------------------------------------------------
+// Front page renderer
+// ---------------------------------------------------------------------------
 
-  // Choose fonts: CJK font for localized text, Helvetica for PIN/numbers
-  const textFont = cjkFont ?? helvetica;
-  const boldFont = cjkFont ?? helveticaBold;
-  // PIN is always alphanumeric — Helvetica Bold is best for readability
-  const pinFont = helveticaBold;
+interface RenderContext {
+  doc: PDFDocument;
+  pageWidth: number;
+  pageHeight: number;
+  textFont: PDFFont;
+  boldFont: PDFFont;
+  helveticaBold: PDFFont;
+  strings: CardStrings;
+  locale: string;
+  // Design colors
+  primaryColor: RgbColor;
+  bodyTextColor: RgbColor;
+  mutedTextColor: RgbColor;
+  pinBoxBgColor: RgbColor;
+  pinBoxBorderColor: RgbColor;
+  pinTextColor: RgbColor;
+  // Logo config
+  logoHeight: number;
+  logoPosition: 'top-left' | 'top-center' | 'top-right';
+  logoMarginX: number;
+  logoMarginY: number;
+  // Design layout
+  qrSize: number;
+  logoQrGap: number;
+  pageMarginX: number;
+  restoreQrSize: number;
+  pinBoxPadX: number;
+  pinBoxPadY: number;
+  showToFrom: boolean;
+  // Font sizes
+  headingSize: number;
+  bodySize: number;
+  smallSize: number;
+  pinDisplaySize: number;
+  flipHintSize: number;
+}
 
-  const qrImage = await doc.embedPng(qrPngBytes);
-  const centerX = A6_WIDTH / 2;
+async function renderFrontPage(
+  ctx: RenderContext,
+  front: PDFPage,
+  qrImage: PDFImage,
+  logoImage: PDFImage | undefined,
+  options: { issuer: string; expires?: string },
+): Promise<void> {
+  const { pageWidth, pageHeight, boldFont, textFont, strings, locale } = ctx;
+  const centerX = pageWidth / 2;
 
-  // ---- Page 1: Front ----
-  const front = doc.addPage([A6_WIDTH, A6_HEIGHT]);
-
-  // -- Hive logo (top-left) --
-  let logoBottomY = A6_HEIGHT - 20; // fallback if no logo
-  if (logoPngBytes) {
-    const logoImage = await doc.embedPng(logoPngBytes);
-    const logoDisplayHeight = 35;
+  // -- Logo --
+  let logoBottomY = pageHeight - 20; // fallback if no logo
+  if (logoImage) {
+    const logoDisplayHeight = ctx.logoHeight;
     const logoAspect = logoImage.width / logoImage.height;
     const logoDisplayWidth = logoDisplayHeight * logoAspect;
-    const logoX = 22;
-    const logoY = A6_HEIGHT - 12 - logoDisplayHeight;
+
+    let logoX: number;
+    if (ctx.logoPosition === 'top-center') {
+      logoX = centerX - logoDisplayWidth / 2;
+    } else if (ctx.logoPosition === 'top-right') {
+      logoX = pageWidth - ctx.logoMarginX - logoDisplayWidth;
+    } else {
+      logoX = ctx.logoMarginX;
+    }
+    const logoY = pageHeight - ctx.logoMarginY - logoDisplayHeight;
     front.drawImage(logoImage, {
       x: logoX,
       y: logoY,
@@ -273,64 +290,72 @@ export async function generateInvitePdf(options: InviteCardOptions): Promise<Uin
     });
     logoBottomY = logoY;
   } else {
-    // Fallback: draw "HIVE" text in brand red
+    // Fallback: draw "HIVE" text in primary color
     front.drawText('HIVE', {
       x: 25,
-      y: A6_HEIGHT - 40,
+      y: pageHeight - 40,
       size: 22,
-      font: helveticaBold,
-      color: HIVE_RED,
+      font: ctx.helveticaBold,
+      color: c(ctx.primaryColor),
     });
-    logoBottomY = A6_HEIGHT - 45;
+    logoBottomY = pageHeight - 45;
   }
 
   // -- QR code (large, centered, hero element) --
-  const qrSize = 170;
-  const qrX = centerX - qrSize / 2;
-  const qrTopY = logoBottomY - 5;
-  const qrY = qrTopY - qrSize;
+  const qrX = centerX - ctx.qrSize / 2;
+  const qrTopY = logoBottomY - ctx.logoQrGap;
+  const qrY = qrTopY - ctx.qrSize;
   front.drawImage(qrImage, {
     x: qrX,
     y: qrY,
-    width: qrSize,
-    height: qrSize,
+    width: ctx.qrSize,
+    height: ctx.qrSize,
   });
 
   // -- Invitation text (below QR) --
   const textStartY = qrY - 10;
-  const textFontSize = 10;
-  const smallFontSize = 9;
 
-  drawCentered(front, strings.inviteLine1, textStartY, textFont, textFontSize, rgb(0.15, 0.15, 0.15));
-  drawCentered(front, strings.inviteLine2, textStartY - 14, textFont, textFontSize, rgb(0.15, 0.15, 0.15));
+  drawCentered(front, strings.inviteLine1, textStartY, textFont, ctx.bodySize, c(ctx.bodyTextColor), pageWidth);
+  drawCentered(front, strings.inviteLine2, textStartY - 14, textFont, ctx.bodySize, c(ctx.bodyTextColor), pageWidth);
 
   // Issuer + expiry on one line at the bottom
-  const issuerText = strings.issuedBy(issuer);
-  const expiryText = expires ? `  \u00b7  ${strings.expires(expires)}` : '';
+  const issuerText = strings.issuedBy(options.issuer);
+  const expiryText = options.expires ? `  \u00b7  ${strings.expires(options.expires)}` : '';
   const bottomLine = issuerText + expiryText;
-  drawCentered(front, bottomLine, textStartY - 32, boldFont, smallFontSize, rgb(0.35, 0.35, 0.35));
+  drawCentered(front, bottomLine, textStartY - 32, boldFont, ctx.smallSize, c(ctx.mutedTextColor), pageWidth);
 
   // -- "See PIN on back" hint (top-right corner) --
-  // More prominent for CJK locales where the hint competes with denser text
   const flipHint = strings.flipHint;
-  const flipHintSize = locale === 'zh' ? 11 : 8.5;
-  const flipHintColor = locale === 'zh' ? HIVE_RED : rgb(0.15, 0.15, 0.15);
-  const flipHintWidth = boldFont.widthOfTextAtSize(flipHint, flipHintSize);
+  // CJK locales: larger, in primary color. Others: smaller, in body text color.
+  const hintSize = locale === 'zh' ? 11 : ctx.flipHintSize;
+  const hintColor = locale === 'zh' ? c(ctx.primaryColor) : c(ctx.bodyTextColor);
+  const flipHintWidth = boldFont.widthOfTextAtSize(flipHint, hintSize);
   front.drawText(flipHint, {
-    x: A6_WIDTH - flipHintWidth - 18,
-    y: A6_HEIGHT - 20,
-    size: flipHintSize,
+    x: pageWidth - flipHintWidth - 18,
+    y: pageHeight - 20,
+    size: hintSize,
     font: boldFont,
-    color: flipHintColor,
+    color: hintColor,
   });
+}
 
-  // ---- Page 2: Back ----
-  const back = doc.addPage([A6_WIDTH, A6_HEIGHT]);
+// ---------------------------------------------------------------------------
+// Back page renderer
+// ---------------------------------------------------------------------------
+
+async function renderBackPage(
+  ctx: RenderContext,
+  back: PDFPage,
+  options: { pin: string; variant: string; signalContact?: string },
+): Promise<void> {
+  const { pageWidth, pageHeight, textFont, boldFont, strings, locale } = ctx;
+  const centerX = pageWidth / 2;
+  const isRobust = options.variant === 'robust';
 
   // -- "To:" and "From:" lines at top (skipped for zh — confusing noise per feedback) --
   let backContentTopY: number;
 
-  if (locale !== 'zh') {
+  if (locale !== 'zh' && ctx.showToFrom) {
     const labelColor = rgb(0.2, 0.2, 0.2);
     const lineColor = rgb(0.4, 0.4, 0.4);
     const labelSize = 12;
@@ -342,9 +367,9 @@ export async function generateInvitePdf(options: InviteCardOptions): Promise<Uin
     const labelIndent = Math.max(toLabelWidth, fromLabelWidth) + 50;
     const lineEndX = 280;
 
-    const toY = A6_HEIGHT - 40;
+    const toY = pageHeight - 40;
     back.drawText(toLabel, {
-      x: 40,
+      x: ctx.pageMarginX,
       y: toY,
       size: labelSize,
       font: textFont,
@@ -359,7 +384,7 @@ export async function generateInvitePdf(options: InviteCardOptions): Promise<Uin
 
     const fromY = toY - 28;
     back.drawText(fromLabel, {
-      x: 40,
+      x: ctx.pageMarginX,
       y: fromY,
       size: labelSize,
       font: textFont,
@@ -380,27 +405,27 @@ export async function generateInvitePdf(options: InviteCardOptions): Promise<Uin
 
   // -- "Your Invite PIN" heading + box layout --
   const pinHeading = strings.pinHeading;
-  const pinHeadingFontSize = 20;
-  const pinFontSize = 30;
-  const pinWidth = pinFont.widthOfTextAtSize(pin, pinFontSize);
-  const boxPadX = 28;
-  const boxPadY = 14;
+  const pinFont = ctx.helveticaBold; // PIN always Helvetica Bold
+  const pinFontSize = ctx.pinDisplaySize;
+  const pinWidth = pinFont.widthOfTextAtSize(options.pin, pinFontSize);
+  const boxPadX = ctx.pinBoxPadX;
+  const boxPadY = ctx.pinBoxPadY;
   const boxW = pinWidth + boxPadX * 2;
   const boxH = pinFontSize + boxPadY * 2;
 
-  // For zh (no To/From), vertically center the PIN box in the usable area.
-  // Heading goes above the box, instruction below — the box is the visual anchor.
-  if (locale === 'zh') {
-    const usableTop = A6_HEIGHT - 20;
-    const usableBottom = 90; // above restore QR
-    const usableCenterY = usableBottom + (usableTop - usableBottom) / 2;
-    // Center the box, then place heading above it
-    const boxBottomY = usableCenterY - boxH / 2;
-    backContentTopY = boxBottomY + boxH + 18; // heading sits 18pt above box top
+  // For zh (no To/From), vertically center the PIN box in the usable area
+  if (locale === 'zh' || !ctx.showToFrom) {
+    if (backContentTopY === 0) {
+      const usableTop = pageHeight - 20;
+      const usableBottom = 90; // above restore QR
+      const usableCenterY = usableBottom + (usableTop - usableBottom) / 2;
+      const boxBottomY = usableCenterY - boxH / 2;
+      backContentTopY = boxBottomY + boxH + 18;
+    }
   }
 
   const pinHeadingY = backContentTopY;
-  drawCentered(back, pinHeading, pinHeadingY, boldFont, pinHeadingFontSize, rgb(0.1, 0.1, 0.1));
+  drawCentered(back, pinHeading, pinHeadingY, boldFont, ctx.headingSize, c(ctx.pinTextColor), pageWidth);
 
   // -- PIN box --
   const boxX = centerX - boxW / 2;
@@ -411,32 +436,32 @@ export async function generateInvitePdf(options: InviteCardOptions): Promise<Uin
     y: boxY,
     width: boxW,
     height: boxH,
-    borderColor: rgb(0.3, 0.3, 0.3),
+    borderColor: c(ctx.pinBoxBorderColor),
     borderWidth: 1.5,
-    color: rgb(0.97, 0.97, 0.97),
+    color: c(ctx.pinBoxBgColor),
   });
 
-  back.drawText(pin, {
+  back.drawText(options.pin, {
     x: centerX - pinWidth / 2,
     y: boxY + boxPadY,
     size: pinFontSize,
     font: pinFont,
-    color: rgb(0.1, 0.1, 0.1),
+    color: c(ctx.pinTextColor),
   });
 
   // -- PIN instruction text --
   const instructionY = boxY - 18;
-  const instrMaxWidth = A6_WIDTH - 80;
-  const instrLines = wrapText(strings.pinInstruction, textFont, 10, instrMaxWidth);
+  const instrMaxWidth = pageWidth - 80;
+  const instrLines = wrapText(strings.pinInstruction, textFont, ctx.bodySize, instrMaxWidth);
   for (let i = 0; i < instrLines.length; i++) {
-    drawCentered(back, instrLines[i], instructionY - i * 14, textFont, 10, rgb(0.35, 0.35, 0.35));
+    drawCentered(back, instrLines[i], instructionY - i * 14, textFont, ctx.bodySize, c(ctx.mutedTextColor), pageWidth);
   }
 
   // -- Robust-only: PIN confidentiality notice --
   let noticeBottomY = instructionY - instrLines.length * 14;
   if (isRobust) {
     noticeBottomY -= 4;
-    drawCentered(back, strings.pinNotice, noticeBottomY, textFont, 8, rgb(0.5, 0.5, 0.5));
+    drawCentered(back, strings.pinNotice, noticeBottomY, textFont, 8, rgb(0.5, 0.5, 0.5), pageWidth);
     noticeBottomY -= 12;
   }
 
@@ -446,23 +471,22 @@ export async function generateInvitePdf(options: InviteCardOptions): Promise<Uin
     margin: 1,
     width: 256,
   });
-  const restoreQrImage = await doc.embedPng(new Uint8Array(restoreQrPng));
+  const restoreQrImage = await ctx.doc.embedPng(new Uint8Array(restoreQrPng));
 
-  const restoreQrSize = 60;
-  const restoreQrX = 40;
+  const restoreQrX = ctx.pageMarginX;
   const restoreQrY = 18;
 
   back.drawImage(restoreQrImage, {
     x: restoreQrX,
     y: restoreQrY,
-    width: restoreQrSize,
-    height: restoreQrSize,
+    width: ctx.restoreQrSize,
+    height: ctx.restoreQrSize,
   });
 
   // Label text next to the restore QR
-  const restoreLabelX = restoreQrX + restoreQrSize + 10;
-  const restoreLabelY = restoreQrY + restoreQrSize - 12;
-  const restoreLabelSize = 9;
+  const restoreLabelX = restoreQrX + ctx.restoreQrSize + 10;
+  const restoreLabelY = restoreQrY + ctx.restoreQrSize - 12;
+  const restoreLabelSize = ctx.smallSize;
 
   back.drawText(strings.restoreHeading, {
     x: restoreLabelX,
@@ -486,9 +510,9 @@ export async function generateInvitePdf(options: InviteCardOptions): Promise<Uin
   }
 
   // -- Robust-only: Signal support contact (bottom-right) --
-  if (isRobust && signalContact) {
-    const signalX = A6_WIDTH - 160;
-    const signalY = restoreQrY + restoreQrSize - 12;
+  if (isRobust && options.signalContact) {
+    const signalX = pageWidth - 160;
+    const signalY = restoreQrY + ctx.restoreQrSize - 12;
 
     back.drawText(strings.signalPrompt, {
       x: signalX,
@@ -498,14 +522,153 @@ export async function generateInvitePdf(options: InviteCardOptions): Promise<Uin
       color: rgb(0.2, 0.2, 0.2),
     });
 
-    back.drawText(signalContact, {
+    back.drawText(options.signalContact, {
       x: signalX,
       y: signalY - 12,
-      size: 9,
-      font: helveticaBold,
-      color: rgb(0.15, 0.15, 0.15),
+      size: ctx.smallSize,
+      font: ctx.helveticaBold,
+      color: c(ctx.bodyTextColor),
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Main PDF generator
+// ---------------------------------------------------------------------------
+
+export async function generateInvitePdf(options: InviteCardOptions): Promise<Uint8Array> {
+  const {
+    qrPngBytes, pin, issuer, expires,
+    locale = 'en',
+    variant = 'standard',
+    signalContact,
+    design,
+  } = options;
+
+  // Resolve asset bytes: design takes precedence over legacy direct params
+  const logoPngBytes = design?.logoPngBytes ?? options.logoPngBytes;
+  const fontBytes = design?.fontBytes ?? options.fontBytes;
+  const backgroundBytes = design?.backgroundBytes;
+  const cfg = design?.config;
+
+  // Resolve card strings with optional design text overrides
+  let strings = LOCALE_STRINGS[locale] ?? STRINGS_EN;
+  if (cfg?.text?.localeOverrides?.[locale]) {
+    strings = { ...strings, ...cfg.text.localeOverrides[locale] };
+  }
+
+  // Page dimensions
+  const pageWidth = cfg?.dimensions?.[0] ?? DEFAULT_WIDTH;
+  const pageHeight = cfg?.dimensions?.[1] ?? DEFAULT_HEIGHT;
+
+  // Font sizes
+  const headingSize = cfg?.fonts?.sizes?.heading ?? 20;
+  const bodySize = cfg?.fonts?.sizes?.body ?? 10;
+  const smallSize = cfg?.fonts?.sizes?.small ?? 9;
+  const pinDisplaySize = cfg?.fonts?.sizes?.pinDisplay ?? 30;
+  const flipHintSize = cfg?.fonts?.sizes?.flipHint ?? 8.5;
+
+  // Layout
+  const qrSize = cfg?.layout?.qrSize ?? 170;
+  const logoQrGap = cfg?.layout?.logoQrGap ?? 5;
+  const pageMarginX = cfg?.layout?.pageMarginX ?? 40;
+  const restoreQrSize = cfg?.layout?.restoreQrSize ?? 60;
+  const pinBoxPadX = cfg?.layout?.pinBoxPadding?.x ?? 28;
+  const pinBoxPadY = cfg?.layout?.pinBoxPadding?.y ?? 14;
+  const showToFrom = cfg?.layout?.showToFrom ?? true;
+
+  // Colors
+  const primaryColor = cfg?.colors.primary ?? DEFAULT_PRIMARY;
+  const bodyTextColor = cfg?.colors.bodyText ?? DEFAULT_BODY_TEXT;
+  const mutedTextColor = cfg?.colors.mutedText ?? DEFAULT_MUTED_TEXT;
+  const pinBoxBgColor = cfg?.colors.pinBoxBackground ?? DEFAULT_PIN_BOX_BG;
+  const pinBoxBorderColor = cfg?.colors.pinBoxBorder ?? DEFAULT_PIN_BOX_BORDER;
+  const pinTextColor = cfg?.colors.pinText ?? DEFAULT_PIN_TEXT;
+
+  const doc = await PDFDocument.create();
+
+  // Register fontkit for custom font embedding (required by pdf-lib)
+  if (fontBytes) {
+    doc.registerFontkit(fontkit);
+  }
+
+  // Embed fonts — use custom font for CJK, Helvetica as fallback
+  const helvetica = await doc.embedFont(StandardFonts.Helvetica);
+  const helveticaBold = await doc.embedFont(StandardFonts.HelveticaBold);
+
+  let cjkFont: PDFFont | undefined;
+  if (fontBytes) {
+    cjkFont = await doc.embedFont(fontBytes);
+  }
+
+  const textFont = cjkFont ?? helvetica;
+  const boldFont = cjkFont ?? helveticaBold;
+
+  const qrImage = await doc.embedPng(qrPngBytes);
+
+  // Embed logo if available
+  let logoImage: PDFImage | undefined;
+  if (logoPngBytes) {
+    logoImage = await doc.embedPng(logoPngBytes);
+  }
+
+  // Logo config
+  const logoHeight = cfg?.logo?.height ?? 35;
+  const logoPosition = cfg?.logo?.position ?? 'top-left';
+  const logoMarginX = cfg?.logo?.margin?.x ?? 22;
+  const logoMarginY = cfg?.logo?.margin?.y ?? 12;
+
+  // Build render context
+  const ctx: RenderContext = {
+    doc, pageWidth, pageHeight,
+    textFont, boldFont, helveticaBold,
+    strings, locale,
+    primaryColor, bodyTextColor, mutedTextColor,
+    pinBoxBgColor, pinBoxBorderColor, pinTextColor,
+    logoHeight, logoPosition, logoMarginX, logoMarginY,
+    qrSize, logoQrGap, pageMarginX, restoreQrSize,
+    pinBoxPadX, pinBoxPadY, showToFrom,
+    headingSize, bodySize, smallSize, pinDisplaySize, flipHintSize,
+  };
+
+  // ---- Page 1: Front ----
+  const front = doc.addPage([pageWidth, pageHeight]);
+
+  // Draw background if configured
+  const bgConfig = cfg?.background;
+  if (backgroundBytes && bgConfig) {
+    if (bgConfig.pages === 'front' || bgConfig.pages === 'both') {
+      await drawBackground(doc, front, backgroundBytes, bgConfig.mode, pageWidth, pageHeight);
+    }
+  }
+
+  // Draw solid page background if configured (and no background image on this page)
+  if (!backgroundBytes && cfg?.colors.pageBackground) {
+    front.drawRectangle({
+      x: 0, y: 0, width: pageWidth, height: pageHeight,
+      color: c(cfg.colors.pageBackground),
+    });
+  }
+
+  await renderFrontPage(ctx, front, qrImage, logoImage, { issuer, expires });
+
+  // ---- Page 2: Back ----
+  const back = doc.addPage([pageWidth, pageHeight]);
+
+  if (backgroundBytes && bgConfig) {
+    if (bgConfig.pages === 'back' || bgConfig.pages === 'both') {
+      await drawBackground(doc, back, backgroundBytes, bgConfig.mode, pageWidth, pageHeight);
+    }
+  }
+
+  if (!backgroundBytes && cfg?.colors.pageBackground) {
+    back.drawRectangle({
+      x: 0, y: 0, width: pageWidth, height: pageHeight,
+      color: c(cfg.colors.pageBackground),
+    });
+  }
+
+  await renderBackPage(ctx, back, { pin, variant, signalContact });
 
   return doc.save();
 }
@@ -522,22 +685,33 @@ if (import.meta.url === `file:///${process.argv[1].replace(/\\/g, '/')}` ||
   const locale = localeIdx >= 0 ? args[localeIdx + 1] : 'en';
   const variantIdx = args.indexOf('--variant');
   const variant = (variantIdx >= 0 ? args[variantIdx + 1] : 'standard') as 'standard' | 'robust';
+  const designIdx = args.indexOf('--design');
+  const designName = designIdx >= 0 ? args[designIdx + 1] : undefined;
 
-  console.log(`Generating test card: locale=${locale}, variant=${variant}`);
+  console.log(`Generating test card: locale=${locale}, variant=${variant}${designName ? `, design=${designName}` : ''}`);
 
-  // Load Hive logo
-  const logoPath = resolve(import.meta.dirname, '..', 'hive-branding', 'logo', 'png', 'logo_transparent@2.png');
+  // Load design if specified, otherwise use legacy asset loading
+  let design: ResolvedDesign | undefined;
   let logoPngBytes: Uint8Array | undefined;
-  if (existsSync(logoPath)) {
-    logoPngBytes = new Uint8Array(readFileSync(logoPath));
-    console.log(`Loaded Hive logo: ${logoPath}`);
+  let fontBytes: Uint8Array | undefined;
+
+  if (designName) {
+    const { loadDesign } = await import('./designs/loader.js');
+    design = await loadDesign(designName);
+    console.log(`Loaded design: ${design.config.name}`);
   } else {
-    console.warn('Hive logo not found — will use text fallback');
+    // Legacy: load Hive logo directly
+    const logoPath = resolve(import.meta.dirname, '..', 'hive-branding', 'logo', 'png', 'logo_transparent@2.png');
+    if (existsSync(logoPath)) {
+      logoPngBytes = new Uint8Array(readFileSync(logoPath));
+      console.log(`Loaded Hive logo: ${logoPath}`);
+    } else {
+      console.warn('Hive logo not found — will use text fallback');
+    }
   }
 
-  // Load CJK font if needed
-  let fontBytes: Uint8Array | undefined;
-  if (locale === 'zh') {
+  // Load CJK font if needed (and not provided by design)
+  if (locale === 'zh' && !design?.fontBytes) {
     const fontPath = resolve(import.meta.dirname, 'fonts', 'NotoSansSC.ttf');
     if (existsSync(fontPath)) {
       fontBytes = new Uint8Array(readFileSync(fontPath));
@@ -564,14 +738,16 @@ if (import.meta.url === `file:///${process.argv[1].replace(/\\/g, '/')}` ||
       pin: card.pin,
       issuer: manifest.provider,
       expires: card.expires.split('T')[0],
-      logoPngBytes,
       locale,
       variant,
       signalContact: variant === 'robust' ? '+1-XXX-XXX-XXXX' : undefined,
+      design,
+      logoPngBytes,
       fontBytes,
     });
 
-    const outPath = resolve(batchDir, `${card.tokenPrefix}-invite-${locale}-${variant}.pdf`);
+    const suffix = designName ? `-${designName}` : '';
+    const outPath = resolve(batchDir, `${card.tokenPrefix}-invite-${locale}-${variant}${suffix}.pdf`);
     writeFileSync(outPath, pdfBytes);
     console.log(`Written: ${outPath} (${pdfBytes.length} bytes)`);
   } else {
@@ -589,14 +765,16 @@ if (import.meta.url === `file:///${process.argv[1].replace(/\\/g, '/')}` ||
       pin: 'ABC123',
       issuer: 'demotruk',
       expires: '2027-03-08',
-      logoPngBytes,
       locale,
       variant,
       signalContact: variant === 'robust' ? '+1-XXX-XXX-XXXX' : undefined,
+      design,
+      logoPngBytes,
       fontBytes,
     });
 
-    const outPath = resolve(import.meta.dirname, `test-invite-${locale}-${variant}.pdf`);
+    const suffix = designName ? `-${designName}` : '';
+    const outPath = resolve(import.meta.dirname, `test-invite-${locale}-${variant}${suffix}.pdf`);
     writeFileSync(outPath, pdfBytes);
     console.log(`Written: ${outPath} (${pdfBytes.length} bytes)`);
   }
