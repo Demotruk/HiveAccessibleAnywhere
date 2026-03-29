@@ -5,15 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HiveInvite — Onboard Anyone to Hive</title>
   <meta name="description" content="Create personalized Hive invite cards with QR codes. Run your own gift card service to onboard new users to Hive and HBD savings (~15% APR).">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      font-family: system-ui, -apple-system, sans-serif;
-      background: #111; color: #eee;
+      font-family: 'Work Sans', system-ui, -apple-system, sans-serif;
+      background: #1a1d21; color: #f0f0f8;
       min-height: 100vh;
       line-height: 1.6;
     }
-    a { color: #4a9; text-decoration: none; }
+    a { color: #E31337; text-decoration: none; }
     a:hover { text-decoration: underline; }
 
     /* Hero */
@@ -28,27 +31,27 @@
       margin-bottom: 1rem;
       letter-spacing: -0.02em;
     }
-    .hero h1 span { color: #4a9; }
+    .hero h1 .hive { color: #E31337; }
     .hero .tagline {
       font-size: 1.2rem;
-      color: #aaa;
+      color: #9a9da8;
       margin-bottom: 2rem;
     }
     .cta {
       display: inline-block;
-      background: #4a9;
-      color: #111;
+      background: #E31337;
+      color: #fff;
       font-weight: 600;
       padding: 0.8rem 2rem;
       border-radius: 8px;
       font-size: 1.1rem;
       transition: background 0.2s;
     }
-    .cta:hover { background: #5cb; text-decoration: none; }
+    .cta:hover { background: #ff2850; text-decoration: none; }
     .cta-secondary {
       display: inline-block;
-      border: 1px solid #4a9;
-      color: #4a9;
+      border: 1px solid #E31337;
+      color: #E31337;
       font-weight: 600;
       padding: 0.8rem 2rem;
       border-radius: 8px;
@@ -56,7 +59,7 @@
       margin-left: 1rem;
       transition: background 0.2s, color 0.2s;
     }
-    .cta-secondary:hover { background: #4a9; color: #111; text-decoration: none; }
+    .cta-secondary:hover { background: #E31337; color: #fff; text-decoration: none; }
 
     /* Section headings */
     .section-heading {
@@ -65,7 +68,7 @@
       text-align: center;
     }
     .section-sub {
-      color: #aaa;
+      color: #9a9da8;
       text-align: center;
       margin-bottom: 2rem;
       font-size: 1rem;
@@ -81,18 +84,18 @@
       gap: 2rem;
     }
     .feature {
-      background: #1a1a1a;
-      border: 1px solid #333;
+      background: #212529;
+      border: 1px solid #353a40;
       border-radius: 12px;
       padding: 1.5rem;
     }
     .feature h3 {
-      color: #4a9;
+      color: #E31337;
       font-size: 1.1rem;
       margin-bottom: 0.5rem;
     }
     .feature p {
-      color: #aaa;
+      color: #9a9da8;
       font-size: 0.95rem;
     }
 
@@ -120,21 +123,21 @@
       justify-content: center;
       width: 40px; height: 40px;
       border-radius: 50%;
-      background: #4a9;
-      color: #111;
+      background: #E31337;
+      color: #fff;
       font-weight: 700;
       font-size: 1.1rem;
       margin-bottom: 0.75rem;
     }
     .step h4 { margin-bottom: 0.3rem; }
-    .step p { color: #aaa; font-size: 0.9rem; }
+    .step p { color: #9a9da8; font-size: 0.9rem; }
 
     /* Recipient explainer */
     .for-recipients {
       max-width: 700px;
       margin: 0 auto;
       padding: 2rem 1.5rem 3rem;
-      border-top: 1px solid #222;
+      border-top: 1px solid #353a40;
     }
 
     /* FAQ */
@@ -144,8 +147,8 @@
       padding: 2rem 1.5rem 3rem;
     }
     .faq details {
-      background: #1a1a1a;
-      border: 1px solid #333;
+      background: #212529;
+      border: 1px solid #353a40;
       border-radius: 8px;
       margin-bottom: 0.75rem;
       padding: 1rem 1.25rem;
@@ -160,12 +163,12 @@
       content: '+';
       display: inline-block;
       width: 1.5em;
-      color: #4a9;
+      color: #E31337;
       font-weight: 700;
     }
     .faq details[open] summary::before { content: '\2212'; }
     .faq .answer {
-      color: #aaa;
+      color: #9a9da8;
       margin-top: 0.75rem;
       padding-left: 1.5em;
       font-size: 0.95rem;
@@ -177,7 +180,7 @@
       color: #666;
       font-size: 0.85rem;
       padding: 2rem 1.5rem;
-      border-top: 1px solid #222;
+      border-top: 1px solid #353a40;
       max-width: 700px;
       margin: 0 auto;
     }
@@ -191,7 +194,7 @@
 <body>
 
   <section class="hero">
-    <h1>Hive<span>Invite</span></h1>
+    <h1><span class="hive">Hive</span>Invite</h1>
     <p class="tagline">
       Create and distribute personalized Hive invites.
       Onboard anyone to Hive and HBD savings &mdash; even in regions where crypto infrastructure is blocked.

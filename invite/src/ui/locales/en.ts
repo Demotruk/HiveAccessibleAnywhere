@@ -10,7 +10,7 @@ export const t = {
   app_title: 'Redeem Your Invitation to Hive',
 
   // Landing
-  landing_title: 'Welcome to Hive',
+  landing_title: 'Welcome to <span class="hive-brand">Hive</span>',
   landing_desc: 'Redeem your gift card to create a Hive blockchain account.',
   landing_no_card: 'You need a gift card with a QR code and PIN to continue. Scan the QR code on your card to get started.',
 
@@ -74,7 +74,7 @@ export const t = {
   claiming_retry: 'Retry',
 
   // Success
-  success_title: 'Welcome to Hive!',
+  success_title: 'Welcome to <span class="hive-brand">Hive</span>!',
   success_welcome: 'Your account @%1 has been created.',
   success_tx: 'Transaction: %1',
   success_peakd_heading: 'Log into Peakd',
@@ -89,7 +89,7 @@ export const t = {
   success_keys_reminder: 'Keep your gift card PIN safe — it protects your key backup. You can restore your keys anytime by scanning the backup QR code.',
 
   // Robust Success — Phase 1 (Confirmation)
-  robust_title: 'Welcome to Hive!',
+  robust_title: 'Welcome to <span class="hive-brand">Hive</span>!',
   robust_created: 'Your account @%1 has been created.',
   robust_tx: 'Transaction: %1',
 
