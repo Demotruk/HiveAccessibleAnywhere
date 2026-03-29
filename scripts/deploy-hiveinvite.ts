@@ -13,6 +13,7 @@
  *   CNAME              — custom domain file for GitHub Pages
  *   index.html         — landing page
  *   invite/index.html  — invite claim app (from invite/ build)
+ *   restore/index.html — backup restore app (from restore/ build)
  */
 
 import { copyFileSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
@@ -21,6 +22,7 @@ import { resolve } from 'node:path';
 const ROOT = resolve(import.meta.dirname, '..');
 const LANDING_PAGE = resolve(ROOT, 'hiveinvite-site', 'index.html');
 const INVITE_DIST = resolve(ROOT, 'invite', 'dist');
+const RESTORE_DIST = resolve(ROOT, 'restore', 'dist');
 
 // Parse --output flag
 const args = process.argv.slice(2);
@@ -31,6 +33,7 @@ const OUTPUT = outputIdx >= 0 && args[outputIdx + 1]
 
 // Create output directories
 mkdirSync(resolve(OUTPUT, 'invite'), { recursive: true });
+mkdirSync(resolve(OUTPUT, 'restore'), { recursive: true });
 
 // 1. CNAME
 writeFileSync(resolve(OUTPUT, 'CNAME'), 'hiveinvite.com\n');
@@ -56,6 +59,15 @@ if (inviteSrc) {
   console.log(`Copied: invite/index.html (from ${inviteSrc.replace(ROOT, '.')})`);
 } else {
   console.warn('Warning: invite app build not found — run "cd invite && npm run build" first');
+}
+
+// 4. Restore app
+const restoreSrc = resolve(RESTORE_DIST, 'index.html');
+if (existsSync(restoreSrc)) {
+  copyFileSync(restoreSrc, resolve(OUTPUT, 'restore', 'index.html'));
+  console.log('Copied: restore/index.html');
+} else {
+  console.warn('Warning: restore app build not found — run "cd restore && npm run build" first');
 }
 
 console.log(`\nSite assembled in: ${OUTPUT}`);
