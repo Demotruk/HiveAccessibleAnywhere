@@ -22,18 +22,6 @@ function buildPeakdSigninUrl(username: string): string {
   return `https://peakd.com/signin?${params.toString()}`;
 }
 
-/** Copy text to clipboard and briefly update button label. */
-function attachCopyHandler(container: HTMLElement, btnId: string, text: string) {
-  const btn = container.querySelector(`#${btnId}`) as HTMLButtonElement | null;
-  if (!btn) return;
-  btn.addEventListener('click', async () => {
-    try { await navigator.clipboard.writeText(text); } catch { /* clipboard may not be available */ }
-    const orig = btn.textContent;
-    btn.textContent = t.success_copied;
-    setTimeout(() => { btn.textContent = orig; }, 1500);
-  });
-}
-
 export const SuccessScreen: ScreenFn = (container, state) => {
   const result = state.claimResult!;
   const payload = state.payload!;
@@ -60,14 +48,6 @@ export const SuccessScreen: ScreenFn = (container, state) => {
       <h2>${t.success_peakd_heading}</h2>
       <p class="sm mb">${t.success_peakd_intro}</p>
 
-      <p class="sm mb">${t.success_step_copy}</p>
-
-      <label>${t.success_posting_label}</label>
-      <div class="copy-row">
-        <div class="mono-box" style="font-size:.7rem">${postingKey}</div>
-        <button class="copy-btn btn-s" id="copy-key">${t.success_copy}</button>
-      </div>
-
       <p class="sm mb">${t.success_step_login}</p>
 
       <a href="${peakdUrl}" target="_blank" rel="noopener" id="peakd-link">
@@ -81,9 +61,6 @@ export const SuccessScreen: ScreenFn = (container, state) => {
       <p class="xs mt">${t.success_keys_reminder}</p>
     </div>
   </div>`;
-
-  // Attach copy handler for posting key
-  attachCopyHandler(container, 'copy-key', postingKey);
 
   // Auto-copy posting key to clipboard when the login button is clicked
   const peakdLink = container.querySelector('#peakd-link') as HTMLAnchorElement | null;
