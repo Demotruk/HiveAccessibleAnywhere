@@ -58,7 +58,8 @@ cpSync(join(repoRoot, 'giftcard', 'package.json'), join(target, 'giftcard', 'pac
 cpSync(join(repoRoot, 'giftcard', 'package-lock.json'), join(target, 'giftcard', 'package-lock.json'));
 cpSync(join(repoRoot, 'giftcard', 'tsconfig.json'), join(target, 'giftcard', 'tsconfig.json'));
 cpSync(join(repoRoot, 'giftcard', 'Dockerfile'), join(target, 'giftcard', 'Dockerfile'));
-console.log('✓ Copied giftcard/ service source + Dockerfile');
+cpSync(join(repoRoot, 'giftcard', 'assets'), join(target, 'giftcard', 'assets'), { recursive: true });
+console.log('✓ Copied giftcard/ service source + assets + Dockerfile');
 
 // -- 2. Scripts (card generation + PDF helper) --
 mkdirSync(join(target, 'scripts'), { recursive: true });
@@ -155,6 +156,23 @@ GIFTCARD_TLS_KEY=../certs/dev-key.pem
 # Gift card output directory (where generated cards are saved)
 # Keep this outside the workspace so cards persist across re-deployments.
 GIFTCARD_OUTPUT_DIR=D:\\HiveGiftCards
+
+# --- Dashboard API ---
+
+# JWT signing secret for dashboard authentication (required for dashboard)
+# Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+GIFTCARD_JWT_SECRET=REPLACE_ME
+
+# Comma-separated list of Hive usernames allowed to use the dashboard.
+# These are the approved issuers. The provider account is always allowed.
+# GIFTCARD_ALLOWED_PROVIDERS=issuer1,issuer2
+
+# --- Multi-Tenant (optional — leave commented for single-tenant) ---
+
+# Shared service account (enables multi-tenant mode when both are set)
+# GIFTCARD_SERVICE_ACCOUNT=
+# GIFTCARD_SERVICE_ACTIVE_KEY=
+# GIFTCARD_SERVICE_MEMO_KEY=
 
 # Hive API nodes (comma-separated, optional — defaults to public nodes)
 # HIVE_NODES=https://api.hive.blog,https://api.deathwing.me

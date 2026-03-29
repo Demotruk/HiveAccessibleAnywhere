@@ -92,6 +92,10 @@ Security: Only comments from the publisher account are processed. All chunks ver
 - Tagging and production publishing also require explicit approval
 - Dev builds → `propolis-dev` account; production → `propolis-publish`
 
+## Off-Limits Directories
+
+- **Never read, write, or access files in the isolated giftcard workspace** (`../giftcard-isolated/` or any path outside this repo). That directory contains sensitive keys and secrets. The setup script (`scripts/setup-giftcard-isolated.ts`) copies source there; the user manages it manually.
+
 ## Full Requirements
 
 See `Requirements.md` for the complete product specification, including detailed design rationale, open questions, and future considerations. The CLAUDE.md files in each subdirectory contain the operational subset relevant to that component.

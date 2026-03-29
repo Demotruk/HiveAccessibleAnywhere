@@ -3,6 +3,10 @@ import 'dotenv/config';
 /**
  * Deploy the HAA Gift Card Service to Fly.io.
  *
+ * Handles both first-time deployment and redeployment of existing apps.
+ * On first deploy: creates app, volume, sets secrets, deploys code.
+ * On redeploy: updates secrets and deploys code (skips app/volume creation).
+ *
  * Key differences from the proxy deploy:
  * - Needs a persistent Fly.io volume for SQLite storage
  * - Secrets set via `fly secrets set` (private keys, not in fly.toml)
@@ -20,12 +24,14 @@ import 'dotenv/config';
  *   --volume-size <gb>  Volume size in GB (default: 1)
  *   --dry-run           Show what would happen without deploying
  *
- * Environment variables (from scripts/.env):
- *   GIFTCARD_PROVIDER_ACCOUNT  - Hive account with claimed account tokens
- *   GIFTCARD_ACTIVE_KEY        - Provider's active key (WIF)
- *   GIFTCARD_MEMO_KEY          - Provider's memo key (WIF)
- *   HAA_SERVICE_ACCOUNT        - Feed service account
- *   GIFTCARD_DELEGATION_VESTS  - Delegation amount (e.g. '30000.000000 VESTS')
+ * Environment variables (from .env):
+ *   GIFTCARD_PROVIDER_ACCOUNT    - Hive account with claimed account tokens
+ *   GIFTCARD_ACTIVE_KEY          - Provider's active key (WIF)
+ *   GIFTCARD_MEMO_KEY            - Provider's memo key (WIF)
+ *   HAA_SERVICE_ACCOUNT          - Feed service account
+ *   GIFTCARD_DELEGATION_VESTS    - Delegation amount (e.g. '30000.000000 VESTS')
+ *   GIFTCARD_JWT_SECRET          - JWT signing secret (for dashboard API)
+ *   GIFTCARD_ALLOWED_PROVIDERS   - Comma-separated issuer whitelist (for dashboard)
  *
  * Requires: fly CLI installed and authenticated
  */
@@ -74,6 +80,29 @@ function requireEnv(name: string): string {
 
 const GIFTCARD_DIR = resolve(import.meta.dirname, '..', 'giftcard');
 
+// -- Helpers --
+
+/** Check if a Fly.io app already exists. */
+function appExists(name: string): boolean {
+  try {
+    execSync(`fly status -a ${name}`, { stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Check if the app already has a volume. */
+function hasVolume(name: string): boolean {
+  try {
+    const output = execSync(`fly volumes list -a ${name} --json`, { stdio: 'pipe' }).toString();
+    const volumes = JSON.parse(output);
+    return Array.isArray(volumes) && volumes.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 // -- Main --
 
 async function main() {
@@ -85,6 +114,10 @@ async function main() {
   const memoKey = requireEnv('GIFTCARD_MEMO_KEY');
   const haaServiceAccount = requireEnv('HAA_SERVICE_ACCOUNT');
   const delegationVests = requireEnv('GIFTCARD_DELEGATION_VESTS');
+
+  // Dashboard API (optional but needed for dashboard to work)
+  const jwtSecret = process.env.GIFTCARD_JWT_SECRET || '';
+  const allowedProviders = process.env.GIFTCARD_ALLOWED_PROVIDERS || '';
 
   console.log('=== HAA Gift Card Service Deployer ===');
   console.log(`App name:     ${appName}`);
@@ -126,12 +159,37 @@ primary_region = '${region}'
   memory_mb = 256
 `;
 
+  // Build secrets command
+  const secretParts = [
+    `GIFTCARD_PROVIDER_ACCOUNT="${providerAccount}"`,
+    `GIFTCARD_ACTIVE_KEY="${activeKey}"`,
+    `GIFTCARD_MEMO_KEY="${memoKey}"`,
+    `HAA_SERVICE_ACCOUNT="${haaServiceAccount}"`,
+    `GIFTCARD_DELEGATION_VESTS="${delegationVests}"`,
+  ];
+  if (jwtSecret) secretParts.push(`GIFTCARD_JWT_SECRET="${jwtSecret}"`);
+  if (allowedProviders) secretParts.push(`GIFTCARD_ALLOWED_PROVIDERS="${allowedProviders}"`);
+
   if (dryRun) {
+    // Check if app exists to show accurate dry-run info
+    let existing = false;
+    try {
+      execSync('fly version', { stdio: 'pipe' });
+      existing = appExists(appName);
+    } catch {
+      // fly CLI not available, can't check
+    }
+
     console.log('Generated fly.toml:');
     console.log(flyToml);
     console.log(`Would deploy from: ${GIFTCARD_DIR}`);
-    console.log(`Would set secrets: GIFTCARD_PROVIDER_ACCOUNT, GIFTCARD_ACTIVE_KEY, GIFTCARD_MEMO_KEY, HAA_SERVICE_ACCOUNT, GIFTCARD_DELEGATION_VESTS`);
-    console.log(`Would create ${volumeSize}GB volume: giftcard_data in region ${region}`);
+    console.log(`Would set secrets: ${secretParts.map(s => s.replace(/=.*/, '')).join(', ')}`);
+    if (existing) {
+      console.log(`\nApp "${appName}" already exists — would redeploy (update secrets + code).`);
+      console.log('Existing volume and data will be preserved.');
+    } else {
+      console.log(`\nApp "${appName}" does not exist — would create app + ${volumeSize}GB volume in region ${region}.`);
+    }
     console.log('\nDry run complete. Remove --dry-run to deploy for real.');
     return;
   }
@@ -144,6 +202,14 @@ primary_region = '${region}'
     process.exit(1);
   }
 
+  // Detect if this is a first deploy or a redeploy
+  const existing = appExists(appName);
+  if (existing) {
+    console.log(`App "${appName}" already exists — redeploying.\n`);
+  } else {
+    console.log(`App "${appName}" not found — creating new deployment.\n`);
+  }
+
   // Write fly.toml into the giftcard directory
   const tomlPath = join(GIFTCARD_DIR, 'fly.toml');
   let origTomlContent: string | null = null;
@@ -154,30 +220,30 @@ primary_region = '${region}'
   writeFileSync(tomlPath, flyToml, 'utf-8');
 
   try {
-    // 1. Launch the app (creates the app on Fly.io)
-    console.log('Creating Fly.io app...');
-    execSync(`fly launch --no-deploy --copy-config --name ${appName} --region ${region} --yes`, {
-      cwd: GIFTCARD_DIR,
-      stdio: 'inherit',
-    });
+    // 1. Create app (first deploy only)
+    if (!existing) {
+      console.log('Creating Fly.io app...');
+      execSync(`fly launch --no-deploy --copy-config --name ${appName} --region ${region} --yes`, {
+        cwd: GIFTCARD_DIR,
+        stdio: 'inherit',
+      });
+    }
 
-    // 2. Create persistent volume for SQLite
-    console.log('\nCreating persistent volume...');
-    execSync(`fly volumes create giftcard_data --size ${volumeSize} --region ${region} --yes -a ${appName}`, {
-      cwd: GIFTCARD_DIR,
-      stdio: 'inherit',
-    });
+    // 2. Create persistent volume (first deploy or if missing)
+    if (!existing || !hasVolume(appName)) {
+      console.log('\nCreating persistent volume...');
+      execSync(`fly volumes create giftcard_data --size ${volumeSize} --region ${region} --yes -a ${appName}`, {
+        cwd: GIFTCARD_DIR,
+        stdio: 'inherit',
+      });
+    } else {
+      console.log('Volume already exists — skipping creation.');
+    }
 
-    // 3. Set secrets (private keys — never in fly.toml or env vars)
+    // 3. Set secrets
     console.log('\nSetting secrets...');
     execSync(
-      `fly secrets set ` +
-      `GIFTCARD_PROVIDER_ACCOUNT="${providerAccount}" ` +
-      `GIFTCARD_ACTIVE_KEY="${activeKey}" ` +
-      `GIFTCARD_MEMO_KEY="${memoKey}" ` +
-      `HAA_SERVICE_ACCOUNT="${haaServiceAccount}" ` +
-      `GIFTCARD_DELEGATION_VESTS="${delegationVests}" ` +
-      `-a ${appName}`,
+      `fly secrets set ${secretParts.join(' ')} -a ${appName}`,
       {
         cwd: GIFTCARD_DIR,
         stdio: 'inherit',

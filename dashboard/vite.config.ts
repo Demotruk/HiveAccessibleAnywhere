@@ -8,8 +8,8 @@ export default defineConfig({
   server: {
     port: parseInt(process.env.PORT || '5179'),
     proxy: {
-      '/auth': 'http://localhost:3200',
-      '/api': 'http://localhost:3200',
+      '/auth': { target: 'https://localhost:3200', secure: false },
+      '/api': { target: 'https://localhost:3200', secure: false },
     },
   },
   build: {
