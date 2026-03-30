@@ -52,12 +52,57 @@ export interface KeychainResponse {
   message?: string;
 }
 
+/** Issuer record from GET /api/issuers/me */
+export interface IssuerRecord {
+  username: string;
+  status: 'pending' | 'approved' | 'active';
+  description: string | null;
+  contact: string | null;
+  applied_at: string;
+  apply_tx_id: string | null;
+  approved_at: string | null;
+  approve_tx_id: string | null;
+  delegation_verified_at: string | null;
+}
+
+/** Issuer with batch stats from GET /api/admin/issuers */
+export interface IssuerWithStats extends IssuerRecord {
+  batch_count: number;
+  total_cards: number;
+  claimed_cards: number;
+}
+
+/** Setup status from GET /api/issuers/me */
+export interface SetupStatus {
+  delegated: boolean;
+  pendingTokens: number;
+}
+
+/** User role determined by the server */
+export type UserRole = 'admin' | 'issuer' | 'applicant';
+
 /** Hive Keychain API */
 export interface HiveKeychain {
   requestSignBuffer(
     username: string,
     message: string,
     role: string,
+    callback: (response: KeychainResponse) => void,
+  ): void;
+
+  requestCustomJson(
+    username: string,
+    id: string,
+    keyType: string,
+    json: string,
+    display_msg: string,
+    callback: (response: KeychainResponse) => void,
+  ): void;
+
+  requestBroadcast(
+    username: string,
+    operations: unknown[][],
+    keyType: string,
     callback: (response: KeychainResponse) => void,
   ): void;
 }

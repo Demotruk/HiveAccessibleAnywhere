@@ -24,7 +24,7 @@ import helmet from 'helmet';
 import https from 'node:https';
 import { readFileSync, existsSync } from 'node:fs';
 import { rateLimit } from './middleware/rate-limit.js';
-import { requireAuth } from './middleware/auth.js';
+import { requireAuth, requireIssuer, requireAdmin } from './middleware/auth.js';
 import { serveCoverPage, getThemeName } from './cover-site.js';
 import { claimHandler } from './routes/claim.js';
 import { validateHandler } from './routes/validate.js';
@@ -33,6 +33,9 @@ import {
   createBatchHandler, listBatchesHandler, getBatchDetailHandler,
   downloadPdfHandler, downloadManifestHandler,
 } from './routes/batches.js';
+import {
+  applyHandler, meHandler, listIssuersHandler, approveHandler,
+} from './routes/issuers.js';
 import { loadConfig, isMultiTenant } from './config.js';
 import { initDatabase } from './db.js';
 import { warmBatchCache } from './hive/batch-lookup.js';
@@ -121,13 +124,23 @@ app.get('/health', (_req, res) => {
 app.post('/auth/challenge', authLimiter, challengeHandler(config));
 app.post('/auth/verify', authLimiter, verifyHandler(config));
 
-// Batch routes (authenticated)
-const auth = requireAuth(config);
-app.post('/api/batches', apiLimiter, auth, createBatchHandler(db, config));
-app.get('/api/batches', apiLimiter, auth, listBatchesHandler(db));
-app.get('/api/batches/:id', apiLimiter, auth, getBatchDetailHandler(db));
-app.get('/api/batches/:id/pdf', apiLimiter, auth, downloadPdfHandler(db));
-app.get('/api/batches/:id/manifest', apiLimiter, auth, downloadManifestHandler(db));
+// Issuer routes (any authenticated user)
+const auth = requireAuth(config, db);
+app.post('/api/issuers/apply', apiLimiter, auth, applyHandler(db));
+app.get('/api/issuers/me', apiLimiter, auth, meHandler(db, config));
+
+// Admin routes
+const admin = requireAdmin(config, db);
+app.get('/api/admin/issuers', apiLimiter, admin, listIssuersHandler(db));
+app.post('/api/admin/issuers/:username/approve', apiLimiter, admin, approveHandler(db, config));
+
+// Batch routes (active issuers + admins)
+const issuer = requireIssuer(config, db);
+app.post('/api/batches', apiLimiter, issuer, createBatchHandler(db, config));
+app.get('/api/batches', apiLimiter, issuer, listBatchesHandler(db));
+app.get('/api/batches/:id', apiLimiter, issuer, getBatchDetailHandler(db));
+app.get('/api/batches/:id/pdf', apiLimiter, issuer, downloadPdfHandler(db));
+app.get('/api/batches/:id/manifest', apiLimiter, issuer, downloadManifestHandler(db));
 
 // 404 for everything else (looks like a normal site)
 app.use((_req, res) => {

@@ -42,10 +42,25 @@ export interface GiftcardConfig {
   /** Approved provider accounts. Claims for unlisted providers are rejected. */
   allowedProviders?: Set<string>;
 
+  // -- Admin fields (optional) --
+
+  /** Admin accounts (service account is always admin; these are additional) */
+  adminAccounts?: Set<string>;
+
+  // -- Notification fields (optional) --
+
+  /** Account for sending notification memos (separate from service account) */
+  notifyAccount?: string;
+  /** Active key for the notification account (WIF) */
+  notifyActiveKey?: string;
+
   // -- Dashboard API fields (optional) --
 
   /** JWT secret for dashboard session tokens. Required for dashboard API endpoints. */
   jwtSecret?: string;
+
+  /** Public URL of this service (e.g. 'https://haa-giftcard-prod.fly.dev'). Used in generated QR payloads. */
+  serviceUrl?: string;
 }
 
 /**
@@ -113,8 +128,18 @@ export function loadConfig(): GiftcardConfig {
   // In multi-tenant mode, memo key is resolved per-provider from chain,
   // but we still require GIFTCARD_MEMO_KEY for the default provider (backward compat)
 
+  let adminAccounts: Set<string> | undefined;
+  const adminRaw = process.env.GIFTCARD_ADMIN_ACCOUNTS;
+  if (adminRaw) {
+    adminAccounts = new Set(adminRaw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean));
+  }
+
+  const notifyAccount = process.env.GIFTCARD_NOTIFY_ACCOUNT || undefined;
+  const notifyActiveKey = process.env.GIFTCARD_NOTIFY_ACTIVE_KEY || undefined;
+
   const serviceMemoKey = process.env.GIFTCARD_SERVICE_MEMO_KEY || undefined;
   const jwtSecret = process.env.GIFTCARD_JWT_SECRET || undefined;
+  const serviceUrl = process.env.GIFTCARD_SERVICE_URL || undefined;
 
   return {
     providerAccount: providerAccount!,
@@ -130,6 +155,22 @@ export function loadConfig(): GiftcardConfig {
     serviceActiveKey,
     serviceMemoKey,
     allowedProviders,
+    adminAccounts,
+    notifyAccount,
+    notifyActiveKey,
     jwtSecret,
+    serviceUrl,
   };
+}
+
+/**
+ * Check if a username has admin access.
+ * Admin = service account (in multi-tenant) or provider account (single-tenant) or in adminAccounts.
+ */
+export function isAdmin(config: GiftcardConfig, username: string): boolean {
+  const u = username.toLowerCase();
+  if (config.serviceAccount && u === config.serviceAccount.toLowerCase()) return true;
+  if (!config.serviceAccount && u === config.providerAccount.toLowerCase()) return true;
+  if (config.adminAccounts?.has(u)) return true;
+  return false;
 }

@@ -27,19 +27,7 @@ export function challengeHandler(config: GiftcardConfig) {
 
     const normalized = username.toLowerCase().trim();
 
-    // Check the user is an allowed issuer
-    if (config.allowedProviders) {
-      if (!config.allowedProviders.has(normalized)) {
-        res.status(403).json({ error: 'Not an authorized issuer' });
-        return;
-      }
-    } else {
-      if (normalized !== config.providerAccount.toLowerCase()) {
-        res.status(403).json({ error: 'Not an authorized issuer' });
-        return;
-      }
-    }
-
+    // Issue challenge to any Hive user — authorization is handled by middleware
     const challenge = createChallenge(normalized);
     res.json({ challenge });
   };

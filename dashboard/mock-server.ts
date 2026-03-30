@@ -10,7 +10,9 @@ import { randomBytes } from 'node:crypto';
 
 const PORT = 3200;
 const JWT_TOKEN = 'mock-jwt-' + randomBytes(16).toString('hex');
-const MOCK_USER = 'demotruktest27';
+const MOCK_USER = 'demotruktest27'; // default/seed user
+const ADMIN_USER = 'haa-giftcard';
+let currentUser = MOCK_USER; // tracks the last-authenticated user
 
 // In-memory batch store
 interface MockBatch {
@@ -73,6 +75,76 @@ function seedBatches() {
 
 seedBatches();
 
+// In-memory issuer store
+interface MockIssuer {
+  username: string;
+  status: 'pending' | 'approved' | 'active';
+  description: string | null;
+  contact: string | null;
+  applied_at: string;
+  apply_tx_id: string | null;
+  approved_at: string | null;
+  approve_tx_id: string | null;
+  delegation_verified_at: string | null;
+  batch_count: number;
+  total_cards: number;
+  claimed_cards: number;
+}
+
+const issuers: MockIssuer[] = [
+  {
+    username: 'pendinguser',
+    status: 'pending',
+    description: 'I want to onboard my local crypto meetup group.',
+    contact: '@pendinguser on Telegram',
+    applied_at: new Date(Date.now() - 3 * 86400000).toISOString(),
+    apply_tx_id: randomBytes(20).toString('hex'),
+    approved_at: null,
+    approve_tx_id: null,
+    delegation_verified_at: null,
+    batch_count: 0,
+    total_cards: 0,
+    claimed_cards: 0,
+  },
+  {
+    username: 'approveduser',
+    status: 'pending',
+    description: 'Running a Hive workshop at ETHDenver.',
+    contact: 'Discord: approveduser#1234',
+    applied_at: new Date(Date.now() - 7 * 86400000).toISOString(),
+    apply_tx_id: randomBytes(20).toString('hex'),
+    approved_at: null,
+    approve_tx_id: null,
+    delegation_verified_at: null,
+    batch_count: 0,
+    total_cards: 0,
+    claimed_cards: 0,
+  },
+];
+
+// Make MOCK_USER an active issuer
+issuers.push({
+  username: MOCK_USER,
+  status: 'active',
+  description: 'Test issuer account',
+  contact: null,
+  applied_at: new Date(Date.now() - 30 * 86400000).toISOString(),
+  apply_tx_id: randomBytes(20).toString('hex'),
+  approved_at: new Date(Date.now() - 29 * 86400000).toISOString(),
+  approve_tx_id: randomBytes(20).toString('hex'),
+  delegation_verified_at: new Date(Date.now() - 28 * 86400000).toISOString(),
+  batch_count: batches.length,
+  total_cards: batches.reduce((s, b) => s + b.count, 0),
+  claimed_cards: batches.reduce((s, b) => s + b.cards.filter(c => c.status === 'spent').length, 0),
+});
+
+function getRole(username: string): 'admin' | 'issuer' | 'applicant' {
+  if (username === ADMIN_USER) return 'admin';
+  const issuer = issuers.find(i => i.username === username);
+  if (issuer?.status === 'active') return 'issuer';
+  return 'applicant';
+}
+
 // Helpers
 function json(res: import('node:http').ServerResponse, data: unknown, status = 200) {
   res.writeHead(status, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type, Authorization' });
@@ -125,6 +197,7 @@ const server = createServer(async (req, res) => {
       if (!username || !body.challenge || !body.signature) {
         return json(res, { error: 'Missing username, challenge, or signature' }, 400);
       }
+      currentUser = username;
       console.log(`[AUTH] Verified @${username} (mock — any signature accepted)`);
       return json(res, { token: JWT_TOKEN });
     }
@@ -259,6 +332,62 @@ const server = createServer(async (req, res) => {
       });
       res.end(JSON.stringify(manifest, null, 2));
       return;
+    }
+
+    // POST /api/issuers/apply
+    if (method === 'POST' && path === '/api/issuers/apply') {
+      if (!checkAuth(req)) return json(res, { error: 'Unauthorized' }, 401);
+      const body = JSON.parse(await readBody(req));
+      const existing = issuers.find(i => i.username === currentUser);
+      if (existing) return json(res, { issuer: existing });
+      const issuer: MockIssuer = {
+        username: currentUser,
+        status: 'pending',
+        description: body.description || 'Mock application',
+        contact: body.contact || null,
+        applied_at: new Date().toISOString(),
+        apply_tx_id: body.txId || randomBytes(20).toString('hex'),
+        approved_at: null, approve_tx_id: null, delegation_verified_at: null,
+        batch_count: 0, total_cards: 0, claimed_cards: 0,
+      };
+      issuers.push(issuer);
+      console.log(`[ISSUER] Application from @${currentUser}`);
+      return json(res, { issuer }, 201);
+    }
+
+    // GET /api/issuers/me
+    if (method === 'GET' && path === '/api/issuers/me') {
+      if (!checkAuth(req)) return json(res, { error: 'Unauthorized' }, 401);
+      const username = currentUser;
+      const issuer = issuers.find(i => i.username === username) || null;
+      const role = getRole(username);
+      const setupStatus = issuer && (issuer.status === 'approved' || issuer.status === 'active')
+        ? { delegated: issuer.status === 'active', pendingTokens: 42 }
+        : null;
+      return json(res, { issuer, role, setupStatus });
+    }
+
+    // GET /api/admin/issuers
+    if (method === 'GET' && path === '/api/admin/issuers') {
+      if (!checkAuth(req)) return json(res, { error: 'Unauthorized' }, 401);
+      const status = url.searchParams.get('status');
+      const result = status ? issuers.filter(i => i.status === status) : issuers;
+      return json(res, { issuers: result });
+    }
+
+    // POST /api/admin/issuers/:username/approve
+    const approveMatch = path.match(/^\/api\/admin\/issuers\/([^/]+)\/approve$/);
+    if (method === 'POST' && approveMatch) {
+      if (!checkAuth(req)) return json(res, { error: 'Unauthorized' }, 401);
+      const username = approveMatch[1].toLowerCase();
+      const issuer = issuers.find(i => i.username === username);
+      if (!issuer) return json(res, { error: 'Not found' }, 404);
+      if (issuer.status !== 'pending') return json(res, { error: `Already ${issuer.status}` }, 400);
+      issuer.status = 'approved';
+      issuer.approved_at = new Date().toISOString();
+      issuer.approve_tx_id = randomBytes(20).toString('hex');
+      console.log(`[ISSUER] @${username} approved`);
+      return json(res, { issuer });
     }
 
     // GET /health

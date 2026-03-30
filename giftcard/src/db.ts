@@ -26,6 +26,24 @@ export interface BatchRow {
   manifest_data: string | null;
 }
 
+export interface IssuerRow {
+  username: string;
+  status: 'pending' | 'approved' | 'active';
+  description: string | null;
+  contact: string | null;
+  applied_at: string;
+  apply_tx_id: string | null;
+  approved_at: string | null;
+  approve_tx_id: string | null;
+  delegation_verified_at: string | null;
+}
+
+export interface IssuerWithStats extends IssuerRow {
+  batch_count: number;
+  total_cards: number;
+  claimed_cards: number;
+}
+
 export interface TokenRow {
   token: string;
   batch_id: string;
@@ -101,6 +119,7 @@ export function initDatabase(dbPath: string): Database.Database {
   // -- Migrations for existing databases --
   migrateSpentTokensProvider(db);
   migrateBatchesForDashboard(db);
+  migrateIssuersTable(db);
 
   return db;
 }
@@ -136,6 +155,120 @@ function migrateBatchesForDashboard(db: Database.Database): void {
     db.exec('ALTER TABLE batches ADD COLUMN manifest_data TEXT');
     console.log('[DB] Migrated batches: added manifest_data column');
   }
+}
+
+/**
+ * Create the issuers table if it doesn't exist.
+ */
+function migrateIssuersTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS issuers (
+      username                TEXT PRIMARY KEY,
+      status                  TEXT NOT NULL DEFAULT 'pending',
+      description             TEXT,
+      contact                 TEXT,
+      applied_at              TEXT NOT NULL DEFAULT (datetime('now')),
+      apply_tx_id             TEXT,
+      approved_at             TEXT,
+      approve_tx_id           TEXT,
+      delegation_verified_at  TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_issuers_status ON issuers(status);
+  `);
+}
+
+// -- Issuer operations --
+
+/**
+ * Create an issuer application. Returns false if already exists.
+ */
+export function createIssuerApplication(
+  db: Database.Database,
+  username: string,
+  description: string,
+  contact?: string,
+  applyTxId?: string,
+): boolean {
+  try {
+    db.prepare(`
+      INSERT INTO issuers (username, status, description, contact, apply_tx_id)
+      VALUES (?, 'pending', ?, ?, ?)
+    `).run(username, description, contact ?? null, applyTxId ?? null);
+    return true;
+  } catch (err: unknown) {
+    // UNIQUE constraint = already exists
+    if (err instanceof Error && err.message.includes('UNIQUE')) return false;
+    throw err;
+  }
+}
+
+/**
+ * Get an issuer record by username.
+ */
+export function getIssuer(db: Database.Database, username: string): IssuerRow | null {
+  return (db.prepare('SELECT * FROM issuers WHERE username = ?').get(username) as IssuerRow | undefined) ?? null;
+}
+
+/**
+ * List issuers filtered by status.
+ */
+export function listIssuersByStatus(db: Database.Database, status: string): IssuerRow[] {
+  return db.prepare('SELECT * FROM issuers WHERE status = ? ORDER BY applied_at DESC').all(status) as IssuerRow[];
+}
+
+/**
+ * List all issuers with batch statistics.
+ */
+export function listAllIssuers(db: Database.Database): IssuerWithStats[] {
+  return db.prepare(`
+    SELECT
+      i.*,
+      COALESCE(bs.batch_count, 0) AS batch_count,
+      COALESCE(bs.total_cards, 0) AS total_cards,
+      COALESCE(bs.claimed_cards, 0) AS claimed_cards
+    FROM issuers i
+    LEFT JOIN (
+      SELECT
+        b.provider,
+        COUNT(DISTINCT b.id) AS batch_count,
+        SUM(b.count) AS total_cards,
+        COUNT(CASE WHEN t.status = 'spent' THEN 1 END) AS claimed_cards
+      FROM batches b
+      LEFT JOIN tokens t ON t.batch_id = b.id
+      WHERE b.provider IS NOT NULL
+      GROUP BY b.provider
+    ) bs ON bs.provider = i.username
+    ORDER BY i.applied_at DESC
+  `).all() as IssuerWithStats[];
+}
+
+/**
+ * Update an issuer's status and optional fields.
+ */
+export function updateIssuerStatus(
+  db: Database.Database,
+  username: string,
+  status: IssuerRow['status'],
+  extra?: { approved_at?: string; approve_tx_id?: string; delegation_verified_at?: string },
+): boolean {
+  const sets = ['status = ?'];
+  const params: (string | null)[] = [status];
+
+  if (extra?.approved_at) { sets.push('approved_at = ?'); params.push(extra.approved_at); }
+  if (extra?.approve_tx_id) { sets.push('approve_tx_id = ?'); params.push(extra.approve_tx_id); }
+  if (extra?.delegation_verified_at) { sets.push('delegation_verified_at = ?'); params.push(extra.delegation_verified_at); }
+
+  params.push(username);
+  const result = db.prepare(`UPDATE issuers SET ${sets.join(', ')} WHERE username = ?`).run(...params);
+  return result.changes > 0;
+}
+
+/**
+ * Check if a username is an active issuer in the database.
+ */
+export function isIssuerActive(db: Database.Database, username: string): boolean {
+  const row = db.prepare("SELECT 1 FROM issuers WHERE username = ? AND status = 'active'").get(username);
+  return !!row;
 }
 
 // -- Batch operations --

@@ -92,3 +92,37 @@ nav .logout:hover{color:var(--tx);border-color:var(--tm)}
 .meta{display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:.85rem;margin-bottom:16px}
 .meta dt{color:var(--tm)}
 .meta dd{word-break:break-all}
+.mono{font-family:'Consolas','Monaco',monospace;font-size:.8rem}
+.tm{color:var(--tm)}
+
+/* Issuer status badges */
+.badge-pending{background:rgba(240,192,64,.15);color:var(--wn)}
+.badge-approved{background:rgba(78,204,163,.15);color:var(--ok)}
+
+/* Step indicator */
+.steps{display:flex;align-items:center;justify-content:center;gap:0;margin:24px 0}
+.step{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:.75rem;color:var(--tm)}
+.step.done{color:var(--ok)}
+.step-num{width:32px;height:32px;border-radius:50%;border:2px solid var(--bd);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.85rem}
+.step.done .step-num{border-color:var(--ok);background:rgba(78,204,163,.15);color:var(--ok)}
+.step-line{flex:1;height:2px;background:var(--bd);max-width:60px;margin:0 8px}
+.step-line.done{background:var(--ok)}
+
+/* Setup steps */
+.setup-steps{margin:12px 0 0 20px;font-size:.85rem;color:var(--tm)}
+.setup-steps li{margin-bottom:6px}
+
+/* Notice box */
+.notice{background:rgba(240,192,64,.08);border:1px solid rgba(240,192,64,.25);border-radius:var(--r);padding:12px 16px;font-size:.85rem}
+.notice strong{color:var(--wn)}
+.notice p{color:var(--tm);margin-top:4px}
+
+/* Tabs */
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--bd);margin-bottom:16px}
+.tab{background:transparent;color:var(--tm);border:none;padding:8px 16px;font-size:.85rem;border-radius:var(--r) var(--r) 0 0;width:auto;margin-bottom:0;cursor:pointer}
+.tab.active{background:var(--sf);color:var(--tx)}
+.tab:hover{color:var(--tx)}
+
+/* Inline link button */
+.btn{display:inline-block;background:var(--ac);color:var(--tx);padding:8px 16px;border-radius:var(--r);font-size:.85rem;text-decoration:none}
+.btn:hover{background:var(--ah);color:var(--tx)}

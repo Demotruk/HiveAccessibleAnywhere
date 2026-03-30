@@ -8,8 +8,8 @@ export default defineConfig({
   server: {
     port: parseInt(process.env.PORT || '5179'),
     proxy: {
-      '/auth': { target: 'https://localhost:3200', secure: false },
-      '/api': { target: 'https://localhost:3200', secure: false },
+      '/auth': { target: process.env.MOCK_API ? 'http://localhost:3200' : 'https://localhost:3200', secure: false },
+      '/api': { target: process.env.MOCK_API ? 'http://localhost:3200' : 'https://localhost:3200', secure: false },
     },
   },
   build: {

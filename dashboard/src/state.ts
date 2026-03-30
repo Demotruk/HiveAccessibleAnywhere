@@ -1,8 +1,10 @@
-import type { Batch } from './types.js';
+import type { Batch, IssuerRecord, UserRole } from './types.js';
 
 export interface DashboardState {
   jwt: string | null;
   username: string | null;
+  role: UserRole | null;
+  issuerStatus: IssuerRecord | null;
   batches: Batch[];
   loading: boolean;
 }
@@ -14,6 +16,8 @@ const listeners = new Set<Listener>();
 export const state: DashboardState = {
   jwt: null,
   username: null,
+  role: null,
+  issuerStatus: null,
   batches: [],
   loading: false,
 };
@@ -29,5 +33,5 @@ export function subscribe(fn: Listener): () => void {
 }
 
 export function resetState(): void {
-  setState({ jwt: null, username: null, batches: [], loading: false });
+  setState({ jwt: null, username: null, role: null, issuerStatus: null, batches: [], loading: false });
 }

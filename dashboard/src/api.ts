@@ -1,5 +1,8 @@
 import { state, setState } from './state.js';
-import type { Batch, BatchCreateRequest, BatchCreateResponse, BatchDetail } from './types.js';
+import type {
+  Batch, BatchCreateRequest, BatchCreateResponse, BatchDetail,
+  IssuerRecord, IssuerWithStats, SetupStatus, UserRole,
+} from './types.js';
 
 declare const __API_BASE__: string;
 const API_BASE = __API_BASE__;
@@ -87,6 +90,48 @@ export async function downloadFile(path: string, filename: string): Promise<void
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+// -- Issuer API --
+
+export async function submitApplication(
+  description: string,
+  contact?: string,
+  txId?: string,
+): Promise<IssuerRecord> {
+  const res = await apiFetch('/api/issuers/apply', {
+    method: 'POST',
+    body: JSON.stringify({ description, contact, txId }),
+  });
+  const data = await res.json();
+  return data.issuer;
+}
+
+export async function getMyIssuerStatus(): Promise<{
+  issuer: IssuerRecord | null;
+  role: UserRole;
+  setupStatus: SetupStatus | null;
+}> {
+  const res = await apiFetch('/api/issuers/me');
+  return res.json();
+}
+
+// -- Admin API --
+
+export async function listIssuers(status?: string): Promise<IssuerWithStats[]> {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : '';
+  const res = await apiFetch(`/api/admin/issuers${qs}`);
+  const data = await res.json();
+  return data.issuers;
+}
+
+export async function approveIssuer(username: string, txId?: string): Promise<IssuerRecord> {
+  const res = await apiFetch(`/api/admin/issuers/${encodeURIComponent(username)}/approve`, {
+    method: 'POST',
+    body: JSON.stringify({ txId }),
+  });
+  const data = await res.json();
+  return data.issuer;
 }
 
 export { ApiError };

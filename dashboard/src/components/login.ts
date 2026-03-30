@@ -2,6 +2,7 @@ import { html } from 'htm/preact';
 import { useState } from 'preact/hooks';
 import { isKeychainAvailable, login } from '../auth.js';
 import { setState } from '../state.js';
+import { getMyIssuerStatus } from '../api.js';
 
 export function Login() {
   const [username, setUsername] = useState('');
@@ -27,14 +28,27 @@ export function Login() {
     try {
       const jwt = await login(name);
       setState({ jwt, username: name });
-      window.location.hash = '#batches';
+
+      // Fetch issuer status and role to determine where to route
+      const data = await getMyIssuerStatus();
+      setState({ role: data.role, issuerStatus: data.issuer });
+
+      // Route based on role and status
+      if (data.role === 'admin') {
+        window.location.hash = '#admin';
+      } else if (data.role === 'issuer') {
+        window.location.hash = '#batches';
+      } else if (data.issuer?.status === 'approved') {
+        window.location.hash = '#setup';
+      } else if (data.issuer?.status === 'pending') {
+        window.location.hash = '#apply';
+      } else {
+        // No issuer record — show apply option
+        window.location.hash = '#apply';
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('Not an authorized issuer')) {
-        setError(`@${name} is not an authorized issuer`);
-      } else {
-        setError(msg);
-      }
+      setError(msg);
     } finally {
       setSigning(false);
     }
@@ -43,8 +57,8 @@ export function Login() {
   return html`
     <div class="ct" style="max-width:420px;margin-top:80px">
       <div class="center mb">
-        <h1>Gift Card Dashboard</h1>
-        <p class="sm mt">Sign in with Hive Keychain to manage your gift card batches.</p>
+        <h1>HiveInvite</h1>
+        <p class="sm mt">Sign in with Hive Keychain to manage gift cards or apply to become an onboarder.</p>
       </div>
 
       <form onSubmit=${handleLogin}>
@@ -63,7 +77,7 @@ export function Login() {
         </div>
 
         <button type="submit" disabled=${signing}>
-          ${signing ? html`<span class="spinner" style="width:14px;height:14px;border-width:2px;vertical-align:middle;margin-right:8px" /> Signing with Keychain...` : 'Sign in with Keychain'}
+          ${signing ? html`<span class="spinner" style="width:14px;height:14px;border-width:2px;vertical-align:middle;margin-right:8px" /> Signing in...` : 'Sign in with Keychain'}
         </button>
       </form>
 
