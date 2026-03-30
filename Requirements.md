@@ -335,7 +335,7 @@ This enables issuers who do not want to run their own infrastructure to particip
 Delegating active key authority to a third-party service is a significant trust decision. The active key controls account creation tokens, token transfers, and other high-value operations. Issuers considering this delegation should be aware of the following:
 
 - They are trusting the service operator not to misuse their active key authority (e.g. transferring funds, changing account settings)
-- They should set up **key monitoring** on their account to detect any unexpected operations — anything other than `create_claimed_account` and `delegate_vesting_shares` (the only operations the gift card service should perform). Hive ecosystem tools exist for this (e.g. account history watchers, custom_json monitors)
+- They should set up **key monitoring** on their account to detect any unexpected operations — anything other than `create_claimed_account` and `delegate_vesting_shares` (the only operations the gift card service should perform). All administrative transfers to issuers (e.g. approval notifications) must originate from the operator's own account, not from the service account that holds delegated authority, so that *any* transfer operation from the issuer's account via the service is unambiguously suspicious. Hive ecosystem tools exist for this (e.g. account history watchers, custom_json monitors)
 - They can **revoke the delegation at any time** by removing the service's public key from their active authority (via Peakd, Hive Keychain, or any wallet that supports `update_account`)
 - They should consider starting with a small allocation of account creation tokens to limit exposure while building trust with the operator
 - The service operator should clearly communicate the scope of operations the service will perform on their behalf
@@ -791,7 +791,7 @@ Both notification channels ensure the operator is aware of new applications prom
 After approval, the issuer must complete setup before they can generate cards:
 
 **Step 1 — Notification.**
-The operator's approval `custom_json` triggers a Hive transfer (e.g. 0.001 HBD) from the service account to the issuer with an encrypted memo containing:
+The operator's approval `custom_json` triggers a Hive transfer (e.g. 0.001 HBD) from the **operator's own account** (not the gift card service account) to the issuer with an encrypted memo containing:
 - Confirmation of approval
 - A link to the dashboard setup page on HiveInvite.com
 - Instructions for the next step (active authority delegation)
@@ -956,6 +956,7 @@ The smallest end-to-end slice that delivers value: an issuer can log in, generat
 - Account creation token balance display
 - Issuer responsibility notice
 - Operator admin view (pending applications, active issuers)
+- **Key monitoring tool (required before go-live with real issuers):** An issuer-facing account monitoring service that watches the issuer's Hive account for any operations beyond the expected set (`create_claimed_account` and `delegate_vesting_shares`). All administrative transfers to issuers originate from the operator's own account, so any other operation from the service is unambiguously suspicious. Alerts the issuer immediately (via Telegram, email, or dashboard notification) if unexpected operations are detected, so they can revoke delegated active key authority. This is a hard prerequisite — the multi-tenant dashboard must not accept real issuer signups until key monitoring is operational, since issuers are trusting the service with active key authority and need an independent safety net to detect misuse.
 
 **v2 — Distribution integration:**
 - Distributor authorization (on-chain custom_json with platform mapping)
@@ -1007,7 +1008,7 @@ This is the project's first use of Hive Keychain. The Keychain browser extension
 - **Gift card batches are declared on-chain.** Batch declarations with Merkle root commitments provide a transparent audit trail of token issuance and enable verification that individual tokens belong to a declared batch.
 - **Gift card claim tokens are single-use and expire.** A stolen token lets an attacker claim an empty account, but does not compromise any existing user. Keys are generated locally on the user's device, never embedded in the QR or transmitted. Expired tokens cannot be redeemed.
 - **Gift card services are security-isolated from proxies.** The gift card service holds account creation keys; the proxy holds no such keys. Compromise of a proxy does not grant account creation capability.
-- **Gift card service account alerting.** The gift card issuer account's active key is held persistently by the claim service (required for autonomous account creation). To mitigate the risk of key compromise, the issuer should be alerted immediately when any unexpected operation is broadcast from the account — i.e. any operation other than `create_claimed_account`, `delegate_vesting_shares`, or small HBD transfers to the feed service account. On alert, the issuer can revoke the active key via a wallet that holds the owner key (e.g. Peakd with Hive Keychain). Existing Hive ecosystem monitoring tools should be evaluated before building a custom solution.
+- **Gift card service account alerting.** The gift card issuer account's active key is held persistently by the claim service (required for autonomous account creation). To mitigate the risk of key compromise, the issuer should be alerted immediately when any unexpected operation is broadcast from the account — i.e. any operation other than `create_claimed_account` and `delegate_vesting_shares`. To keep the monitoring rule simple and unambiguous, all administrative transfers (approval notifications, etc.) are sent from the operator's own account rather than the service account, so that *any* transfer from the issuer's account via the service is a clear red flag. On alert, the issuer can revoke the active key via a wallet that holds the owner key (e.g. Peakd with Hive Keychain). Existing Hive ecosystem monitoring tools should be evaluated before building a custom solution.
 - **User communication security.** Users in restricted regions (particularly mainland China) may instinctively share gift card details, PINs, or screenshots on familiar but surveilled platforms (e.g. WeChat, QQ). This risks exposing the user, the card contents, and potentially the proxy infrastructure. User-facing materials use normalised, non-alarming language ("this card is personal — don't share the PIN") and provide a secure support channel (Signal) as the obvious help path. Explicit platform-risk guidance is reserved for distributors only — warning end users against specific platforms like WeChat risks scaring them off the invite entirely (see "Secure support channel" under section 2.4).
 
 ## Operational Model
