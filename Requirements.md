@@ -279,6 +279,9 @@ https://<invite-app-url>/invite#<encrypted-blob>
 - `batchId` — identifier of the batch this card belongs to
 - `expires` — expiry date of the token (ISO 8601)
 - `signature` — digital signature from the issuer's memo key over the card's data (see Authenticity below)
+- `autoFollow` — (optional) an array of Hive usernames that the new account will automatically follow on account creation. Set at batch generation time. This enables issuers to pre-populate the new user's feed with relevant content creators, community accounts, or the issuer's own account — giving the user an immediately engaging experience rather than an empty feed. The follow operations are broadcast by the gift card service as part of the account creation flow, using the new account's posting key (which the service holds transiently for this purpose). The array is limited to 20 accounts to keep the QR payload compact and the on-chain operations bounded
+- `communities` — (optional) an array of Hive community names (e.g. `["hive-123456", "hive-167922"]`) that the new account will be subscribed to on account creation. Set at batch generation time. Subscriptions are broadcast by the gift card service as `custom_json` operations with id `"community"` and payload `["subscribe", {"community": "<name>"}]`, signed with the new account's posting key. This gives the new user curated community content in their feed from day one. The array is limited to 10 communities to keep the QR payload compact and the on-chain operations bounded
+- `referrer` — (optional) a Hive username to record as the account's referrer. Stored in the new account's `json_metadata` using the [Hive Account Referral open standard](https://hiveblog.c0ff33a.uk/hive/@hiveonboard/open-standard-for-a-hive-account-referral-system): a `beneficiaries` array entry with `{ "name": "<referrer>", "weight": 100, "label": "referrer" }`. This enables referral tracking across the Hive ecosystem — apps that read this standard can attribute account creation to the referrer. Typically set to the issuer's own account or a community account. Set at batch generation time; all cards in a batch share the same referrer
 - `promiseType` — the type of promise this card makes (e.g. `account-creation`, `transfer`, `delegation`)
 - `promiseParams` — (optional) type-specific parameters for the promise (e.g. `{ "amount": "10.000 HIVE" }` for a transfer card)
 
@@ -357,7 +360,7 @@ Note: The QR's encrypted blob also includes the `serviceUrl` directly as a fallb
 7. Invite app generates keys locally and prompts the user to choose a username
 8. Invite app prompts the user to back up their keys (QR code export, manual copy, or both) **before** proceeding
 9. Invite app sends an account creation request to the gift card service, including: the claim token, the user's chosen username, and the user's public keys
-10. Gift card service validates the token (not expired, not already spent), creates the Hive account on-chain, delegates a small amount of HP to the new account (so the user has enough Resource Credits to transact), and marks the token as spent
+10. Gift card service validates the token (not expired, not already spent), creates the Hive account on-chain (including the `referrer` in `json_metadata` per the Hive Account Referral open standard if specified in the batch configuration), delegates a small amount of HP to the new account (so the user has enough Resource Credits to transact), broadcasts follow operations for each account in the `autoFollow` list and community subscribe `custom_json` operations for each community in the `communities` list (both using the new account's posting key), and marks the token as spent
 11. *(Robust only)* Gift card service sends a transfer to the endpoint subscription service (e.g. `haa-service`) with the new account's username in the memo, signalling that this user should be enrolled in the endpoint feed. This step is skipped for standard invites
 11a. *(Robust only)* Invite app verifies enrollment by polling the endpoint feed (via the onboarding proxy endpoints) to confirm the new username appears. If confirmed, proceeds immediately. If not confirmed within ~60 seconds, proceeds anyway with a reassuring message — enrollment will complete asynchronously. The goal is reliability: the user should never be blocked by a transient feed delay
 12. Invite app confirms account creation and begins the handoff flow. For **standard invites**, the invite app congratulates the user and redirects them to peakd.com via HiveSigner (OAuth login — no install required). For **robust invites**, the invite app: (a) generates a personalized bootstrap file containing the user's master password encrypted with the gift card PIN (via Argon2id + AES-256-GCM) and the onboarding proxy endpoint URLs (as a bridge until subscriber endpoints arrive), (b) prompts the user to save this file to their device for future wallet access, (c) writes credentials and the onboarding proxy endpoints to `localStorage`, (d) fetches the locale-appropriate Propolis wallet from the Hive blockchain (using the `locale` field from the gift card payload to determine the on-chain permlink), verifies chunk integrity against the on-chain hash manifest, and replaces itself with the assembled wallet via `document.open()/write()/close()`. The wallet detects the pre-populated credentials and starts in pre-authenticated mode — the user lands directly in a working wallet, logged in, with onboarding proxy endpoints configured. Once the endpoint feed delivers subscriber endpoints (typically within hours), the wallet transitions to those and the onboarding endpoints are no longer needed
@@ -830,6 +833,9 @@ The dashboard is a static site hosted on HiveInvite.com (GitHub Pages), making A
   - Design (default with issuer username, or issuer's approved custom design if available)
   - Locale (en, zh, ar, fa, ru, tr, vi)
   - Expiry (days until expiration, default: 365)
+  - Auto-follow (optional list of Hive usernames the new account will follow on creation, max 20; defaults to the issuer's own account if left empty)
+  - Communities (optional list of Hive community names to subscribe the new account to on creation, max 10)
+  - Referrer (optional Hive username to record as the account referrer per the Hive Account Referral open standard; defaults to the issuer's own account if left empty)
   - Distribute (toggle: automatically push tokens to distribution bots after generation)
 - **Batch history** — list of all batches with status summary (total, claimed, expired, remaining)
 - **Batch detail** — per-card status, download manifest, download PDFs (individual or combined), retroactive push to distribution bots
@@ -847,7 +853,7 @@ The dashboard is a static site hosted on HiveInvite.com (GitHub Pages), making A
 
 When an issuer requests a new batch through the dashboard:
 
-1. Dashboard sends an authenticated request to the gift card service: count, locale, design, expiry, distribute flag
+1. Dashboard sends an authenticated request to the gift card service: count, locale, design, expiry, auto-follow list, communities list, referrer, distribute flag
 2. The gift card service generates the batch entirely server-side (same pipeline as the existing `giftcard-generate.ts` script):
    - Generates tokens and PINs
    - Builds Merkle tree

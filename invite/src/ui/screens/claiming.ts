@@ -96,6 +96,10 @@ export const ClaimingScreen: ScreenFn = async (container, state, advance) => {
         promiseType: payload.promiseType,
         promiseParams: payload.promiseParams,
         merkleProof: payload.merkleProof,
+        // Post-creation options
+        ...(payload.autoFollow?.length && { autoFollow: payload.autoFollow }),
+        ...(payload.communities?.length && { communities: payload.communities }),
+        ...(payload.referrer && { referrer: payload.referrer }),
       }),
       signal: claimCtrl.signal,
     });

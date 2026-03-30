@@ -44,6 +44,12 @@ export interface BatchGenerateOptions {
   promiseType?: string;
   promiseParams?: Record<string, unknown>;
   note?: string;
+  /** Hive usernames the new account will auto-follow on creation (max 20) */
+  autoFollow?: string[];
+  /** Hive communities to subscribe the new account to on creation (max 10) */
+  communities?: string[];
+  /** Hive username to record as account referrer */
+  referrer?: string;
   /** Skip on-chain declaration (for testing) */
   skipOnChain?: boolean;
 }
@@ -82,6 +88,9 @@ export async function generateBatch(
     promiseType = 'account-creation',
     promiseParams,
     note,
+    autoFollow,
+    communities,
+    referrer,
     skipOnChain = false,
   } = options;
 
@@ -123,7 +132,7 @@ export async function generateBatch(
   console.log(`[BATCH] Merkle root: ${root}`);
 
   // -- Step 3: Write to database --
-  createBatchWithProvider(db, batchId, expiresAt, count, issuer, root, null, note, promiseType, promiseParams);
+  createBatchWithProvider(db, batchId, expiresAt, count, issuer, root, undefined, note, promiseType, promiseParams);
   for (const card of cards) {
     insertToken(db, card.token, batchId, card.pin, card.signature, expiresAt);
   }
@@ -174,6 +183,9 @@ export async function generateBatch(
       merkleProof: encodeMerkleProof(proof),
       variant,
       locale: variant === 'robust' ? locale : undefined,
+      autoFollow: autoFollow?.length ? autoFollow : undefined,
+      communities: communities?.length ? communities : undefined,
+      referrer: referrer || undefined,
     };
 
     const encryptedBlob = encryptPayload(payload, card.pin);
@@ -227,6 +239,9 @@ export async function generateBatch(
     design: designName,
     promiseType,
     promiseParams: promiseParams ?? null,
+    autoFollow: autoFollow?.length ? autoFollow : null,
+    communities: communities?.length ? communities : null,
+    referrer: referrer ?? null,
     count,
     createdAt: new Date().toISOString(),
     expiresAt,

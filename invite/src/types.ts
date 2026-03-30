@@ -18,6 +18,12 @@ export interface GiftCardPayload {
   variant: 'standard' | 'robust';
   /** Wallet locale for robust invites (determines which on-chain wallet to fetch) */
   locale?: string;
+  /** Hive usernames the new account will auto-follow on creation (max 20) */
+  autoFollow?: string[];
+  /** Hive communities to subscribe the new account to on creation (max 10) */
+  communities?: string[];
+  /** Hive username to record as account referrer (Hive Account Referral open standard) */
+  referrer?: string;
 }
 
 /**

@@ -191,25 +191,70 @@ export async function getAccountCreationFee(
  * The transaction is signed with the service account's key (delegated authority)
  * or the provider's own active key in single-tenant mode.
  */
+/** Options for post-creation operations that influence account setup. */
+export interface AccountCreationOptions {
+  /** Hive usernames the new account will auto-follow */
+  autoFollow?: string[];
+  /** Hive communities to subscribe the new account to */
+  communities?: string[];
+  /** Hive username to record as the account referrer */
+  referrer?: string;
+}
+
+/**
+ * Build json_metadata for account creation.
+ * Includes referrer per the Hive Account Referral open standard if specified.
+ */
+function buildAccountMetadata(tokenHash?: string, referrer?: string): string {
+  const metadata: Record<string, unknown> = { created_by: 'propolis-giftcard' };
+  if (tokenHash) {
+    metadata.giftcard_token_hash = tokenHash;
+  }
+  if (referrer) {
+    metadata.beneficiaries = [
+      { name: referrer, weight: 100, label: 'referrer' },
+    ];
+  }
+  return JSON.stringify(metadata);
+}
+
+/**
+ * Build the posting account_auths list. Adds the service/provider account
+ * when auto-follow or community subscribe operations are needed, so the
+ * service can broadcast those ops on behalf of the new account.
+ */
+function buildPostingAccountAuths(
+  config: GiftcardConfig,
+  providerAccount?: string,
+  needsPostingAuth = false,
+): [string, number][] {
+  const auths = [...POSTING_ACCOUNT_AUTHS];
+  if (needsPostingAuth) {
+    const serviceAcct = config.serviceAccount || providerAccount || config.providerAccount;
+    // Avoid duplicate if the service account is already in the list
+    if (!auths.some(([name]) => name === serviceAcct)) {
+      auths.push([serviceAcct, 1]);
+    }
+  }
+  // Hive requires account_auths to be sorted alphabetically
+  auths.sort((a, b) => a[0].localeCompare(b[0]));
+  return auths;
+}
+
 export async function createAccount(
   config: GiftcardConfig,
   username: string,
   keys: PublicKeys,
   tokenHash?: string,
   providerAccount?: string,
+  opts?: AccountCreationOptions,
 ): Promise<{ tx_id: string }> {
   hiveTxConfig.nodes = config.hiveNodes;
 
   const creator = providerAccount || config.providerAccount;
-
-  // Include the gift card token hash in json_metadata so the account creation
-  // can be linked back to the specific gift card token on-chain. This enables
-  // third-party auditing: observers can verify that batch declarations
-  // (merkle root + count) match the number of fulfilled accounts.
-  const metadata: Record<string, unknown> = { created_by: 'propolis-giftcard' };
-  if (tokenHash) {
-    metadata.giftcard_token_hash = tokenHash;
-  }
+  const needsPostingAuth = !!((opts?.autoFollow && opts.autoFollow.length > 0)
+    || (opts?.communities && opts.communities.length > 0));
+  const postingAuths = buildPostingAccountAuths(config, providerAccount, needsPostingAuth);
 
   const tx = new Transaction();
   await tx.addOperation('create_claimed_account' as any, {
@@ -217,9 +262,9 @@ export async function createAccount(
     new_account_name: username,
     owner: makeAuthority(keys.owner),
     active: makeAuthority(keys.active),
-    posting: makeAuthority(keys.posting, POSTING_ACCOUNT_AUTHS),
+    posting: makeAuthority(keys.posting, postingAuths),
     memo_key: keys.memo,
-    json_metadata: JSON.stringify(metadata),
+    json_metadata: buildAccountMetadata(tokenHash, opts?.referrer),
     extensions: [],
   } as any);
 
@@ -242,15 +287,14 @@ export async function createAccountWithFee(
   fee: string,
   tokenHash?: string,
   providerAccount?: string,
+  opts?: AccountCreationOptions,
 ): Promise<{ tx_id: string }> {
   hiveTxConfig.nodes = config.hiveNodes;
 
   const creator = providerAccount || config.providerAccount;
-
-  const metadata: Record<string, unknown> = { created_by: 'propolis-giftcard' };
-  if (tokenHash) {
-    metadata.giftcard_token_hash = tokenHash;
-  }
+  const needsPostingAuth = !!((opts?.autoFollow && opts.autoFollow.length > 0)
+    || (opts?.communities && opts.communities.length > 0));
+  const postingAuths = buildPostingAccountAuths(config, providerAccount, needsPostingAuth);
 
   const tx = new Transaction();
   await tx.addOperation('account_create' as any, {
@@ -259,9 +303,9 @@ export async function createAccountWithFee(
     new_account_name: username,
     owner: makeAuthority(keys.owner),
     active: makeAuthority(keys.active),
-    posting: makeAuthority(keys.posting, POSTING_ACCOUNT_AUTHS),
+    posting: makeAuthority(keys.posting, postingAuths),
     memo_key: keys.memo,
-    json_metadata: JSON.stringify(metadata),
+    json_metadata: buildAccountMetadata(tokenHash, opts?.referrer),
   } as any);
 
   const key = PrivateKey.from(getSigningKey(config));
@@ -291,6 +335,53 @@ export async function delegateVests(
     delegatee: username,
     vesting_shares: delegationVests || config.delegationVests,
   } as any);
+
+  const key = PrivateKey.from(getSigningKey(config));
+  tx.sign(key);
+  await tx.broadcast(true);
+}
+
+/**
+ * Broadcast follow + community subscribe operations for a new account.
+ *
+ * Uses the service/provider's active key, which has posting authority on the
+ * new account (granted at creation via account_auths, same pattern as peakd.app).
+ *
+ * Each follow is a custom_json with id 'follow'; each community subscribe is
+ * a custom_json with id 'community'. Operations are batched into a single TX
+ * where possible (Hive allows multiple operations per transaction).
+ */
+export async function broadcastFollowAndSubscribe(
+  config: GiftcardConfig,
+  username: string,
+  autoFollow?: string[],
+  communities?: string[],
+): Promise<void> {
+  const follows = autoFollow?.filter(Boolean) ?? [];
+  const subs = communities?.filter(Boolean) ?? [];
+  if (follows.length === 0 && subs.length === 0) return;
+
+  hiveTxConfig.nodes = config.hiveNodes;
+
+  const tx = new Transaction();
+
+  for (const target of follows) {
+    await tx.addOperation('custom_json' as any, {
+      required_auths: [],
+      required_posting_auths: [username],
+      id: 'follow',
+      json: JSON.stringify(['follow', { follower: username, following: target, what: ['blog'] }]),
+    } as any);
+  }
+
+  for (const community of subs) {
+    await tx.addOperation('custom_json' as any, {
+      required_auths: [],
+      required_posting_auths: [username],
+      id: 'community',
+      json: JSON.stringify(['subscribe', { community }]),
+    } as any);
+  }
 
   const key = PrivateKey.from(getSigningKey(config));
   tx.sign(key);
@@ -392,6 +483,7 @@ export async function createAccountFull(
   tokenHash?: string,
   providerAccount?: string,
   delegationVests?: string,
+  opts?: AccountCreationOptions,
 ): Promise<{ tx_id: string; delegationOk: boolean; method: CreationMethod }> {
   const t0 = Date.now();
   const effectiveProvider = providerAccount || config.providerAccount;
@@ -406,14 +498,14 @@ export async function createAccountFull(
     // Use free token path
     method = 'claimed';
     console.log(`[ACCOUNT] Broadcasting create_claimed_account for @${username} by @${effectiveProvider} (${pendingTokens} tokens remaining)`);
-    result = await createAccount(config, username, keys, tokenHash, providerAccount);
+    result = await createAccount(config, username, keys, tokenHash, providerAccount, opts);
     decrementCachedTokenCount();
   } else {
     // Fallback: pay on-chain fee
     method = 'paid';
     console.log(`[ACCOUNT] No account creation tokens — falling back to paid account_create for @${username} by @${effectiveProvider}`);
     const fee = await getAccountCreationFee(config);
-    result = await createAccountWithFee(config, username, keys, fee, tokenHash, providerAccount);
+    result = await createAccountWithFee(config, username, keys, fee, tokenHash, providerAccount, opts);
   }
 
   console.log(`[ACCOUNT] Account @${username} created via ${method} in ${Date.now() - t0}ms (tx: ${result.tx_id.slice(0, 12)}...)`);
@@ -425,6 +517,21 @@ export async function createAccountFull(
     .catch((err) => {
       console.error(`[DELEGATION FAILED] @${username}: ${err instanceof Error ? err.message : String(err)}`);
     });
+
+  // Step 3: Follow + community subscribe in background (parallel with delegation)
+  if ((opts?.autoFollow && opts.autoFollow.length > 0) || (opts?.communities && opts.communities.length > 0)) {
+    delay(3000)
+      .then(() => broadcastFollowAndSubscribe(config, username, opts?.autoFollow, opts?.communities))
+      .then(() => {
+        const parts: string[] = [];
+        if (opts?.autoFollow?.length) parts.push(`${opts.autoFollow.length} follows`);
+        if (opts?.communities?.length) parts.push(`${opts.communities.length} communities`);
+        console.log(`[FOLLOW/SUBSCRIBE OK] @${username}: ${parts.join(', ')}`);
+      })
+      .catch((err) => {
+        console.error(`[FOLLOW/SUBSCRIBE FAILED] @${username}: ${err instanceof Error ? err.message : String(err)}`);
+      });
+  }
 
   return { tx_id: result.tx_id, delegationOk: true, method };
 }

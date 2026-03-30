@@ -32,6 +32,12 @@ export interface BatchCreateRequest {
   design?: string;
   variant?: 'standard' | 'robust';
   note?: string;
+  /** Hive usernames the new account will auto-follow on creation (max 20) */
+  autoFollow?: string[];
+  /** Hive communities to subscribe the new account to on creation (max 10) */
+  communities?: string[];
+  /** Hive username to record as account referrer */
+  referrer?: string;
 }
 
 /** POST /api/batches response */

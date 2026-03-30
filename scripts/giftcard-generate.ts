@@ -201,6 +201,9 @@ async function main() {
     console.error('  --db-path <path>      SQLite database path');
     console.error('  --signal-contact <s>  Signal contact for robust variant');
     console.error('  --design <name>       Card design template (default: hive). See scripts/designs/');
+    console.error('  --auto-follow <list>  Comma-separated Hive usernames to auto-follow (max 20)');
+    console.error('  --communities <list>  Comma-separated Hive communities to subscribe (max 10)');
+    console.error('  --referrer <user>     Hive username to set as account referrer');
     console.error('  --dry-run             Preview without writing');
     console.error('  --skip-onchain        Skip on-chain declaration');
     console.error('  --print               Send postcards to default printer');
@@ -234,6 +237,23 @@ async function main() {
     process.exit(1);
   }
   const designName = parsed['design'] || 'hive';
+
+  // Auto-follow, communities, referrer
+  const autoFollow = parsed['auto-follow']
+    ? parsed['auto-follow'].split(',').map(s => s.trim()).filter(Boolean)
+    : undefined;
+  if (autoFollow && autoFollow.length > 20) {
+    console.error('--auto-follow supports a maximum of 20 usernames');
+    process.exit(1);
+  }
+  const communities = parsed['communities']
+    ? parsed['communities'].split(',').map(s => s.trim()).filter(Boolean)
+    : undefined;
+  if (communities && communities.length > 10) {
+    console.error('--communities supports a maximum of 10 communities');
+    process.exit(1);
+  }
+  const referrer = parsed['referrer'] || undefined;
 
   const note = parsed['note'] || null;
   const bootstrapUrl = parsed['bootstrap-url'] || 'https://hiveinvite.com';
@@ -435,6 +455,9 @@ async function main() {
       merkleProof,
       variant,
       ...(locale ? { locale } : {}),
+      ...(autoFollow?.length ? { autoFollow } : {}),
+      ...(communities?.length ? { communities } : {}),
+      ...(referrer ? { referrer } : {}),
     };
 
     const encryptedBlob = encryptPayload(payload, card.pin);

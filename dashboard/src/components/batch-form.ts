@@ -24,6 +24,9 @@ export function BatchForm() {
   const [locale, setLocale] = useState('en');
   const [expiryDays, setExpiryDays] = useState(365);
   const [variant, setVariant] = useState<'standard' | 'robust'>('standard');
+  const [autoFollowStr, setAutoFollowStr] = useState('');
+  const [communitiesStr, setCommunitiesStr] = useState('');
+  const [referrer, setReferrer] = useState('');
   const [note, setNote] = useState('');
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState('');
@@ -35,6 +38,13 @@ export function BatchForm() {
     setGenerating(true);
 
     try {
+      const autoFollow = autoFollowStr.trim()
+        ? autoFollowStr.split(',').map(s => s.trim().toLowerCase().replace(/^@/, '')).filter(Boolean)
+        : undefined;
+      const communities = communitiesStr.trim()
+        ? communitiesStr.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+        : undefined;
+      const refUser = referrer.trim().toLowerCase().replace(/^@/, '') || undefined;
       const res = await createBatch({
         count,
         locale,
@@ -42,6 +52,9 @@ export function BatchForm() {
         variant,
         design: 'hive',
         ...(note.trim() && { note: note.trim() }),
+        ...(autoFollow?.length && { autoFollow }),
+        ...(communities?.length && { communities }),
+        ...(refUser && { referrer: refUser }),
       });
       setResult(res);
     } catch (err) {
@@ -125,6 +138,36 @@ export function BatchForm() {
             value=${expiryDays}
             onInput=${(e: Event) => setExpiryDays(parseInt((e.target as HTMLInputElement).value) || 365)}
             disabled=${generating} />
+        </div>
+
+        <div class="form-row">
+          <label for="autoFollow">Auto-Follow (optional)</label>
+          <input id="autoFollow" type="text"
+            placeholder="user1, user2, user3"
+            value=${autoFollowStr}
+            onInput=${(e: Event) => setAutoFollowStr((e.target as HTMLInputElement).value)}
+            disabled=${generating} />
+          <p class="form-hint">Comma-separated Hive usernames to follow on account creation (max 20)</p>
+        </div>
+
+        <div class="form-row">
+          <label for="communities">Communities (optional)</label>
+          <input id="communities" type="text"
+            placeholder="hive-123456, hive-789012"
+            value=${communitiesStr}
+            onInput=${(e: Event) => setCommunitiesStr((e.target as HTMLInputElement).value)}
+            disabled=${generating} />
+          <p class="form-hint">Comma-separated Hive community names to subscribe on account creation (max 10)</p>
+        </div>
+
+        <div class="form-row">
+          <label for="referrer">Referrer (optional)</label>
+          <input id="referrer" type="text"
+            placeholder="username"
+            value=${referrer}
+            onInput=${(e: Event) => setReferrer((e.target as HTMLInputElement).value)}
+            disabled=${generating} />
+          <p class="form-hint">Hive username recorded as account referrer</p>
         </div>
 
         <div class="form-row">

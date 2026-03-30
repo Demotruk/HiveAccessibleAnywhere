@@ -33,6 +33,9 @@ export function createBatchHandler(db: Database.Database, config: GiftcardConfig
       variant?: 'standard' | 'robust';
       distribute?: boolean;
       note?: string;
+      autoFollow?: string[];
+      communities?: string[];
+      referrer?: string;
     };
 
     // Validate count
@@ -56,6 +59,28 @@ export function createBatchHandler(db: Database.Database, config: GiftcardConfig
       return;
     }
 
+    // Validate auto-follow
+    if (body.autoFollow !== undefined) {
+      if (!Array.isArray(body.autoFollow) || body.autoFollow.length > 20 || body.autoFollow.some(u => typeof u !== 'string' || !u)) {
+        res.status(400).json({ error: 'autoFollow must be an array of up to 20 non-empty usernames' });
+        return;
+      }
+    }
+
+    // Validate communities
+    if (body.communities !== undefined) {
+      if (!Array.isArray(body.communities) || body.communities.length > 10 || body.communities.some(c => typeof c !== 'string' || !c)) {
+        res.status(400).json({ error: 'communities must be an array of up to 10 non-empty community names' });
+        return;
+      }
+    }
+
+    // Validate referrer
+    if (body.referrer !== undefined && (typeof body.referrer !== 'string' || !body.referrer)) {
+      res.status(400).json({ error: 'referrer must be a non-empty string' });
+      return;
+    }
+
     const options: BatchGenerateOptions = {
       count,
       expiryDays: body.expiryDays ?? 365,
@@ -63,6 +88,9 @@ export function createBatchHandler(db: Database.Database, config: GiftcardConfig
       locale,
       variant: body.variant ?? 'standard',
       note: body.note,
+      autoFollow: body.autoFollow,
+      communities: body.communities,
+      referrer: body.referrer,
     };
 
     try {

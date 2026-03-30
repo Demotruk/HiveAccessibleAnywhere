@@ -21,7 +21,7 @@ import { verifyMerkleProof, verifyCardSignature, decodeMerkleProof } from '../cr
 import { fetchBatchDeclaration } from '../hive/batch-lookup.js';
 import { resolveProvider, isProviderAllowed } from '../hive/provider.js';
 import { isValidUsername } from '../hive/username.js';
-import { createAccountFull, isUsernameAvailable, type PublicKeys, type CreationMethod } from '../hive/account.js';
+import { createAccountFull, isUsernameAvailable, type PublicKeys, type CreationMethod, type AccountCreationOptions } from '../hive/account.js';
 
 /**
  * Compute the SHA-256 hash of a token for inclusion in on-chain fulfillment
@@ -48,6 +48,10 @@ interface ClaimRequest {
   // For account-creation:
   username?: string;
   keys?: PublicKeys;
+  // Post-creation options:
+  autoFollow?: string[];
+  communities?: string[];
+  referrer?: string;
   // For future promise types (transfer, delegation, etc.):
   account?: string;
 }
@@ -277,16 +281,39 @@ async function handleAccountCreation(
     return;
   }
 
+  // Validate auto-follow and communities limits
+  if (body.autoFollow) {
+    if (!Array.isArray(body.autoFollow) || body.autoFollow.length > 20 || body.autoFollow.some(u => typeof u !== 'string' || !u)) {
+      res.status(400).json({ success: false, error: 'autoFollow must be an array of up to 20 non-empty usernames' });
+      return;
+    }
+  }
+  if (body.communities) {
+    if (!Array.isArray(body.communities) || body.communities.length > 10 || body.communities.some(c => typeof c !== 'string' || !c)) {
+      res.status(400).json({ success: false, error: 'communities must be an array of up to 10 non-empty community names' });
+      return;
+    }
+  }
+  if (body.referrer !== undefined && (typeof body.referrer !== 'string' || !body.referrer)) {
+    res.status(400).json({ success: false, error: 'referrer must be a non-empty string' });
+    return;
+  }
+
   // Create account and delegate
   try {
     const hash = tokenHash(body.token);
     // In multi-tenant mode, pass the effective provider and per-batch delegation amount
     const providerOverride = validated.effectiveProvider !== config.providerAccount
       ? validated.effectiveProvider : undefined;
+    const creationOpts: AccountCreationOptions = {
+      autoFollow: body.autoFollow,
+      communities: body.communities,
+      referrer: body.referrer,
+    };
     console.log(`[CLAIM] Creating account @${body.username} by @${validated.effectiveProvider} (${Date.now() - reqStart}ms)`);
     const result = await createAccountFull(
       config, body.username, body.keys, hash,
-      providerOverride, validated.delegationVests,
+      providerOverride, validated.delegationVests, creationOpts,
     );
 
     // Mark token as spent using the appropriate method
