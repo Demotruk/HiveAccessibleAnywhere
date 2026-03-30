@@ -157,6 +157,10 @@ GIFTCARD_TLS_KEY=../certs/dev-key.pem
 # Keep this outside the workspace so cards persist across re-deployments.
 GIFTCARD_OUTPUT_DIR=D:\\HiveGiftCards
 
+# Public URL of this service (used in generated gift card QR payloads)
+# Must match the Fly.io app URL or wherever the service is deployed.
+GIFTCARD_SERVICE_URL=https://haa-giftcard-prod.fly.dev
+
 # --- Dashboard API ---
 
 # JWT signing secret for dashboard authentication (required for dashboard)

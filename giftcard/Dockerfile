@@ -22,6 +22,7 @@ COPY --from=builder /app/node_modules/better-sqlite3/build /app/node_modules/bet
 
 COPY tsconfig.json ./
 COPY src/ ./src/
+COPY assets/ ./assets/
 
 # Create data directory for SQLite (will be mounted as a Fly volume)
 RUN mkdir -p /data

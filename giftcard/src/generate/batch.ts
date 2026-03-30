@@ -147,7 +147,8 @@ export async function generateBatch(
   // -- Step 5: Generate QR codes + PDFs --
   const resolvedDesign = loadDesign(designName);
   const bootstrapUrl = 'https://hiveinvite.com';
-  const serviceUrl = `https://${config.serviceAccount || config.providerAccount}.fly.dev`;
+  const serviceUrl = config.serviceUrl
+    || `https://haa-giftcard-${config.serviceAccount || config.providerAccount}.fly.dev`;
 
   const individualPdfs: Uint8Array[] = [];
   const manifestCards: Array<{

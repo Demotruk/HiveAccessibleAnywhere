@@ -118,6 +118,7 @@ async function main() {
   // Dashboard API (optional but needed for dashboard to work)
   const jwtSecret = process.env.GIFTCARD_JWT_SECRET || '';
   const allowedProviders = process.env.GIFTCARD_ALLOWED_PROVIDERS || '';
+  const serviceUrl = process.env.GIFTCARD_SERVICE_URL || '';
 
   console.log('=== HAA Gift Card Service Deployer ===');
   console.log(`App name:     ${appName}`);
@@ -169,6 +170,7 @@ primary_region = '${region}'
   ];
   if (jwtSecret) secretParts.push(`GIFTCARD_JWT_SECRET="${jwtSecret}"`);
   if (allowedProviders) secretParts.push(`GIFTCARD_ALLOWED_PROVIDERS="${allowedProviders}"`);
+  if (serviceUrl) secretParts.push(`GIFTCARD_SERVICE_URL="${serviceUrl}"`);
 
   if (dryRun) {
     // Check if app exists to show accurate dry-run info
