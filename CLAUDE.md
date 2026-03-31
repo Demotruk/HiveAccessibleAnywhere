@@ -94,7 +94,7 @@ Security: Only comments from the publisher account are processed. All chunks ver
 
 ## Off-Limits Directories
 
-- **Never read, write, or access files in the isolated giftcard workspace** (`../giftcard-isolated/` or any path outside this repo). That directory contains sensitive keys and secrets. The setup script (`scripts/setup-giftcard-isolated.ts`) copies source there; the user manages it manually.
+- **Never read, write, or access files in the HAA deployment workspaces** (`../haa-live/`, `../haa-local/`, or any path outside this repo). Those directories contain sensitive keys and secrets. The setup scripts (`scripts/setup-haa-live.ts`, `scripts/setup-haa-local.ts`) copy source there; the user manages them manually.
 
 ## Full Requirements
 

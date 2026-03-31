@@ -21,10 +21,14 @@ Infrastructure, publishing, deployment, and card generation scripts. All TypeScr
 | `generate-qr.ts` | Generate standalone QR code images |
 | `generate-invite-pdf.ts` | Generate invite card PDFs |
 
-### Deployment
+### Deployment & Workspace Setup
 
 | Script | Purpose |
 |--------|---------|
+| `setup-haa-local.ts` | Set up local testing workspace (giftcard + dashboard + invite + restore) at `../haa-local/` |
+| `setup-haa-live.ts` | Set up live deployment workspace (giftcard + dashboard + deploy scripts) at `../haa-live/` |
+| `deploy-giftcard.ts` | Deploy giftcard service to Fly.io (used from haa-live workspace) |
+| `deploy-hiveinvite.ts` | Assemble HiveInvite.com static site (landing + invite + restore + dashboard) |
 | `deploy-proxy.ts` | Deploy proxy to Fly.io |
 | `deploy-telegram-bot.ts` | Deploy Telegram bot to Fly.io (volumes, secrets) |
 

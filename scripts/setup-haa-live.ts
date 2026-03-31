@@ -1,14 +1,14 @@
 #!/usr/bin/env npx tsx
 /**
- * Sets up an isolated giftcard workspace outside this repo.
+ * Sets up the HAA live deployment workspace outside this repo.
  *
- * Includes both the giftcard redemption service AND the card generation
- * script, so the main repo never needs access to private keys.
+ * Includes the giftcard service, dashboard, and card generation scripts,
+ * so the main repo never needs access to private keys.
  *
  * Usage:
- *   npx tsx scripts/setup-giftcard-isolated.ts [target-dir]
+ *   npx tsx scripts/setup-haa-live.ts [target-dir]
  *
- * Default target: ../giftcard-isolated
+ * Default target: ../haa-live
  *
  * The target mirrors the repo layout so import paths work unchanged:
  *   target/
@@ -16,18 +16,25 @@
  *     giftcard/package.json
  *     giftcard/tsconfig.json
  *     giftcard/Dockerfile     Docker build for Fly.io deployment
+ *     dashboard/src/...       Dashboard source
+ *     dashboard/package.json
+ *     dashboard/vite.config.ts
+ *     dashboard/index.html
  *     scripts/                Card generation + PDF helper + deploy
  *       giftcard-generate.ts
  *       generate-invite-pdf.ts
  *       deploy-giftcard.ts
+ *       deploy-hiveinvite.ts
  *       package.json
  *     hive-branding/logo/...  Hive logo for invite PDFs
  *     certs/                  Self-signed TLS certs for LAN dev
  *     data/                   SQLite database (created at runtime)
  *     .env                    Secrets — edit before running
- *     start.ps1 / start.sh   Start the service
- *     generate.ps1 / generate.sh  Generate gift cards (forwards args)
- *     deploy.ps1 / deploy.sh      Deploy to Fly.io (forwards args)
+ *     start.ps1 / start.sh           Start the giftcard service
+ *     dashboard-dev.ps1 / .sh         Start dashboard dev server
+ *     generate.ps1 / generate.sh      Generate gift cards (forwards args)
+ *     deploy.ps1 / deploy.sh          Deploy giftcard to Fly.io
+ *     deploy-dashboard.ps1 / .sh      Build + deploy dashboard to HiveInvite.com
  */
 
 import { cpSync, mkdirSync, writeFileSync, existsSync, readdirSync, rmSync } from 'node:fs';
@@ -35,20 +42,20 @@ import { resolve, join } from 'node:path';
 import { execSync } from 'node:child_process';
 
 const repoRoot = resolve(import.meta.dirname, '..');
-const defaultTarget = resolve(repoRoot, '..', 'giftcard-isolated');
+const defaultTarget = resolve(repoRoot, '..', 'haa-live');
 const target = process.argv[2] ? resolve(process.argv[2]) : defaultTarget;
 
-// If the target already exists, clean everything except .env and node_modules
-// so we can re-deploy updated source without losing secrets or slow reinstalls.
+// If the target already exists, clean everything except .env and node_modules dirs
 if (existsSync(target)) {
   const preserve = new Set(['.env', 'node_modules']);
   for (const entry of readdirSync(target)) {
     if (preserve.has(entry)) continue;
     rmSync(join(target, entry), { recursive: true, force: true });
   }
+  // Also preserve node_modules inside giftcard/, dashboard/, scripts/
   console.log(`Cleaned existing workspace (preserved .env + node_modules):\n  ${target}\n`);
 } else {
-  console.log(`Setting up isolated giftcard workspace at:\n  ${target}\n`);
+  console.log(`Setting up HAA live deployment workspace at:\n  ${target}\n`);
 }
 
 // -- 1. Giftcard service source --
@@ -61,7 +68,20 @@ cpSync(join(repoRoot, 'giftcard', 'Dockerfile'), join(target, 'giftcard', 'Docke
 cpSync(join(repoRoot, 'giftcard', 'assets'), join(target, 'giftcard', 'assets'), { recursive: true });
 console.log('✓ Copied giftcard/ service source + assets + Dockerfile');
 
-// -- 2. Scripts (card generation + PDF helper) --
+// -- 2. Dashboard source --
+mkdirSync(join(target, 'dashboard'), { recursive: true });
+cpSync(join(repoRoot, 'dashboard', 'src'), join(target, 'dashboard', 'src'), { recursive: true });
+cpSync(join(repoRoot, 'dashboard', 'package.json'), join(target, 'dashboard', 'package.json'));
+cpSync(join(repoRoot, 'dashboard', 'vite.config.ts'), join(target, 'dashboard', 'vite.config.ts'));
+cpSync(join(repoRoot, 'dashboard', 'index.html'), join(target, 'dashboard', 'index.html'));
+cpSync(join(repoRoot, 'dashboard', 'tsconfig.json'), join(target, 'dashboard', 'tsconfig.json'));
+const dashLockSrc = join(repoRoot, 'dashboard', 'package-lock.json');
+if (existsSync(dashLockSrc)) {
+  cpSync(dashLockSrc, join(target, 'dashboard', 'package-lock.json'));
+}
+console.log('✓ Copied dashboard/ source');
+
+// -- 3. Scripts (card generation + PDF helper + deploy) --
 mkdirSync(join(target, 'scripts'), { recursive: true });
 cpSync(
   join(repoRoot, 'scripts', 'giftcard-generate.ts'),
@@ -76,6 +96,10 @@ cpSync(
   join(target, 'scripts', 'deploy-giftcard.ts'),
 );
 cpSync(
+  join(repoRoot, 'scripts', 'deploy-hiveinvite.ts'),
+  join(target, 'scripts', 'deploy-hiveinvite.ts'),
+);
+cpSync(
   join(repoRoot, 'scripts', 'package.json'),
   join(target, 'scripts', 'package.json'),
 );
@@ -88,9 +112,9 @@ const feedConfigSrc = join(repoRoot, 'scripts', 'feed-config.json');
 if (existsSync(feedConfigSrc)) {
   cpSync(feedConfigSrc, join(target, 'scripts', 'feed-config.json'));
 }
-console.log('✓ Copied scripts/ (giftcard-generate + generate-invite-pdf + deploy-giftcard + feed-config)');
+console.log('✓ Copied scripts/ (giftcard-generate + generate-invite-pdf + deploy-giftcard + deploy-hiveinvite + feed-config)');
 
-// -- 3. Hive logo for invite PDFs --
+// -- 4. Hive logo for invite PDFs --
 const logoSrc = join(repoRoot, 'hive-branding', 'logo', 'png', 'logo_transparent@2.png');
 const logoDest = join(target, 'hive-branding', 'logo', 'png', 'logo_transparent@2.png');
 if (existsSync(logoSrc)) {
@@ -101,7 +125,7 @@ if (existsSync(logoSrc)) {
   console.log('⚠ Hive logo not found — PDFs will use text fallback');
 }
 
-// -- 4. TLS certs --
+// -- 5. TLS certs --
 const certsDir = join(target, 'certs');
 mkdirSync(certsDir, { recursive: true });
 const srcCerts = join(repoRoot, '.claude', 'certs');
@@ -113,16 +137,16 @@ if (existsSync(join(srcCerts, 'dev-cert.pem'))) {
   console.log('⚠ No dev certs found at .claude/certs/ — generate them first');
 }
 
-// -- 5. Data directory --
+// -- 6. Data directory --
 mkdirSync(join(target, 'data'), { recursive: true });
 console.log('✓ Created data/ directory');
 
-// -- 6. .env (skip if already exists — preserves configured secrets) --
+// -- 7. .env (skip if already exists — preserves configured secrets) --
 const envPath = join(target, '.env');
 if (existsSync(envPath)) {
   console.log('✓ .env already exists — skipping (secrets preserved)');
 } else {
-  const envContent = `# Giftcard Isolated Workspace — Environment Variables
+  const envContent = `# HAA Live Deployment Workspace — Environment Variables
 # Fill in the REPLACE_ME values before running anything.
 
 # Hive account that owns claimed account tokens
@@ -161,6 +185,12 @@ GIFTCARD_OUTPUT_DIR=D:\\HiveGiftCards
 # Must match the Fly.io app URL or wherever the service is deployed.
 GIFTCARD_SERVICE_URL=https://haa-giftcard-prod.fly.dev
 
+# --- Dashboard ---
+
+# API base URL for the dashboard production build.
+# This is baked into the built JS at build time.
+API_BASE=https://haa-giftcard-prod.fly.dev
+
 # --- Dashboard API ---
 
 # JWT signing secret for dashboard authentication (required for dashboard)
@@ -185,10 +215,7 @@ GIFTCARD_JWT_SECRET=REPLACE_ME
   console.log('✓ Created .env (edit REPLACE_ME values before running)');
 }
 
-// -- 7. Start scripts (service) --
-// Run from giftcard/ so tsx resolves from giftcard/node_modules.
-// Env file and cert/data paths are relative to the workspace root,
-// so we prefix them with ../ since cwd is giftcard/.
+// -- 8. Start script (giftcard service) --
 const startSh = `#!/bin/bash
 # Start the giftcard redemption service (HTTPS on port 3200)
 cd "$(dirname "$0")/giftcard"
@@ -203,9 +230,22 @@ node --env-file ../.env --import tsx src/server.ts
 writeFileSync(join(target, 'start.ps1'), startPs1);
 console.log('✓ Created start.sh / start.ps1');
 
-// -- 8. Generate scripts (card generation, forwards all args) --
-// Scripts use `import 'dotenv/config'` which reads DOTENV_CONFIG_PATH.
-// This is more reliable than --env-file across platforms.
+// -- 9. Dashboard dev script --
+const dashDevSh = `#!/bin/bash
+# Start the dashboard Vite dev server (port 5179, proxies to giftcard service on :3200)
+cd "$(dirname "$0")/dashboard"
+npx vite --host localhost
+`;
+writeFileSync(join(target, 'dashboard-dev.sh'), dashDevSh, { mode: 0o755 });
+
+const dashDevPs1 = `# Start the dashboard Vite dev server (port 5179, proxies to giftcard service on :3200)
+Set-Location (Join-Path $PSScriptRoot "dashboard")
+npx vite --host localhost
+`;
+writeFileSync(join(target, 'dashboard-dev.ps1'), dashDevPs1);
+console.log('✓ Created dashboard-dev.sh / dashboard-dev.ps1');
+
+// -- 10. Generate scripts (card generation, forwards all args) --
 const genSh = `#!/bin/bash
 # Generate gift cards. All arguments are forwarded.
 # Example:
@@ -229,7 +269,7 @@ node --import tsx giftcard-generate.ts @args
 writeFileSync(join(target, 'generate.ps1'), genPs1);
 console.log('✓ Created generate.sh / generate.ps1');
 
-// -- 9. Deploy scripts (Fly.io deployment, forwards all args) --
+// -- 11. Deploy giftcard scripts (Fly.io deployment, forwards all args) --
 const deploySh = `#!/bin/bash
 # Deploy the giftcard service to Fly.io. All arguments are forwarded.
 # Example:
@@ -253,38 +293,98 @@ node --import tsx deploy-giftcard.ts @args
 writeFileSync(join(target, 'deploy.ps1'), deployPs1);
 console.log('✓ Created deploy.sh / deploy.ps1');
 
-// -- 11. .gitignore --
+// -- 12. Deploy dashboard scripts (build + assemble HiveInvite.com site) --
+const deployDashSh = `#!/bin/bash
+# Build the dashboard and assemble the HiveInvite.com static site.
+# All arguments are forwarded to deploy-hiveinvite.ts.
+# Example:
+#   ./deploy-dashboard.sh
+#   ./deploy-dashboard.sh --output /path/to/hiveinvite-site/dist
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Load .env for API_BASE
+set -a
+source "\$SCRIPT_DIR/.env"
+set +a
+
+# Build dashboard with production API_BASE
+echo "Building dashboard..."
+cd "\$SCRIPT_DIR/dashboard"
+API_BASE="\$API_BASE" npx vite build
+echo ""
+
+# Assemble HiveInvite.com site
+cd "\$SCRIPT_DIR/scripts"
+node --import tsx deploy-hiveinvite.ts "\$@"
+`;
+writeFileSync(join(target, 'deploy-dashboard.sh'), deployDashSh, { mode: 0o755 });
+
+const deployDashPs1 = `# Build the dashboard and assemble the HiveInvite.com static site.
+# All arguments are forwarded to deploy-hiveinvite.ts.
+# Example:
+#   .\\deploy-dashboard.ps1
+#   .\\deploy-dashboard.ps1 --output C:\\path\\to\\hiveinvite-site\\dist
+
+# Load API_BASE from .env
+\$envFile = Join-Path \$PSScriptRoot ".env"
+Get-Content \$envFile | ForEach-Object {
+    if (\$_ -match '^API_BASE=(.+)$') {
+        \$env:API_BASE = \$Matches[1]
+    }
+}
+
+# Build dashboard with production API_BASE
+Write-Host "Building dashboard..."
+Set-Location (Join-Path \$PSScriptRoot "dashboard")
+npx vite build
+Write-Host ""
+
+# Assemble HiveInvite.com site
+Set-Location (Join-Path \$PSScriptRoot "scripts")
+node --import tsx deploy-hiveinvite.ts @args
+`;
+writeFileSync(join(target, 'deploy-dashboard.ps1'), deployDashPs1);
+console.log('✓ Created deploy-dashboard.sh / deploy-dashboard.ps1');
+
+// -- 13. .gitignore --
 writeFileSync(join(target, '.gitignore'), `node_modules/
 data/
 .env
 certs/
 scripts/giftcard-output/
+dashboard/dist/
 `);
 console.log('✓ Created .gitignore');
 
-// -- 12. Install dependencies --
+// -- 14. Install dependencies --
 console.log('\nInstalling giftcard service dependencies...');
 execSync('npm install', { cwd: join(target, 'giftcard'), stdio: 'inherit' });
+
+console.log('\nInstalling dashboard dependencies...');
+execSync('npm install', { cwd: join(target, 'dashboard'), stdio: 'inherit' });
 
 console.log('\nInstalling scripts dependencies...');
 execSync('npm install', { cwd: join(target, 'scripts'), stdio: 'inherit' });
 
 console.log(`
 ${'='.repeat(56)}
-  Isolated Giftcard Workspace Ready
+  HAA Live Deployment Workspace Ready
 ${'='.repeat(56)}
 
   Directory: ${target}
 
   Files:
-    .env              ← Edit REPLACE_ME values first!
-    start.ps1         ← Start the redemption service (HTTPS)
-    generate.ps1      ← Generate gift cards (forwards all args)
-    deploy.ps1        ← Deploy service to Fly.io
-    giftcard/         ← Service source code + Dockerfile
-    scripts/          ← Generation + deploy scripts
-    certs/            ← Self-signed TLS certs for LAN dev
-    data/             ← SQLite DB (created at runtime)
+    .env                  ← Edit REPLACE_ME values first!
+    start.ps1             ← Start the giftcard service (HTTPS)
+    dashboard-dev.ps1     ← Start dashboard dev server (port 5179)
+    generate.ps1          ← Generate gift cards (forwards all args)
+    deploy.ps1            ← Deploy giftcard service to Fly.io
+    deploy-dashboard.ps1  ← Build dashboard + assemble HiveInvite.com
+    giftcard/             ← Service source code + Dockerfile
+    dashboard/            ← Dashboard source code
+    scripts/              ← Generation + deploy scripts
+    certs/                ← Self-signed TLS certs for LAN dev
+    data/                 ← SQLite DB (created at runtime)
 
   Gift card output:   GIFTCARD_OUTPUT_DIR (default: D:\\HiveGiftCards)
     Cards are saved outside the workspace so they persist across updates.
@@ -292,21 +392,27 @@ ${'='.repeat(56)}
   Quick start:
     1. Edit .env — set GIFTCARD_PROVIDER_ACCOUNT, GIFTCARD_ACTIVE_KEY, GIFTCARD_MEMO_KEY
 
-    2. Start the service:
+    2. Start the giftcard service:
          .\\start.ps1
 
-    3. Verify (accept cert warning):
+    3. Start the dashboard (separate terminal):
+         .\\dashboard-dev.ps1
+
+    4. Verify service (accept cert warning):
          https://localhost:3200/health
 
-    4. Generate test cards:
+    5. Open dashboard:
+         http://localhost:5179/dashboard/
+
+    6. Generate test cards:
          .\\generate.ps1 --count 1 --service-url https://192.168.1.116:3200 --bootstrap-url https://192.168.1.116:5176
 
-    5. Dry-run (no DB, no on-chain):
-         .\\generate.ps1 --count 1 --dry-run --bootstrap-url https://192.168.1.116:5176
-
-    6. Deploy to Fly.io (dry-run first):
+    7. Deploy giftcard to Fly.io (dry-run first):
          .\\deploy.ps1 --dry-run --name prod --region lhr
          .\\deploy.ps1 --name prod --region lhr --theme tech
+
+    8. Deploy dashboard to HiveInvite.com:
+         .\\deploy-dashboard.ps1
 
   Note: Phone will show a certificate warning for the self-signed cert.
         Tap "Advanced" → "Proceed" to continue.
