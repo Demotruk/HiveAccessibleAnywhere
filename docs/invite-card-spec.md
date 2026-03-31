@@ -84,7 +84,7 @@ A consuming app should:
 
 - **Length**: 6 characters
 - **Alphabet**: `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` (32 characters)
-- **Excluded**: `0`, `1`, `I`, `L`, `O` (to avoid visual confusion)
+- **Excluded**: `0`, `1`, `I`, `O` (to avoid visual confusion with letters/digits)
 - **Case**: Uppercase only. The app should normalize input to uppercase.
 
 ### Decryption Steps

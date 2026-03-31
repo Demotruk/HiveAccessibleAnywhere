@@ -381,7 +381,7 @@ export function generateToken(): string {
 
 /**
  * Generate a 6-character alphanumeric PIN.
- * Uses a restricted alphabet that excludes ambiguous characters: 0/O, 1/I/L.
+ * Uses a restricted alphabet that excludes ambiguous characters: 0/O, 1/I.
  */
 export function generatePin(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
