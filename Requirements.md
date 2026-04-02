@@ -334,6 +334,21 @@ A single gift card service instance supports multiple issuer accounts. Other Hiv
 
 This enables issuers who do not want to run their own infrastructure to participate in gift card distribution by leveraging an existing service operator's deployment. The issuer supplies the account creation tokens (earned through Hive Power), and the service operator supplies the infrastructure.
 
+**Self-hosted issuers (no authority delegation):**
+Not all issuers will want to delegate active key authority to a third-party operator. An issuer who runs their own gift card service instance — or uses a different operator's instance — retains full control of their active key and does not need to trust the dashboard operator with it.
+
+The dashboard supports this by allowing issuers to register an **external gift card service URL** during setup. The dashboard performs a health check against the external service URL at registration time (hitting a standard health endpoint) and rejects the URL if the service is not reachable. This protects HiveInvite.com's reputation by preventing issuers from registering with a non-functional service. Ongoing health monitoring (e.g. periodic server-side checks with auto-disable) is a future concern.
+
+When an issuer has a configured external service URL:
+- Batch generation requests are routed to the issuer's own service instead of the operator's
+- The issuer authenticates with their own service using the same Keychain challenge-response flow (the external service must implement the same auth API contract)
+- Batch history, PDF downloads, and manifest downloads are fetched from the external service
+- The dashboard acts as a UI layer only — it holds no keys and performs no signing for external issuers
+
+This means the dashboard is a **multi-service client**: it can interface with the operator's gift card service for delegating issuers, and with external gift card service instances for self-hosted issuers. The API contract is the same in both cases (see section 2.9.9), so any conforming gift card service instance is compatible.
+
+External issuers still appear in the operator's dashboard for discovery and directory purposes (their issuer application and approval are still on-chain), but their batch operations are handled entirely by their own service. The operator has no visibility into an external issuer's batch contents, tokens, or redemption status.
+
 **Trust and security considerations for delegating issuers:**
 Delegating active key authority to a third-party service is a significant trust decision. The active key controls account creation tokens, token transfers, and other high-value operations. Issuers considering this delegation should be aware of the following:
 
@@ -841,7 +856,7 @@ The dashboard is a static site hosted on HiveInvite.com (GitHub Pages), making A
 - **Batch detail** — per-card status, download manifest, download PDFs (individual or combined), retroactive push to distribution bots
 - **Distributors** — manage authorized distributors (see section 2.9.5)
 - **Design** — preview the default design with their username; submit custom design assets for operator review (see section 2.9.6)
-- **Setup** — authority delegation status, account creation token balance, issuer profile
+- **Setup** — authority delegation status OR external service URL configuration, account creation token balance, issuer profile. Issuers choose one of two modes: (a) delegate active authority to the operator's service, or (b) register an external gift card service URL for self-hosted operation. The dashboard routes all batch operations accordingly
 
 **Operator admin view (operator Keychain-authenticated):**
 - Pending issuer applications (approve/ignore)
@@ -853,7 +868,7 @@ The dashboard is a static site hosted on HiveInvite.com (GitHub Pages), making A
 
 When an issuer requests a new batch through the dashboard:
 
-1. Dashboard sends an authenticated request to the gift card service: count, locale, design, expiry, auto-follow list, communities list, referrer, distribute flag
+1. Dashboard determines the target service: the operator's gift card service (for delegating issuers) or the issuer's registered external service URL (for self-hosted issuers). The dashboard sends an authenticated request to the target service: count, locale, design, expiry, auto-follow list, communities list, referrer, distribute flag
 2. The gift card service generates the batch entirely server-side (same pipeline as the existing `giftcard-generate.ts` script):
    - Generates tokens and PINs
    - Builds Merkle tree
@@ -959,6 +974,8 @@ The smallest end-to-end slice that delivers value: an issuer can log in, generat
 - Issuer application and approval flow (on-chain custom_json)
 - Operator notification of new applications (Telegram + dashboard admin view)
 - Guided active authority delegation via Keychain in the dashboard
+- External gift card service URL registration for self-hosted issuers (alternative to authority delegation)
+- Multi-service routing: dashboard routes batch operations to operator's service or issuer's external service based on issuer configuration
 - Account creation token balance display
 - Issuer responsibility notice
 - Operator admin view (pending applications, active issuers)
@@ -993,6 +1010,8 @@ The smallest end-to-end slice that delivers value: an issuer can log in, generat
 - `GET /api/batches/:id/pdf` — download combined PDF
 - `GET /api/batches/:id/manifest` — download manifest (JSON with tokens/PINs)
 - All authenticated endpoints require a valid session token (JWT or similar)
+
+This API contract serves as the **standard interface** that any gift card service instance must implement to be compatible with the dashboard. Self-hosted issuers running their own gift card service must expose these same endpoints. The dashboard treats all conforming services identically — it routes requests to the operator's service or an external service based on the issuer's configuration, but the API calls are the same in both cases
 
 **Hive Keychain integration:**
 This is the project's first use of Hive Keychain. The Keychain browser extension injects `window.hive_keychain` into the page, providing methods for signing transactions and messages without exposing private keys. The dashboard uses `requestSignBuffer` to sign authentication challenges with the issuer's posting key. The service verifies the signature against the issuer's on-chain posting public key (fetched via `condenser_api.get_accounts`).
