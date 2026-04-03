@@ -278,7 +278,9 @@ https://<invite-app-url>/invite#<encrypted-blob>
 - `locale` — *(robust only)* the locale code for the wallet variant to fetch from the blockchain after account creation (e.g. `"en"`, `"zh"`, `"ar"`, `"fa"`, `"ru"`, `"tr"`, `"vi"`). Determines which on-chain wallet post to fetch (e.g. `propolis-wallet-v1-zh`). Set at batch generation time. Omitted for standard invites (which redirect to peakd.com rather than bootstrapping a wallet)
 - `batchId` — identifier of the batch this card belongs to
 - `expires` — expiry date of the token (ISO 8601)
-- `signature` — digital signature from the issuer's memo key over the card's data (see Authenticity below)
+- `signature` — digital signature from the issuer's memo key over the batch's canonical data (see Authenticity signature below). For batch-signed cards, this is a batch-level signature shared by all cards in the batch. For legacy cards, this is a per-card signature
+- `merkleRoot` — the Merkle root of all token hashes in the batch. Required for batch-signed cards (used for signature verification and Merkle proof validation). Absent in legacy per-card-signed cards
+- `merkleProof` — compact-encoded Merkle inclusion proof for this card's token within the batch. Required for batch-signed cards; optional for legacy cards (which can fall back to DB lookup)
 - `autoFollow` — (optional) an array of Hive usernames that the new account will automatically follow on account creation. Set at batch generation time. This enables issuers to pre-populate the new user's feed with relevant content creators, community accounts, or the issuer's own account — giving the user an immediately engaging experience rather than an empty feed. The follow operations are broadcast by the gift card service as part of the account creation flow, using the new account's posting key (which the service holds transiently for this purpose). The array is limited to 20 accounts to keep the QR payload compact and the on-chain operations bounded
 - `communities` — (optional) an array of Hive community names (e.g. `["hive-123456", "hive-167922"]`) that the new account will be subscribed to on account creation. Set at batch generation time. Subscriptions are broadcast by the gift card service as `custom_json` operations with id `"community"` and payload `["subscribe", {"community": "<name>"}]`, signed with the new account's posting key. This gives the new user curated community content in their feed from day one. The array is limited to 10 communities to keep the QR payload compact and the on-chain operations bounded
 - `referrer` — (optional) a Hive username to record as the account's referrer. Stored in the new account's `json_metadata` using the [Hive Account Referral open standard](https://hiveblog.c0ff33a.uk/hive/@hiveonboard/open-standard-for-a-hive-account-referral-system): a `beneficiaries` array entry with `{ "name": "<referrer>", "weight": 100, "label": "referrer" }`. This enables referral tracking across the Hive ecosystem — apps that read this standard can attribute account creation to the referrer. Typically set to the issuer's own account or a community account. Set at batch generation time; all cards in a batch share the same referrer
@@ -310,14 +312,31 @@ When a batch of gift cards is generated, the issuer broadcasts a `custom_json` t
 
 This enables anyone to verify that a specific token belongs to a declared batch (by providing the Merkle proof), and provides transparency into how many tokens an issuer has allocated to gift cards and what they promise.
 
-**Authenticity signature:**
-Each gift card includes a digital signature from the issuer's memo key, proving the card was genuinely issued by the stated issuer. The signature is over a canonical string of the card's data:
+**Authenticity signature (batch-level):**
+Each batch of gift cards is authenticated with a single digital signature from the issuer's memo key, proving the entire batch was genuinely authorized by the stated issuer. The signature is over the batch's Merkle root — which cryptographically commits to every token in the batch — combined with the batch metadata:
 
 ```
-<token>:<batchId>:<provider>:<expires>:<promiseType>
+<merkleRoot>:<batchId>:<provider>:<expires>:<promiseType>
 ```
 
-The `promiseType` field in the canonical string ensures that a signature for one type of card (e.g. `account-creation`) cannot be reinterpreted as a different type (e.g. `transfer`). The signature is included in the encrypted blob. On decryption, the invite app verifies the signature against the issuer's public memo key (which is available on-chain via `condenser_api.get_accounts`). If verification fails, the invite app rejects the card as counterfeit. This prevents an attacker from creating fake gift cards that claim to be from a legitimate issuer.
+Since the Merkle root is a commitment to all token hashes in the batch, signing it once is cryptographically equivalent to signing each card individually. Each card carries the batch signature plus its own Merkle inclusion proof. Verification requires two steps: (1) verify the batch signature against the issuer's public memo key (available on-chain via `condenser_api.get_accounts`), and (2) verify the card's Merkle proof against the signed Merkle root (which is included in the encrypted payload as the `merkleRoot` field). Both checks must pass for the card to be accepted as authentic.
+
+The `promiseType` field in the canonical string ensures that a signature for one type of batch (e.g. `account-creation`) cannot be reinterpreted as a different type (e.g. `transfer`).
+
+**Batch signing and the multi-tenant dashboard:**
+Batch-level signing is designed specifically to support the multi-tenant dashboard workflow. When an issuer generates a batch through the dashboard, the gift card service prepares the batch (generating tokens, building the Merkle tree) and returns the canonical string to the dashboard. The dashboard prompts a **single Hive Keychain signing popup** (`requestSignBuffer` with the issuer's memo key), and the issuer approves once for the entire batch. The signed value is sent back to the service to finalize the batch (generate encrypted payloads, PDFs, and on-chain declaration).
+
+This eliminates the need for the service to hold the issuer's memo key — the issuer signs directly in their browser via Keychain. In multi-tenant mode, the `GIFTCARD_SERVICE_MEMO_KEY` environment variable is no longer required for card signing. The service account still needs delegated active key authority (for broadcasting `create_claimed_account` transactions), but memo key trust is eliminated entirely.
+
+Self-hosted issuers running their own gift card service can also use batch signing (the service generates the canonical string, the operator signs locally) or retain the legacy per-card signing approach if preferred. The system supports both.
+
+**Backwards compatibility with legacy per-card signatures:**
+Cards generated before the batch signing migration carry per-card signatures over the canonical string `<token>:<batchId>:<provider>:<expires>:<promiseType>`. These cards remain fully valid. The invite app, gift card service `/claim` and `/validate` endpoints all detect the signature scheme by checking for the presence of the `merkleRoot` field in the payload:
+
+- **`merkleRoot` present** → batch-level signature. Verify signature against `<merkleRoot>:<batchId>:<provider>:<expires>:<promiseType>`, then verify the Merkle proof against the signed Merkle root. The `signer` field, if present, determines whose memo key to verify against (for legacy multi-tenant cards signed by the service account); otherwise verify against the `provider`'s memo key.
+- **`merkleRoot` absent** → legacy per-card signature. Verify signature against `<token>:<batchId>:<provider>:<expires>:<promiseType>` using the `signer`'s or `provider`'s memo key (existing behaviour, unchanged).
+
+This dual-path verification ensures all existing cards in circulation continue to work without modification. The legacy path will be retained indefinitely since physical cards have long shelf lives (up to 1 year expiry).
 
 **Gift card service:**
 The gift card service is a **separate service from the RPC proxy**, deployed independently. This separation exists for two reasons:
@@ -337,22 +356,32 @@ This enables issuers who do not want to run their own infrastructure to particip
 **Self-hosted issuers (no authority delegation):**
 Not all issuers will want to delegate active key authority to a third-party operator. An issuer who runs their own gift card service instance — or uses a different operator's instance — retains full control of their active key and does not need to trust the dashboard operator with it.
 
-The dashboard supports this by allowing issuers to register an **external gift card service URL** during setup. The dashboard performs a health check against the external service URL at registration time (hitting a standard health endpoint) and rejects the URL if the service is not reachable. This protects HiveInvite.com's reputation by preventing issuers from registering with a non-functional service. Ongoing health monitoring (e.g. periodic server-side checks with auto-disable) is a future concern.
+The dashboard supports this by allowing issuers to register an **external gift card service URL** during setup. The external service URL is stored in the operator's database (`issuers` table, `service_url` column) alongside the issuer's other profile data. This is operational metadata — not an on-chain record — since service URLs change (domain migrations, infrastructure moves) and the operator's DB is the appropriate store for mutable configuration. The `serviceUrl` embedded in each card's encrypted payload is the definitive pointer at redemption time regardless.
+
+**Health check at registration:** The dashboard performs a health check against the external service URL when the issuer registers or updates it. The check is a `GET /health` request from the dashboard (client-side, running in the issuer's browser). This means the external service must already have CORS configured before registration (see CORS requirements below). The dashboard rejects the URL if the health check fails. This protects HiveInvite.com's reputation by preventing issuers from registering with a non-functional service. Ongoing health monitoring (e.g. periodic server-side checks with auto-disable) is a future concern.
+
+**Issuer activation path:** Self-hosted issuers skip the active authority delegation step entirely — they use their own active key on their own service. Their status transitions from `approved` → `active` upon successful registration and health check of their external service URL, rather than upon delegation verification. The dashboard setup page adapts its flow based on the issuer's chosen mode: delegating issuers see the authority delegation guide, self-hosted issuers see the service URL registration form.
+
+**Service URL updates:** An issuer can update their external service URL at any time via the dashboard setup page. Each update triggers a new health check. Existing cards in circulation are unaffected — they embed the `serviceUrl` that was current at generation time. Only future batches use the updated URL.
 
 When an issuer has a configured external service URL:
 - Batch generation requests are routed to the issuer's own service instead of the operator's
-- The issuer authenticates with their own service using the same Keychain challenge-response flow (the external service must implement the same auth API contract)
+- The issuer authenticates with their own service using the same Keychain challenge-response flow (the external service must implement the batch operations API contract — see section 2.9.9)
 - Batch history, PDF downloads, and manifest downloads are fetched from the external service
 - The dashboard acts as a UI layer only — it holds no keys and performs no signing for external issuers
+- **On-chain batch declarations** are broadcast by the issuer's own service using the issuer's own active key (no delegated authority needed)
+
+**CORS requirement for external services:** The dashboard on `hiveinvite.com` makes cross-origin `fetch()` requests to external services. External services must set `Access-Control-Allow-Origin` to allow the dashboard origin (or use `*`, as the standard giftcard service codebase already does). They must also allow the `Authorization` header and `GET`/`POST`/`OPTIONS` methods. Without CORS, the dashboard cannot communicate with the service at all — not even the health check.
 
 This means the dashboard is a **multi-service client**: it can interface with the operator's gift card service for delegating issuers, and with external gift card service instances for self-hosted issuers. The API contract is the same in both cases (see section 2.9.9), so any conforming gift card service instance is compatible.
 
 External issuers still appear in the operator's dashboard for discovery and directory purposes (their issuer application and approval are still on-chain), but their batch operations are handled entirely by their own service. The operator has no visibility into an external issuer's batch contents, tokens, or redemption status.
 
 **Trust and security considerations for delegating issuers:**
-Delegating active key authority to a third-party service is a significant trust decision. The active key controls account creation tokens, token transfers, and other high-value operations. Issuers considering this delegation should be aware of the following:
+Delegating active key authority to a third-party service is a significant trust decision. The active key controls account creation tokens, token transfers, and other high-value operations. However, **batch signing eliminates memo key trust entirely** — the issuer signs each batch directly via Hive Keychain in the dashboard, and the service never holds or accesses the issuer's memo key. The only key the service holds is the delegated active key (for broadcasting `create_claimed_account` transactions). Issuers considering this delegation should be aware of the following:
 
 - They are trusting the service operator not to misuse their active key authority (e.g. transferring funds, changing account settings)
+- **They do not need to trust the service with their memo key** — batch signing is performed client-side via Hive Keychain. The service only needs the batch signature (which the issuer provides), not the key that produced it
 - They should set up **key monitoring** on their account to detect any unexpected operations — anything other than `create_claimed_account` and `delegate_vesting_shares` (the only operations the gift card service should perform). All administrative transfers to issuers (e.g. approval notifications) must originate from the operator's own account, not from the service account that holds delegated authority, so that *any* transfer operation from the issuer's account via the service is unambiguously suspicious. Hive ecosystem tools exist for this (e.g. account history watchers, custom_json monitors)
 - They can **revoke the delegation at any time** by removing the service's public key from their active authority (via Peakd, Hive Keychain, or any wallet that supports `update_account`)
 - They should consider starting with a small allocation of account creation tokens to limit exposure while building trust with the operator
@@ -366,12 +395,12 @@ Gift card issuers register their service URL on-chain so the invite app can disc
 Note: The QR's encrypted blob also includes the `serviceUrl` directly as a fallback, so the invite app can contact the service even if on-chain lookup fails. The on-chain record is the canonical source and takes precedence when available.
 
 **Flow:**
-1. Gift card issuer generates a batch of claim tokens with a configured variant and expiry (default: 1 year), signs each card's data with the issuer's memo key, broadcasts a batch declaration `custom_json` on-chain, and produces gift cards with unique QR codes and PINs
+1. Gift card issuer generates a batch of claim tokens with a configured variant and expiry (default: 1 year), signs the batch's Merkle root with their memo key (a single signature covering all cards — see Authenticity signature above), broadcasts a batch declaration `custom_json` on-chain, and produces gift cards with unique QR codes and PINs
 2. Gift cards are distributed (in person, by post, via trusted channel)
 3. User scans QR → phone opens browser → invite app loads from the public URL (e.g. GitHub Pages)
 4. Invite app detects the encrypted fragment and prompts the user to enter the PIN from the gift card
-5. Invite app decrypts the fragment, extracting the claim token, issuer account, batch ID, service URL, variant, authenticity signature, and (for robust invites) proxy endpoints. The fragment is immediately cleared from the address bar
-6. Invite app looks up the issuer's public memo key on-chain and verifies the authenticity signature. For robust invites, this uses a proxy endpoint from the decrypted data; for standard invites, this uses public Hive API nodes directly. If verification fails, the invite app rejects the card as counterfeit
+5. Invite app decrypts the fragment, extracting the claim token, issuer account, batch ID, Merkle root, service URL, variant, batch authenticity signature, Merkle proof, and (for robust invites) proxy endpoints. The fragment is immediately cleared from the address bar
+6. Invite app looks up the issuer's public memo key on-chain and verifies the batch authenticity signature against the canonical string `<merkleRoot>:<batchId>:<provider>:<expires>:<promiseType>`. Then verifies the Merkle proof to confirm the card's token belongs to the signed batch. For robust invites, on-chain lookups use a proxy endpoint from the decrypted data; for standard invites, they use public Hive API nodes directly. If either verification step fails, the invite app rejects the card as counterfeit. (For legacy per-card-signed cards without a `merkleRoot` field, the invite app falls back to per-card signature verification using the original canonical string format — see Backwards compatibility above)
 7. Invite app generates keys locally and prompts the user to choose a username
 8. Invite app prompts the user to back up their keys (QR code export, manual copy, or both) **before** proceeding
 9. Invite app sends an account creation request to the gift card service, including: the claim token, the user's chosen username, and the user's public keys
@@ -806,15 +835,22 @@ Both notification channels ensure the operator is aware of new applications prom
 
 #### 2.9.2 Issuer Onboarding Flow
 
-After approval, the issuer must complete setup before they can generate cards:
+After approval, the issuer must complete setup before they can generate cards. The setup flow diverges based on the issuer's chosen mode:
 
 **Step 1 — Notification.**
 The operator's approval `custom_json` triggers a Hive transfer (e.g. 0.001 HBD) from the **operator's own account** (not the gift card service account) to the issuer with an encrypted memo containing:
 - Confirmation of approval
 - A link to the dashboard setup page on HiveInvite.com
-- Instructions for the next step (active authority delegation)
+- Instructions for the next step
 
-**Step 2 — Active authority delegation.**
+**Step 2 — Mode selection.**
+The dashboard setup page presents two options:
+- **(a) Delegate to operator** — the operator's service creates accounts on the issuer's behalf. Requires active key delegation.
+- **(b) Use your own service** — the issuer runs their own gift card service instance. Requires registering an external service URL.
+
+The choice can be changed later via the setup page (e.g. an issuer can start self-hosted and later switch to delegating, or vice versa). Switching from delegating to self-hosted does not automatically revoke the active key delegation — the issuer must do this manually if desired.
+
+**Step 2a — Active authority delegation (delegating issuers only).**
 The issuer must add the service account's public active key to their account's active authority list (via `update_account`). This grants the service the ability to sign transactions on the issuer's behalf (specifically `create_claimed_account` and `delegate_vesting_shares`).
 
 The dashboard guides the issuer through this:
@@ -823,18 +859,43 @@ The dashboard guides the issuer through this:
 - Verifies the delegation was successful by checking the issuer's account authorities on-chain
 - Clearly communicates the trust implications (same warnings as section 2.4's "Trust and security considerations for delegating issuers")
 
+Status transitions to `active` once delegation is verified on-chain.
+
+**Step 2b — External service URL registration (self-hosted issuers only).**
+The issuer enters their gift card service URL. The dashboard performs a client-side health check (`GET /health` from the issuer's browser). If the health check passes, the URL is stored in the operator's database (`issuers` table, `service_url` column) and the issuer's status transitions to `active`.
+
+The dashboard displays guidance:
+- The external service must implement the batch operations API contract (see section 2.9.9)
+- The external service must allow CORS from the dashboard origin (`hiveinvite.com`)
+- The issuer is fully responsible for their own service's availability, security, and key management
+
 **Step 3 — Account creation tokens.**
 The issuer is responsible for having sufficient account creation tokens (claimed via Resource Credits from their Hive Power) or liquid HIVE (for the paid fallback). The dashboard displays:
-- Current `pending_claimed_accounts` count
+- Current `pending_claimed_accounts` count (fetched from the issuer's own service for self-hosted issuers, or from the operator's service for delegating issuers)
 - Estimated account creation cost if tokens are exhausted
 - Guidance on claiming more tokens (link to relevant Hive documentation or tooling)
 
 **Step 4 — Ready.**
-Once active authority is delegated and verified, the issuer can access the full dashboard and generate their first batch.
+Once the issuer's mode-specific setup is complete (delegation verified or service URL registered and healthy), the issuer can access the full dashboard and generate their first batch.
 
 #### 2.9.3 Dashboard (HiveInvite.com)
 
 The dashboard is a static site hosted on HiveInvite.com (GitHub Pages), making API calls to the gift card service on Fly.io. Authentication is via **Hive Keychain** — the dashboard presents a challenge, the issuer signs it with their posting key via Keychain, and the service verifies the signature.
+
+**Authentication and multi-service routing:**
+
+The dashboard maintains up to **two concurrent sessions**: one with the operator's service (always), and optionally one with the issuer's external service (for self-hosted issuers). The login flow is:
+
+1. The issuer signs in via Keychain — the dashboard authenticates against the **operator's service** (one Keychain `requestSignBuffer` popup). This session is used for issuer profile, application status, and operator-side management.
+2. The dashboard fetches the issuer's profile from the operator's service, which includes the `service_url` field (null for delegating issuers, a URL for self-hosted issuers).
+3. **If `service_url` is set:** The dashboard automatically runs a second challenge-response flow against the external service. The issuer sees a brief "Connecting to your service..." state and a second Keychain popup. Both services verify the same on-chain posting key, so the same identity is proven to both. The dashboard stores both JWTs in memory.
+4. **If the external service is unreachable** during login: The dashboard still loads (issuer profile and operator-side features work) but shows a persistent banner: "Your gift card service is unreachable — batch operations unavailable." The issuer can retry the external connection from the setup page.
+
+**API call routing:** The dashboard's API client routes requests based on the issuer's mode:
+- **Issuer management** (profile, application status, setup, admin views) → always the operator's service
+- **Batch operations** (generate, list, detail, PDF/manifest download) → the issuer's external service if configured, otherwise the operator's service
+
+This routing is determined at runtime from the issuer's profile, not at build time. The `__API_BASE__` build constant points to the operator's service; the external service URL is fetched dynamically after login.
 
 **Public pages (unauthenticated):**
 - Landing page — explains the gift card system, how it works, benefits of becoming an onboarder
@@ -866,18 +927,34 @@ The dashboard is a static site hosted on HiveInvite.com (GitHub Pages), making A
 
 #### 2.9.4 Batch Generation via Dashboard
 
-When an issuer requests a new batch through the dashboard:
+Batch generation uses a **two-phase flow** that allows the issuer to sign the batch with their memo key via Hive Keychain in the browser, without the service ever needing access to the issuer's memo key:
 
-1. Dashboard determines the target service: the operator's gift card service (for delegating issuers) or the issuer's registered external service URL (for self-hosted issuers). The dashboard sends an authenticated request to the target service: count, locale, design, expiry, auto-follow list, communities list, referrer, distribute flag
-2. The gift card service generates the batch entirely server-side (same pipeline as the existing `giftcard-generate.ts` script):
+**Phase 1 — Prepare (service-side):**
+1. Dashboard determines the target service: the operator's gift card service (for delegating issuers) or the issuer's registered external service URL (for self-hosted issuers). The dashboard sends an authenticated `POST /api/batches/prepare` request with: count, locale, design, expiry, auto-follow list, communities list, referrer, distribute flag
+2. The gift card service generates the batch's cryptographic material server-side:
    - Generates tokens and PINs
-   - Builds Merkle tree
-   - Stores tokens in SQLite
-   - Broadcasts batch declaration `custom_json` on-chain (signed by the service account using delegated authority from the issuer)
+   - Builds Merkle tree, computes Merkle root
+   - Stores tokens in SQLite in a `pending` state (not yet finalized)
+3. Service returns the batch ID, Merkle root, and the canonical string to be signed: `<merkleRoot>:<batchId>:<provider>:<expires>:<promiseType>`
+
+**Phase 2 — Sign and finalize (browser + service):**
+4. Dashboard prompts **a single Hive Keychain popup**: `requestSignBuffer(username, canonicalString, 'Memo')`. The issuer reviews and approves — one click covers the entire batch regardless of size
+5. Dashboard sends the signature to the service via `POST /api/batches/:id/finalize` with `{ signature }`
+6. The gift card service finalizes the batch:
+   - Stores the batch signature
+   - Generates encrypted QR payloads for each card (each containing the shared batch signature, the batch Merkle root, and the card's individual Merkle proof)
    - Generates QR codes and PDFs using the specified design
-3. Service returns the batch ID and download URLs to the dashboard
-4. Issuer downloads the combined PDF and/or manifest from the dashboard
-5. If the "distribute" flag was set, the service pushes tokens to connected distribution bots (see section 2.9.5)
+   - Broadcasts batch declaration `custom_json` on-chain (signed by the service account using delegated authority from the issuer)
+   - Updates batch status from `pending` to `active`
+7. Service returns download URLs to the dashboard
+8. Issuer downloads the combined PDF and/or manifest from the dashboard
+9. If the "distribute" flag was set, the service pushes tokens to connected distribution bots (see section 2.9.5)
+
+**Why two phases?** The prepare/sign/finalize split exists because the Merkle root — which is the value being signed — can only be computed after all tokens are generated. The service generates the tokens (it must, since it stores and validates them at redemption time), computes the Merkle root, and hands it to the dashboard for the issuer to sign. The issuer's memo private key never leaves Hive Keychain. This eliminates the `GIFTCARD_SERVICE_MEMO_KEY` requirement for multi-tenant deployments — the service needs only the delegated active key (for account creation), not any memo key.
+
+**Pending batch cleanup:** If the issuer abandons the flow after Phase 1 (e.g. closes the browser, declines the Keychain popup), the batch remains in `pending` state. Pending batches that are not finalized within a configurable timeout (e.g. 1 hour) are automatically cleaned up (tokens deleted, batch record removed). No on-chain declaration or PDF generation occurs for unfinalized batches, so there are no side effects to clean up.
+
+**Self-hosted issuers and CLI generation:** Self-hosted issuers who run their own gift card service (or use the CLI `giftcard-generate.ts` script) can use either approach: the two-phase Keychain flow (if generating from the dashboard) or a single-phase local generation where the operator's memo key is available on the server (existing behaviour, retained for backwards compatibility). The two-phase API endpoints are optional — the existing single-phase `POST /api/batches` endpoint continues to work for services that hold the signing key locally.
 
 The issuer can also download the full manifest (containing tokens, PINs, and invite URLs) for their records. The manifest is sensitive — the dashboard displays a clear warning that it contains all card secrets.
 
@@ -965,21 +1042,25 @@ The dashboard is delivered incrementally:
 **v1.0 — Minimum viable loop (first PR):**
 The smallest end-to-end slice that delivers value: an issuer can log in, generate a batch, and download the PDFs.
 - Hive Keychain authentication (challenge-response with posting key)
-- Giftcard service API endpoints: auth, batch generation, batch listing, PDF/manifest download
-- Dashboard UI: login, generate batch form, batch history with download links
+- Two-phase batch generation API: `prepare` (tokens + Merkle) → Keychain memo key signing → `finalize` (payloads + PDFs + on-chain declaration)
+- Dashboard UI: login, generate batch form with Keychain batch signing flow, batch history with download links
 - Default design with issuer username auto-filled
 - Issuer must already be whitelisted (manual `GIFTCARD_ALLOWED_PROVIDERS` env var) — on-chain application flow is deferred
+- Backwards compatibility: invite app and claim/validate endpoints support both batch-signed and legacy per-card-signed cards
 
-**v1.1 — Full issuer lifecycle:**
+**v1.1 — Full issuer lifecycle (go-live prerequisite):**
 - Issuer application and approval flow (on-chain custom_json)
 - Operator notification of new applications (Telegram + dashboard admin view)
-- Guided active authority delegation via Keychain in the dashboard
-- External gift card service URL registration for self-hosted issuers (alternative to authority delegation)
-- Multi-service routing: dashboard routes batch operations to operator's service or issuer's external service based on issuer configuration
+- Mode selection on setup page: delegating (authority delegation) vs self-hosted (external service URL)
+- Guided active authority delegation via Keychain in the dashboard (delegating issuers)
+- External gift card service URL registration with client-side health check (self-hosted issuers)
+- `service_url` column in `issuers` table; activation path differs by mode
+- Multi-service routing: dashboard API client routes batch operations to operator's service or issuer's external service based on `service_url` in issuer profile
+- Dual authentication flow: operator service session (always) + external service session (when `service_url` is set), with graceful degradation when external service is unreachable
 - Account creation token balance display
 - Issuer responsibility notice
 - Operator admin view (pending applications, active issuers)
-- **Key monitoring tool (required before go-live with real issuers):** An issuer-facing account monitoring service that watches the issuer's Hive account for any operations beyond the expected set (`create_claimed_account` and `delegate_vesting_shares`). All administrative transfers to issuers originate from the operator's own account, so any other operation from the service is unambiguously suspicious. Alerts the issuer immediately (via Telegram, email, or dashboard notification) if unexpected operations are detected, so they can revoke delegated active key authority. This is a hard prerequisite — the multi-tenant dashboard must not accept real issuer signups until key monitoring is operational, since issuers are trusting the service with active key authority and need an independent safety net to detect misuse.
+- **Key monitoring tool (required before go-live with delegating issuers):** An issuer-facing account monitoring service that watches the issuer's Hive account for any operations beyond the expected set (`create_claimed_account` and `delegate_vesting_shares`). All administrative transfers to issuers originate from the operator's own account, so any other operation from the service is unambiguously suspicious. Alerts the issuer immediately (via Telegram, email, or dashboard notification) if unexpected operations are detected, so they can revoke delegated active key authority. This is a hard prerequisite for accepting delegating issuers — self-hosted issuers who retain their own keys do not require key monitoring from the operator
 
 **v2 — Distribution integration:**
 - Distributor authorization (on-chain custom_json with platform mapping)
@@ -1001,17 +1082,44 @@ The smallest end-to-end slice that delivers value: an issuer can log in, generat
 - URL structure: `https://hiveinvite.com/dashboard/`
 - Authentication via Hive Keychain browser extension (`window.hive_keychain`) — challenge-response signing with the issuer's posting key
 
-**Giftcard service API (new endpoints on Fly.io):**
+**Giftcard service API (endpoints on Fly.io):**
 - `POST /auth/challenge` — generate a random challenge string for Keychain signing
 - `POST /auth/verify` — verify signed challenge, return session token
-- `POST /api/batches` — generate a new batch (authenticated, issuer only)
+- `POST /api/batches/prepare` — Phase 1: generate tokens + Merkle tree, return canonical string for signing (authenticated, issuer only). Returns `{ batchId, merkleRoot, canonicalString, count, expiresAt }`
+- `POST /api/batches/:id/finalize` — Phase 2: receive issuer's batch signature, generate encrypted payloads + PDFs + on-chain declaration (authenticated, issuer only). Accepts `{ signature }`. Returns `{ batchId, count, expiresAt, merkleRoot, declarationTx }`
+- `POST /api/batches` — single-phase batch generation for self-hosted/CLI use (authenticated, requires service-side memo key). Retained for backwards compatibility
 - `GET /api/batches` — list batches for the authenticated issuer
 - `GET /api/batches/:id` — batch detail with per-card status
 - `GET /api/batches/:id/pdf` — download combined PDF
 - `GET /api/batches/:id/manifest` — download manifest (JSON with tokens/PINs)
 - All authenticated endpoints require a valid session token (JWT or similar)
 
-This API contract serves as the **standard interface** that any gift card service instance must implement to be compatible with the dashboard. Self-hosted issuers running their own gift card service must expose these same endpoints. The dashboard treats all conforming services identically — it routes requests to the operator's service or an external service based on the issuer's configuration, but the API calls are the same in both cases
+**Minimum API contract for external (self-hosted) services:**
+
+External services must implement the following subset to be compatible with the dashboard. The dashboard routes only batch operations to external services — issuer management stays on the operator's service.
+
+| Endpoint | Required | Purpose |
+|----------|----------|---------|
+| `GET /health` | Yes | Health check (registration validation + login-time connectivity check) |
+| `POST /auth/challenge` | Yes | Authentication — challenge generation |
+| `POST /auth/verify` | Yes | Authentication — signature verification, JWT issuance |
+| `POST /api/batches` | Yes | Single-phase batch generation (self-hosted issuers hold their own signing key) |
+| `POST /api/batches/prepare` | Recommended | Two-phase batch generation — Phase 1 (for future batch signing support) |
+| `POST /api/batches/:id/finalize` | Recommended | Two-phase batch generation — Phase 2 |
+| `GET /api/batches` | Yes | List batches for authenticated issuer |
+| `GET /api/batches/:id` | Yes | Batch detail with per-card status |
+| `GET /api/batches/:id/pdf` | Yes | Download combined PDF |
+| `GET /api/batches/:id/manifest` | Yes | Download manifest (JSON with tokens/PINs) |
+| `POST /claim` | Yes | Token redemption (called by invite app, not dashboard) |
+| `POST /validate` | Yes | Token validation (called by invite app, not dashboard) |
+
+External services do NOT need to implement issuer management endpoints (`/api/issuers/*`, `/api/admin/*`) — these are operator-side concerns handled by the operator's service.
+
+**CORS:** External services must set `Access-Control-Allow-Origin` to allow the dashboard origin (`https://hiveinvite.com`) or use `*`. Must also allow `Authorization` header and `GET`/`POST`/`OPTIONS` methods.
+
+**JWT:** Each service uses its own `JWT_SECRET`. The dashboard manages separate JWT tokens for the operator's service and the external service. Tokens are stored in memory only (not `localStorage`) and cleared on page refresh.
+
+The full API listing above serves as the **standard interface** that any gift card service instance must implement to be compatible with the dashboard and invite app. The dashboard treats all conforming services identically — it routes requests to the operator's service or an external service based on the issuer's configuration, but the API calls are the same in both cases
 
 **Hive Keychain integration:**
 This is the project's first use of Hive Keychain. The Keychain browser extension injects `window.hive_keychain` into the page, providing methods for signing transactions and messages without exposing private keys. The dashboard uses `requestSignBuffer` to sign authentication challenges with the issuer's posting key. The service verifies the signature against the issuer's on-chain posting public key (fetched via `condenser_api.get_accounts`).
@@ -1029,7 +1137,7 @@ This is the project's first use of Hive Keychain. The Keychain browser extension
 - **Users must understand the 3-day unstaking delay** for HBD savings — this is a blockchain-level property, not a limitation of the tool.
 - **Invite chains create accountability.** Users who invite others are implicitly vouching for them, creating a social trust layer.
 - **Gift card QR codes are PIN-encrypted.** The QR alone reveals only a public invite app URL — proxy endpoints, claim tokens, and issuer information are encrypted with a 6-character alphanumeric PIN. This prevents proxy infrastructure from being discovered through bulk QR scanning.
-- **Gift card authenticity is cryptographically verifiable.** Each card carries a digital signature from the issuer's memo key. The invite app verifies this against the on-chain public key before proceeding, preventing counterfeit cards.
+- **Gift card authenticity is cryptographically verifiable.** Each batch is signed once by the issuer's memo key (via Hive Keychain in the dashboard flow). Each card carries the batch signature plus a Merkle inclusion proof. The invite app verifies both the signature and the Merkle proof before proceeding, preventing counterfeit cards. In multi-tenant mode, the issuer signs directly — the service never holds the issuer's memo key, eliminating a trust requirement.
 - **Gift card batches are declared on-chain.** Batch declarations with Merkle root commitments provide a transparent audit trail of token issuance and enable verification that individual tokens belong to a declared batch.
 - **Gift card claim tokens are single-use and expire.** A stolen token lets an attacker claim an empty account, but does not compromise any existing user. Keys are generated locally on the user's device, never embedded in the QR or transmitted. Expired tokens cannot be redeemed.
 - **Gift card services are security-isolated from proxies.** The gift card service holds account creation keys; the proxy holds no such keys. Compromise of a proxy does not grant account creation capability.
