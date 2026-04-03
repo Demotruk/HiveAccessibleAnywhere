@@ -370,6 +370,27 @@ function renderDelegateSetup(
       `}
 
       ${error && html`<p class="err mt1">${error}</p>`}
+
+      ${!setupStatus?.delegated && html`
+        <details class="mt1">
+          <summary class="manual-toggle">Don't have Keychain? Manual instructions</summary>
+          <div class="notice mt1">
+            <p>Add <strong>@${serviceAccount}</strong> to your account's <strong>Active</strong> authority using any of these methods:</p>
+            <ol class="manual-steps">
+              <li>Go to <a href="https://peakd.com/@${state.username}/permissions" target="_blank" rel="noopener">your permissions on Peakd</a></li>
+              <li>Under <strong>Active</strong>, click <strong>Add Account</strong></li>
+              <li>Enter <code>@${serviceAccount}</code> with a weight of <strong>1</strong></li>
+              <li>Save and confirm with your active or master key</li>
+            </ol>
+            <p class="sm tm">After completing this, click <strong>Check Delegation</strong> below to verify.</p>
+          </div>
+          <button onClick=${handleCheckDelegation} disabled=${busy} class="mt1">
+            ${checking
+              ? html`<span class="spinner" style="width:14px;height:14px;border-width:2px;vertical-align:middle;margin-right:8px" /> Checking...`
+              : 'Check Delegation'}
+          </button>
+        </details>
+      `}
     </div>
   `;
 }

@@ -384,7 +384,7 @@ const server = createServer(async (req, res) => {
       const issuer = issuers.find(i => i.username === username) || null;
       const role = getRole(username);
       const setupStatus = issuer && (issuer.status === 'approved' || issuer.status === 'active')
-        ? { delegated: issuer.status === 'active', pendingTokens: 42 }
+        ? { delegated: issuer.status === 'active', pendingTokens: 42, serviceAccount: 'haa-service' }
         : null;
       return json(res, { issuer, role, setupStatus });
     }
