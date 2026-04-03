@@ -1,25 +1,50 @@
 import type { KeychainResponse } from './types.js';
 import { requestChallenge, verifyChallenge } from './api.js';
 
+/** Timeout for Keychain callbacks — some versions never fire on cancel. */
+const KEYCHAIN_TIMEOUT_MS = 60_000;
+
 export function isKeychainAvailable(): boolean {
   return !!window.hive_keychain;
 }
 
-export function signChallenge(username: string, challenge: string): Promise<string> {
+/**
+ * Wrap a Keychain call with a timeout guard. If the callback never fires
+ * (e.g. user closes the popup), the promise rejects after KEYCHAIN_TIMEOUT_MS.
+ */
+function withKeychainTimeout<T>(
+  invoke: (cb: (response: KeychainResponse) => void) => void,
+  extractResult: (response: KeychainResponse) => T,
+  failureLabel: string,
+): Promise<T> {
   return new Promise((resolve, reject) => {
-    window.hive_keychain!.requestSignBuffer(
-      username,
-      challenge,
-      'Posting',
-      (response: KeychainResponse) => {
-        if (response.success) {
-          resolve(response.result);
-        } else {
-          reject(new Error(response.message || response.error || 'Keychain signing failed'));
-        }
-      },
-    );
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        reject(new Error('Keychain did not respond — request may have been cancelled'));
+      }
+    }, KEYCHAIN_TIMEOUT_MS);
+
+    invoke((response: KeychainResponse) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (response.success) {
+        resolve(extractResult(response));
+      } else {
+        reject(new Error(response.message || response.error || failureLabel));
+      }
+    });
   });
+}
+
+export function signChallenge(username: string, challenge: string): Promise<string> {
+  return withKeychainTimeout(
+    (cb) => window.hive_keychain!.requestSignBuffer(username, challenge, 'Posting', cb),
+    (r) => r.result,
+    'Keychain signing failed',
+  );
 }
 
 export async function login(username: string): Promise<string> {
@@ -39,22 +64,13 @@ export function broadcastCustomJson(
   json: object,
   displayMsg: string,
 ): Promise<string> {
-  return new Promise((resolve, reject) => {
-    window.hive_keychain!.requestCustomJson(
-      username,
-      id,
-      keyType,
-      JSON.stringify(json),
-      displayMsg,
-      (response: KeychainResponse) => {
-        if (response.success) {
-          resolve(response.result);
-        } else {
-          reject(new Error(response.message || response.error || 'Custom JSON broadcast failed'));
-        }
-      },
-    );
-  });
+  return withKeychainTimeout(
+    (cb) => window.hive_keychain!.requestCustomJson(
+      username, id, keyType, JSON.stringify(json), displayMsg, cb,
+    ),
+    (r) => r.result,
+    'Custom JSON broadcast failed',
+  );
 }
 
 /**
@@ -66,18 +82,9 @@ export function broadcastOperation(
   operations: unknown[][],
   keyType: 'Active' | 'Posting',
 ): Promise<string> {
-  return new Promise((resolve, reject) => {
-    window.hive_keychain!.requestBroadcast(
-      username,
-      operations,
-      keyType,
-      (response: KeychainResponse) => {
-        if (response.success) {
-          resolve(response.result);
-        } else {
-          reject(new Error(response.message || response.error || 'Broadcast failed'));
-        }
-      },
-    );
-  });
+  return withKeychainTimeout(
+    (cb) => window.hive_keychain!.requestBroadcast(username, operations, keyType, cb),
+    (r) => r.result,
+    'Broadcast failed',
+  );
 }

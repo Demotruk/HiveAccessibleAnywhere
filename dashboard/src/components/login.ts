@@ -48,7 +48,12 @@ export function Login() {
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setError(msg);
+      // Keychain cancel / timeout — not a real error, just reset
+      if (/not respond|cancel|denied|rejected/i.test(msg)) {
+        setError('');
+      } else {
+        setError(msg);
+      }
     } finally {
       setSigning(false);
     }

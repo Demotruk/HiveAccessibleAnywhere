@@ -14,7 +14,7 @@ import fontkit from '@pdf-lib/fontkit';
 import QRCode from 'qrcode';
 import type { CardStrings, ResolvedDesign, RgbColor } from './design-types.js';
 
-const RESTORE_URL = 'https://hiveinvite.com/restore/';
+const DEFAULT_RESTORE_URL = 'https://hiveinvite.com/restore/';
 
 // ---------------------------------------------------------------------------
 // Default values
@@ -84,6 +84,8 @@ export interface InviteCardOptions {
   variant?: 'standard' | 'robust';
   signalContact?: string;
   design?: ResolvedDesign;
+  /** Base URL for the restore app (defaults to https://hiveinvite.com/restore/) */
+  restoreUrl?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -297,7 +299,7 @@ async function renderFrontPage(
 async function renderBackPage(
   ctx: RenderContext,
   back: PDFPage,
-  options: { pin: string; variant: string; signalContact?: string },
+  options: { pin: string; variant: string; signalContact?: string; restoreUrl?: string },
 ): Promise<void> {
   const { pageWidth, pageHeight, textFont, boldFont, strings, locale } = ctx;
   const centerX = pageWidth / 2;
@@ -389,7 +391,7 @@ async function renderBackPage(
     noticeBottomY -= 12;
   }
 
-  const restoreQrPng = await QRCode.toBuffer(RESTORE_URL, {
+  const restoreQrPng = await QRCode.toBuffer(options.restoreUrl || DEFAULT_RESTORE_URL, {
     errorCorrectionLevel: 'M', margin: 1, width: 256,
   });
   const restoreQrImage = await ctx.doc.embedPng(new Uint8Array(restoreQrPng));
@@ -525,7 +527,7 @@ export async function generateInvitePdf(options: InviteCardOptions): Promise<Uin
   if (!backgroundBytes && cfg?.colors.pageBackground) {
     back.drawRectangle({ x: 0, y: 0, width: pageWidth, height: pageHeight, color: c(cfg.colors.pageBackground) });
   }
-  await renderBackPage(ctx, back, { pin, variant, signalContact });
+  await renderBackPage(ctx, back, { pin, variant, signalContact, restoreUrl: options.restoreUrl });
 
   return doc.save();
 }

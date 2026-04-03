@@ -155,7 +155,7 @@ export async function generateBatch(
 
   // -- Step 5: Generate QR codes + PDFs --
   const resolvedDesign = loadDesign(designName);
-  const bootstrapUrl = 'https://hiveinvite.com';
+  const bootstrapUrl = config.inviteBaseUrl;
   const serviceUrl = config.serviceUrl
     || `https://haa-giftcard-${config.serviceAccount || config.providerAccount}.fly.dev`;
 
@@ -207,6 +207,7 @@ export async function generateBatch(
       locale,
       variant,
       design: resolvedDesign,
+      restoreUrl: `${bootstrapUrl}/restore/`,
     });
 
     individualPdfs.push(pdfBytes);

@@ -61,6 +61,9 @@ export interface GiftcardConfig {
 
   /** Public URL of this service (e.g. 'https://haa-giftcard-prod.fly.dev'). Used in generated QR payloads. */
   serviceUrl?: string;
+
+  /** Base URL for invite/restore apps (e.g. 'https://hiveinvite.com'). Used in generated QR/PDF URLs. */
+  inviteBaseUrl: string;
 }
 
 /**
@@ -140,6 +143,7 @@ export function loadConfig(): GiftcardConfig {
   const serviceMemoKey = process.env.GIFTCARD_SERVICE_MEMO_KEY || undefined;
   const jwtSecret = process.env.GIFTCARD_JWT_SECRET || undefined;
   const serviceUrl = process.env.GIFTCARD_SERVICE_URL || undefined;
+  const inviteBaseUrl = (process.env.GIFTCARD_INVITE_BASE_URL || 'https://hiveinvite.com').replace(/\/+$/, '');
 
   return {
     providerAccount: providerAccount!,
@@ -160,6 +164,7 @@ export function loadConfig(): GiftcardConfig {
     notifyActiveKey,
     jwtSecret,
     serviceUrl,
+    inviteBaseUrl,
   };
 }
 

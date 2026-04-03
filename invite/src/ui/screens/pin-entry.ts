@@ -57,11 +57,15 @@ export const PinEntryScreen: ScreenFn = (container, state, advance) => {
       // the user goes through verification + username + key backup.
       // Use POST /validate (not GET /health) to exercise the full app
       // pipeline — health checks alone may not wake a stopped Fly machine.
-      fetch(`${payload.serviceUrl}/validate`, {
+      // Retry every 10s in case the first attempt fails (network blip,
+      // Fly.io not ready). The claiming screen clears this interval.
+      const warmPing = () => fetch(`${payload.serviceUrl}/validate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: '{"token":"wake"}',
       }).catch(() => {});
+      warmPing();
+      state._warmupInterval = setInterval(warmPing, 10_000);
 
       advance('verifying');
     } catch {

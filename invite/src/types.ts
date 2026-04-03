@@ -49,6 +49,8 @@ export interface InviteState {
   claimResult: { account: string; tx_id: string } | null;
   /** Whether the user has confirmed saving the bootstrap file (robust only) */
   bootstrapSaved: boolean;
+  /** Background warm-up interval ID (cleared when claiming screen starts) */
+  _warmupInterval?: ReturnType<typeof setInterval>;
 }
 
 export type ScreenName =

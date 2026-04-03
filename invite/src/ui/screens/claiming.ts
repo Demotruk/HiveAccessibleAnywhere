@@ -62,6 +62,12 @@ export const ClaimingScreen: ScreenFn = async (container, state, advance) => {
     statusEl.parentElement!.appendChild(retryBtn);
   };
 
+  // Stop background warm-up pings — the claiming screen takes over polling
+  if (state._warmupInterval) {
+    clearInterval(state._warmupInterval);
+    state._warmupInterval = undefined;
+  }
+
   const payload = state.payload!;
   const keys = getPublicKeys(state.keys!);
 

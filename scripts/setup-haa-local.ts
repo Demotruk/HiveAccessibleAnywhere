@@ -120,6 +120,10 @@ console.log('✓ Copied invite/ app source');
 copyApp('restore');
 console.log('✓ Copied restore/ app source');
 
+// -- 4b. Root tsconfig (extended by dashboard, invite, restore) --
+cpSync(join(repoRoot, 'tsconfig.json'), join(target, 'tsconfig.json'));
+console.log('✓ Copied root tsconfig.json');
+
 // -- 5. Scripts (card generation only — no deploy scripts needed locally) --
 mkdirSync(join(target, 'scripts'), { recursive: true });
 cpSync(
@@ -201,6 +205,10 @@ GIFTCARD_OUTPUT_DIR=../giftcard-output
 
 # Public URL of this service (for local testing, use localhost)
 GIFTCARD_SERVICE_URL=https://localhost:3200
+
+# Base URL for invite/restore apps (local invite dev server)
+# Generated QR codes and PDFs will point here instead of hiveinvite.com
+GIFTCARD_INVITE_BASE_URL=http://localhost:5173
 
 # --- Dashboard API ---
 
