@@ -2,7 +2,7 @@ import { html } from 'htm/preact';
 import { useState } from 'preact/hooks';
 import { isKeychainAvailable, login, loginExternal } from '../auth.js';
 import { setState } from '../state.js';
-import { getMyIssuerStatus } from '../api.js';
+import { getMyIssuerStatus, listIssuers } from '../api.js';
 
 export function Login() {
   const [username, setUsername] = useState('');
@@ -47,6 +47,13 @@ export function Login() {
         } else {
           setState({ externalConnected: false, externalError: 'Could not connect to your gift card service' });
         }
+      }
+
+      // Fetch pending application count for admins (non-blocking)
+      if (data.role === 'admin') {
+        listIssuers('pending').then(issuers => {
+          setState({ pendingCount: issuers.length });
+        }).catch(() => {});
       }
 
       // Route based on role and status

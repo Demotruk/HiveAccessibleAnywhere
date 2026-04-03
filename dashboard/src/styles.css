@@ -51,6 +51,7 @@ nav a.active{background:var(--sf);color:var(--tx)}
 nav a:hover{color:var(--tx)}
 nav .spacer{flex:1}
 nav .user{font-size:.85rem;color:var(--tm);padding:8px 12px;white-space:nowrap}
+nav .badge{background:var(--ac);color:#fff;font-size:.7rem;padding:1px 6px;border-radius:10px;margin-left:4px;font-weight:700;vertical-align:middle}
 nav .logout{font-size:.85rem;padding:6px 12px;width:auto;margin-bottom:0;background:transparent;color:var(--tm);border:1px solid var(--bd)}
 nav .logout:hover{color:var(--tx);border-color:var(--tm)}
 

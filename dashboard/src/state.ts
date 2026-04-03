@@ -15,6 +15,8 @@ export interface DashboardState {
   externalConnected: boolean;
   /** Error message if external service is unreachable. */
   externalError: string | null;
+  /** Number of pending issuer applications (admin only). */
+  pendingCount: number;
 }
 
 type Listener = () => void;
@@ -32,6 +34,7 @@ export const state: DashboardState = {
   externalServiceUrl: null,
   externalConnected: false,
   externalError: null,
+  pendingCount: 0,
 };
 
 export function setState(partial: Partial<DashboardState>): void {
@@ -47,6 +50,6 @@ export function subscribe(fn: Listener): () => void {
 export function resetState(): void {
   setState({
     jwt: null, username: null, role: null, issuerStatus: null, batches: [], loading: false,
-    externalJwt: null, externalServiceUrl: null, externalConnected: false, externalError: null,
+    externalJwt: null, externalServiceUrl: null, externalConnected: false, externalError: null, pendingCount: 0,
   });
 }

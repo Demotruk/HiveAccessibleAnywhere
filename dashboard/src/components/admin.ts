@@ -4,7 +4,7 @@
 
 import { html } from 'htm/preact';
 import { useState, useEffect } from 'preact/hooks';
-import { state } from '../state.js';
+import { state, setState } from '../state.js';
 import { listIssuers, approveIssuer as apiApprove } from '../api.js';
 import { isKeychainAvailable, broadcastCustomJson } from '../auth.js';
 import type { IssuerWithStats, IssuerRecord } from '../types.js';
@@ -21,7 +21,7 @@ function PendingList() {
 
   useEffect(() => {
     listIssuers('pending')
-      .then(data => { setIssuers(data); setLoading(false); })
+      .then(data => { setIssuers(data); setState({ pendingCount: data.length }); setLoading(false); })
       .catch(err => { setError(err.message); setLoading(false); });
   }, []);
 
@@ -52,8 +52,9 @@ function PendingList() {
         : String(txResult);
       await apiApprove(username, txId);
 
-      // Remove from pending list
+      // Remove from pending list and update badge count
       setIssuers(prev => prev.filter(i => i.username !== username));
+      setState({ pendingCount: Math.max(0, state.pendingCount - 1) });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

@@ -54,7 +54,7 @@ export function Header({ route }: { route: string }) {
         ${isAdminUser && html`
           <a href="#admin"
             class=${route === 'admin' ? 'active' : ''}
-            onClick=${(e: Event) => navigate('#admin', e)}>Admin</a>
+            onClick=${(e: Event) => navigate('#admin', e)}>Admin${state.pendingCount > 0 ? html` <span class="badge">${state.pendingCount}</span>` : ''}</a>
         `}
         <span class="spacer" />
         <span class="user">@${state.username}</span>
