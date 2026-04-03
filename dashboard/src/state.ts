@@ -23,6 +23,73 @@ type Listener = () => void;
 
 const listeners = new Set<Listener>();
 
+// ---------------------------------------------------------------------------
+// Session persistence via sessionStorage
+// ---------------------------------------------------------------------------
+
+const SESSION_KEY = 'propolis_dashboard_session';
+
+/** Fields persisted across page refreshes. */
+interface PersistedSession {
+  jwt: string;
+  username: string;
+  role: UserRole | null;
+  issuerStatus: IssuerRecord | null;
+  externalJwt: string | null;
+  externalServiceUrl: string | null;
+  externalConnected: boolean;
+}
+
+const hasSessionStorage = typeof sessionStorage !== 'undefined';
+
+function saveSession(): void {
+  if (!hasSessionStorage) return;
+  if (!state.jwt || !state.username) {
+    sessionStorage.removeItem(SESSION_KEY);
+    return;
+  }
+  const data: PersistedSession = {
+    jwt: state.jwt,
+    username: state.username,
+    role: state.role,
+    issuerStatus: state.issuerStatus,
+    externalJwt: state.externalJwt,
+    externalServiceUrl: state.externalServiceUrl,
+    externalConnected: state.externalConnected,
+  };
+  sessionStorage.setItem(SESSION_KEY, JSON.stringify(data));
+}
+
+function loadSession(): Partial<DashboardState> {
+  if (!hasSessionStorage) return {};
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    if (!raw) return {};
+    const data: PersistedSession = JSON.parse(raw);
+    if (!data.jwt || !data.username) return {};
+    return {
+      jwt: data.jwt,
+      username: data.username,
+      role: data.role ?? null,
+      issuerStatus: data.issuerStatus ?? null,
+      externalJwt: data.externalJwt ?? null,
+      externalServiceUrl: data.externalServiceUrl ?? null,
+      externalConnected: data.externalConnected ?? false,
+    };
+  } catch {
+    return {};
+  }
+}
+
+function clearSession(): void {
+  if (!hasSessionStorage) return;
+  sessionStorage.removeItem(SESSION_KEY);
+}
+
+// ---------------------------------------------------------------------------
+
+const restored = loadSession();
+
 export const state: DashboardState = {
   jwt: null,
   username: null,
@@ -35,10 +102,12 @@ export const state: DashboardState = {
   externalConnected: false,
   externalError: null,
   pendingCount: 0,
+  ...restored,
 };
 
 export function setState(partial: Partial<DashboardState>): void {
   Object.assign(state, partial);
+  saveSession();
   for (const fn of listeners) fn();
 }
 
@@ -48,8 +117,10 @@ export function subscribe(fn: Listener): () => void {
 }
 
 export function resetState(): void {
-  setState({
+  clearSession();
+  Object.assign(state, {
     jwt: null, username: null, role: null, issuerStatus: null, batches: [], loading: false,
     externalJwt: null, externalServiceUrl: null, externalConnected: false, externalError: null, pendingCount: 0,
   });
+  for (const fn of listeners) fn();
 }

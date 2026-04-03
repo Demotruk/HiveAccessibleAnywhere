@@ -6,7 +6,7 @@ Issuer dashboard for managing gift card batches. Built with Preact + HTM (tagged
 
 - **Preact + HTM** — lightweight UI with tagged template components
 - **Hash routing** — `#login`, `#batches`, `#batches/generate`, `#batches/:id`
-- **JWT auth** — Hive Keychain challenge-response, token stored in memory only (not localStorage)
+- **JWT auth** — Hive Keychain challenge-response, token persisted in sessionStorage
 - **API calls** — fetch wrapper with JWT injection, dev proxy to localhost:3200
 
 ```
@@ -67,7 +67,7 @@ API_BASE=https://giftcard-service.fly.dev npm run build
 
 ## Key Constraints
 
-- JWT stored in memory only — page refresh requires re-login
+- JWT persisted in sessionStorage — survives page refresh, cleared on tab close or logout
 - Only `hive` design supported in v1 (server rejects others)
 - Issuers must be pre-whitelisted via `GIFTCARD_ALLOWED_PROVIDERS`
 - File downloads use blob fetch with auth header (cannot use plain links)
