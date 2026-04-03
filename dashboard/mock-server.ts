@@ -125,6 +125,23 @@ const issuers: MockIssuer[] = [
   },
 ];
 
+// An approved-but-not-yet-delegated issuer for testing the setup flow
+issuers.push({
+  username: 'setuptest',
+  status: 'approved',
+  description: 'Testing delegation setup flow',
+  contact: null,
+  applied_at: new Date(Date.now() - 10 * 86400000).toISOString(),
+  apply_tx_id: randomBytes(20).toString('hex'),
+  approved_at: new Date(Date.now() - 2 * 86400000).toISOString(),
+  approve_tx_id: randomBytes(20).toString('hex'),
+  delegation_verified_at: null,
+  service_url: null,
+  batch_count: 0,
+  total_cards: 0,
+  claimed_cards: 0,
+});
+
 // Make MOCK_USER an active issuer
 issuers.push({
   username: MOCK_USER,
@@ -384,7 +401,7 @@ const server = createServer(async (req, res) => {
       const issuer = issuers.find(i => i.username === username) || null;
       const role = getRole(username);
       const setupStatus = issuer && (issuer.status === 'approved' || issuer.status === 'active')
-        ? { delegated: issuer.status === 'active', pendingTokens: 42, serviceAccount: 'haa-service' }
+        ? { delegated: issuer.status === 'active', pendingTokens: 42, serviceAccount: 'haa-service', operatorAccount: 'haa-giftcard' }
         : null;
       return json(res, { issuer, role, setupStatus });
     }

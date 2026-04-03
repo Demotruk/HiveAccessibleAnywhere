@@ -334,6 +334,7 @@ function renderDelegateSetup(
   goBack: () => void,
 ) {
   const serviceAccount = setupStatus?.serviceAccount || 'the service account';
+  const operatorAccount = setupStatus?.operatorAccount;
   const busy = delegating || checking;
 
   return html`
@@ -342,7 +343,8 @@ function renderDelegateSetup(
       <div class="notice">
         <strong>What this means:</strong>
         <p>You will grant <strong>@${serviceAccount}</strong> active authority over your account. This allows the service to create Hive accounts and delegate HP on your behalf when gift cards are claimed.</p>
-        <p><strong>Important:</strong> You retain full control of your account. You can revoke this delegation at any time through Peakd or any Hive wallet.</p>
+        <p><strong style="color:var(--warn,#e8a435)">Trust warning:</strong> Active authority grants <strong>@${serviceAccount}</strong> broad control over your account, including the ability to transfer HIVE, HBD, and other assets. <strong>Only proceed if you trust the operator${operatorAccount ? html` (<a href=${'https://peakd.com/@' + operatorAccount} target="_blank" rel="noopener">@${operatorAccount}</a>)` : ''} of this service.</strong></p>
+        <p>You can revoke this delegation at any time through Peakd or any Hive wallet.</p>
       </div>
 
       <div class="fx mt1 gap">

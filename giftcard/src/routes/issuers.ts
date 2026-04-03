@@ -88,7 +88,7 @@ export function meHandler(db: Database.Database, config: GiftcardConfig) {
     const issuer = getIssuer(db, username);
 
     // Derive service public key for delegation check
-    let setupStatus: { delegated: boolean; pendingTokens: number; serviceAccount?: string } | null = null;
+    let setupStatus: { delegated: boolean; pendingTokens: number; serviceAccount?: string; operatorAccount?: string } | null = null;
 
     if (issuer && (issuer.status === 'approved' || issuer.status === 'active')) {
       try {
@@ -96,6 +96,7 @@ export function meHandler(db: Database.Database, config: GiftcardConfig) {
         const servicePublicKey = PrivateKey.from(signingKey).createPublic().toString();
         setupStatus = await getIssuerAccountInfo(username, servicePublicKey, config.serviceAccount, config.hiveNodes);
         setupStatus.serviceAccount = config.serviceAccount || config.providerAccount;
+        setupStatus.operatorAccount = config.providerAccount;
 
         // Auto-transition: approved → active once delegation is verified
         if (issuer.status === 'approved' && setupStatus.delegated) {

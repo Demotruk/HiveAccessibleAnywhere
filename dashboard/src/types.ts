@@ -84,6 +84,7 @@ export interface SetupStatus {
   delegated: boolean;
   pendingTokens: number;
   serviceAccount?: string;
+  operatorAccount?: string;
 }
 
 /** User role determined by the server */
