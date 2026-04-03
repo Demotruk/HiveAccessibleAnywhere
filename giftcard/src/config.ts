@@ -62,6 +62,10 @@ export interface GiftcardConfig {
   /** Public URL of this service (e.g. 'https://haa-giftcard-prod.fly.dev'). Used in generated QR payloads. */
   serviceUrl?: string;
 
+  /** Posting key (WIF) for the service/provider account. Required for auto-follow and community subscribe
+   *  operations — these use delegated posting authority on the new account. */
+  postingKey?: string;
+
   /** Base URL for invite/restore apps (e.g. 'https://hiveinvite.com'). Used in generated QR/PDF URLs. */
   inviteBaseUrl: string;
 }
@@ -144,6 +148,7 @@ export function loadConfig(): GiftcardConfig {
   const jwtSecret = process.env.GIFTCARD_JWT_SECRET || undefined;
   const serviceUrl = process.env.GIFTCARD_SERVICE_URL || undefined;
   const inviteBaseUrl = (process.env.GIFTCARD_INVITE_BASE_URL || 'https://hiveinvite.com').replace(/\/+$/, '');
+  const postingKey = process.env.GIFTCARD_POSTING_KEY || undefined;
 
   return {
     providerAccount: providerAccount!,
@@ -165,6 +170,7 @@ export function loadConfig(): GiftcardConfig {
     jwtSecret,
     serviceUrl,
     inviteBaseUrl,
+    postingKey,
   };
 }
 

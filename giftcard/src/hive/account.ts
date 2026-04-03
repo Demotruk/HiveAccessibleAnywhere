@@ -344,12 +344,13 @@ export async function delegateVests(
 /**
  * Broadcast follow + community subscribe operations for a new account.
  *
- * Uses the service/provider's active key, which has posting authority on the
- * new account (granted at creation via account_auths, same pattern as peakd.app).
+ * These operations require posting authority on the new account. At creation,
+ * the service/provider account is added to the new account's posting
+ * account_auths. To exercise that delegated authority, we must sign with the
+ * service/provider's **posting key** (not active key — active key satisfies
+ * posting-level ops only for the same account, not via account_auths).
  *
- * Each follow is a custom_json with id 'follow'; each community subscribe is
- * a custom_json with id 'community'. Operations are batched into a single TX
- * where possible (Hive allows multiple operations per transaction).
+ * Requires GIFTCARD_POSTING_KEY to be configured.
  */
 export async function broadcastFollowAndSubscribe(
   config: GiftcardConfig,
@@ -360,6 +361,10 @@ export async function broadcastFollowAndSubscribe(
   const follows = autoFollow?.filter(Boolean) ?? [];
   const subs = communities?.filter(Boolean) ?? [];
   if (follows.length === 0 && subs.length === 0) return;
+
+  if (!config.postingKey) {
+    throw new Error('GIFTCARD_POSTING_KEY required for auto-follow/community subscribe');
+  }
 
   hiveTxConfig.nodes = config.hiveNodes;
 
@@ -383,7 +388,7 @@ export async function broadcastFollowAndSubscribe(
     } as any);
   }
 
-  const key = PrivateKey.from(getSigningKey(config));
+  const key = PrivateKey.from(config.postingKey);
   tx.sign(key);
   await tx.broadcast(true);
 }

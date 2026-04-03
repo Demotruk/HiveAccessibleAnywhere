@@ -181,6 +181,9 @@ GIFTCARD_ACTIVE_KEY=REPLACE_ME
 # Provider's memo key (WIF) — for signing gift card authenticity
 GIFTCARD_MEMO_KEY=REPLACE_ME
 
+# Provider's posting key (WIF) — for auto-follow and community subscribe on new accounts
+GIFTCARD_POSTING_KEY=REPLACE_ME
+
 # HAA enrollment service account name
 HAA_SERVICE_ACCOUNT=haa-service
 
@@ -334,48 +337,29 @@ cleanup
 `;
 writeFileSync(join(target, 'start-all.sh'), startAllSh, { mode: 0o755 });
 
-const startAllPs1 = `# Start all services: giftcard, dashboard, invite, and restore.
-# Background jobs are cleaned up when the foreground process exits.
-
-$jobs = @()
-
-# Start giftcard service as a background job
-Write-Host "Starting giftcard service on port 3200..."
-$jobs += Start-Job -ScriptBlock {
-    Set-Location (Join-Path $using:PSScriptRoot "giftcard")
-    node --env-file ../.env --import tsx src/server.ts
-}
-
-Start-Sleep -Seconds 2
-
-# Start invite app as a background job (HTTPS for LAN/phone testing)
-Write-Host "Starting invite app dev server..."
-$jobs += Start-Job -ScriptBlock {
-    Set-Location (Join-Path $using:PSScriptRoot "invite")
-    $env:HTTPS_DEV = "1"
-    npx vite --host 0.0.0.0
-}
-
-# Start restore app as a background job
-Write-Host "Starting restore app dev server..."
-$jobs += Start-Job -ScriptBlock {
-    Set-Location (Join-Path $using:PSScriptRoot "restore")
-    npx vite --host localhost
-}
-
-# Start dashboard in foreground
-Write-Host "Starting dashboard dev server on port 5179..."
-try {
-    Set-Location (Join-Path $PSScriptRoot "dashboard")
-    npx vite --host localhost
-} finally {
-    Write-Host "Stopping all services..."
-    $jobs | ForEach-Object {
-        Stop-Job $_ -ErrorAction SilentlyContinue
-        Remove-Job $_ -ErrorAction SilentlyContinue
-    }
-}
-`;
+const startAllPs1 = [
+  '# Start all services in separate terminal windows.',
+  '# Close any window to stop that service. Ctrl+C in the giftcard window',
+  '# to see claim logs in real time.',
+  '',
+  '$root = $PSScriptRoot',
+  '',
+  '# Giftcard service',
+  'Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location \'$(Join-Path $root giftcard)\'; Write-Host \'Giftcard service (HTTPS :3200)\' -ForegroundColor Cyan; node --env-file ../.env --import tsx src/server.ts"',
+  '',
+  'Start-Sleep -Seconds 1',
+  '',
+  '# Invite app (HTTPS for LAN/phone testing)',
+  'Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location \'$(Join-Path $root invite)\'; Write-Host \'Invite app (HTTPS)\' -ForegroundColor Cyan; `$env:HTTPS_DEV = \'1\'; npx vite --host 0.0.0.0"',
+  '',
+  '# Restore app',
+  'Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location \'$(Join-Path $root restore)\'; Write-Host \'Restore app\' -ForegroundColor Cyan; npx vite --host localhost"',
+  '',
+  '# Dashboard in this window',
+  'Write-Host "Starting dashboard dev server on port 5179..." -ForegroundColor Cyan',
+  'Set-Location (Join-Path $root "dashboard")',
+  'npx vite --host localhost',
+].join('\n');
 writeFileSync(join(target, 'start-all.ps1'), startAllPs1);
 console.log('✓ Created start-all.sh / start-all.ps1');
 

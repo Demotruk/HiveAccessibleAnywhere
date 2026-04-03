@@ -108,7 +108,7 @@ export function BatchForm() {
           <label for="count">Number of Cards</label>
           <input id="count" type="number" min="1" max="100" step="1"
             value=${count}
-            onInput=${(e: Event) => setCount(parseInt((e.target as HTMLInputElement).value) || 1)}
+            onInput=${(e: Event) => { const v = parseInt((e.target as HTMLInputElement).value); if (!isNaN(v)) setCount(v); }}
             disabled=${generating} />
           <p class="form-hint">1 to 100 cards per batch</p>
         </div>
@@ -136,7 +136,7 @@ export function BatchForm() {
           <label for="expiry">Expiry (days)</label>
           <input id="expiry" type="number" min="1" max="3650" step="1"
             value=${expiryDays}
-            onInput=${(e: Event) => setExpiryDays(parseInt((e.target as HTMLInputElement).value) || 365)}
+            onInput=${(e: Event) => { const v = parseInt((e.target as HTMLInputElement).value); if (!isNaN(v)) setExpiryDays(v); }}
             disabled=${generating} />
         </div>
 

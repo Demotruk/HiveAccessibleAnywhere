@@ -33,6 +33,9 @@ const SHORT_TO_LONG: Record<string, string> = {
   m: 'merkleProof',
   v: 'variant',
   l: 'locale',
+  af: 'autoFollow',
+  cm: 'communities',
+  rf: 'referrer',
 };
 
 function fromShortKeys(obj: Record<string, unknown>): GiftCardPayload {
