@@ -313,10 +313,10 @@ PIDS+=(\$!)
 
 sleep 2
 
-# Start invite app in background
+# Start invite app in background (HTTPS for LAN/phone testing)
 echo "Starting invite app dev server..."
 cd "\$SCRIPT_DIR/invite"
-npx vite --host localhost &
+HTTPS_DEV=1 npx vite --host 0.0.0.0 &
 PIDS+=(\$!)
 
 # Start restore app in background
@@ -348,11 +348,12 @@ $jobs += Start-Job -ScriptBlock {
 
 Start-Sleep -Seconds 2
 
-# Start invite app as a background job
+# Start invite app as a background job (HTTPS for LAN/phone testing)
 Write-Host "Starting invite app dev server..."
 $jobs += Start-Job -ScriptBlock {
     Set-Location (Join-Path $using:PSScriptRoot "invite")
-    npx vite --host localhost
+    $env:HTTPS_DEV = "1"
+    npx vite --host 0.0.0.0
 }
 
 # Start restore app as a background job
