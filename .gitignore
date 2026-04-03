@@ -15,6 +15,10 @@ docs/drafts/
 # Dev certificates
 .claude/certs/
 
+# Claude Code scheduled tasks
+.claude/scheduled_tasks.lock
+.claude/scheduled-tasks/
+
 # OS
 .DS_Store
 Thumbs.db
