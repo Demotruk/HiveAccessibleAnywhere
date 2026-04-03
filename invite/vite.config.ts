@@ -4,8 +4,12 @@ import basicSsl from '@vitejs/plugin-basic-ssl';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-// Use shared dev cert if available, otherwise fall back to basicSsl auto-generated
-const certDir = resolve(__dirname, '../.claude/certs');
+// Use shared dev cert if available, otherwise fall back to basicSsl auto-generated.
+// Check both repo location (../.claude/certs) and haa-local workspace (../certs).
+const repoCertDir = resolve(__dirname, '../.claude/certs');
+const localCertDir = resolve(__dirname, '../certs');
+const certDir = existsSync(resolve(repoCertDir, 'dev-cert.pem')) ? repoCertDir
+  : existsSync(resolve(localCertDir, 'dev-cert.pem')) ? localCertDir : repoCertDir;
 const hasCerts = existsSync(resolve(certDir, 'dev-cert.pem'));
 
 const variant = (process.env.VARIANT || 'standard') as 'standard' | 'robust';

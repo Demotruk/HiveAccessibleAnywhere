@@ -208,7 +208,8 @@ GIFTCARD_SERVICE_URL=https://localhost:3200
 
 # Base URL for invite/restore apps (local invite dev server)
 # Generated QR codes and PDFs will point here instead of hiveinvite.com
-GIFTCARD_INVITE_BASE_URL=http://localhost:5173
+# Use your LAN IP for phone testing (e.g. https://192.168.1.100:5175)
+GIFTCARD_INVITE_BASE_URL=https://localhost:5175
 
 # --- Dashboard API ---
 
@@ -256,17 +257,18 @@ npx vite --host localhost
 writeFileSync(join(target, 'dashboard.ps1'), dashPs1);
 console.log('✓ Created dashboard.sh / dashboard.ps1');
 
-// -- 11. Invite app dev script --
+// -- 11. Invite app dev script (HTTPS for LAN testing from phone) --
 const inviteSh = `#!/bin/bash
-# Start the invite app Vite dev server
+# Start the invite app Vite dev server (HTTPS for LAN/phone testing)
 cd "$(dirname "$0")/invite"
-npx vite --host localhost
+HTTPS_DEV=1 npx vite --host 0.0.0.0
 `;
 writeFileSync(join(target, 'invite.sh'), inviteSh, { mode: 0o755 });
 
-const invitePs1 = `# Start the invite app Vite dev server
+const invitePs1 = `# Start the invite app Vite dev server (HTTPS for LAN/phone testing)
 Set-Location (Join-Path $PSScriptRoot "invite")
-npx vite --host localhost
+$env:HTTPS_DEV = "1"
+npx vite --host 0.0.0.0
 `;
 writeFileSync(join(target, 'invite.ps1'), invitePs1);
 console.log('✓ Created invite.sh / invite.ps1');
