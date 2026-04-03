@@ -73,8 +73,11 @@ interface ValidatedToken {
 }
 
 export function claimHandler(db: Database.Database, config: GiftcardConfig) {
-  // Derive the default provider's public memo key once at startup (single-tenant fallback)
-  const defaultMemoPublicKey = PrivateKey.from(config.memoKey).createPublic().toString();
+  // Derive the default provider's public memo key once at startup (single-tenant fallback).
+  // In multi-tenant mode, memo key is resolved per-provider from chain.
+  const defaultMemoPublicKey = config.memoKey
+    ? PrivateKey.from(config.memoKey).createPublic().toString()
+    : null;
 
   return async (req: Request, res: Response): Promise<void> => {
     const body = req.body as ClaimRequest;
@@ -146,21 +149,25 @@ export function claimHandler(db: Database.Database, config: GiftcardConfig) {
         return;
       }
 
-      // Resolve the provider's memo public key for signature verification.
-      // In single-tenant mode (no explicit provider), use the pre-derived key.
-      // In multi-tenant mode, fetch from chain.
+      // Resolve the memo public key for signature verification.
+      // In multi-tenant mode, cards are signed with the service account's memo key,
+      // so verify against the service account's on-chain memo public key.
+      // In single-tenant mode, use the provider's pre-derived key.
       let memoPublicKey: string;
-      if (body.provider && isMultiTenant(config)) {
+      if (isMultiTenant(config)) {
         try {
-          const resolved = await resolveProvider(effectiveProvider, config.hiveNodes);
+          const resolved = await resolveProvider(config.serviceAccount!, config.hiveNodes);
           memoPublicKey = resolved.memoPublicKey;
         } catch (err) {
-          console.error(`[CLAIM ERROR] Provider resolution failed: ${err instanceof Error ? err.message : String(err)}`);
-          res.status(500).json({ success: false, error: 'Could not resolve provider' });
+          console.error(`[CLAIM ERROR] Service account memo key resolution failed: ${err instanceof Error ? err.message : String(err)}`);
+          res.status(500).json({ success: false, error: 'Could not resolve service account' });
           return;
         }
-      } else {
+      } else if (defaultMemoPublicKey) {
         memoPublicKey = defaultMemoPublicKey;
+      } else {
+        res.status(500).json({ success: false, error: 'No memo key configured' });
+        return;
       }
 
       // Verify signature

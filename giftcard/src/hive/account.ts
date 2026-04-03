@@ -63,24 +63,25 @@ function tokenCacheTtlMs(count: number): number {
   return 0;                                         //  never cache zero — always re-check
 }
 
-let cachedTokenCount: number | null = null;
-let cacheExpiresAt = 0;
+/** Per-provider token count cache for multi-tenant support. */
+const tokenCache = new Map<string, { count: number; expiresAt: number }>();
 
 /**
  * Notify the cache that a token was just consumed by create_claimed_account.
  * Decrements the cached count so subsequent calls see the updated value
  * without an RPC round-trip.
  */
-function decrementCachedTokenCount(): void {
-  if (cachedTokenCount !== null && cachedTokenCount > 0) {
-    cachedTokenCount--;
+function decrementCachedTokenCount(provider: string): void {
+  const entry = tokenCache.get(provider);
+  if (entry && entry.count > 0) {
+    entry.count--;
     // If the decremented count crosses into a shorter TTL tier, let it
     // expire sooner by recalculating. This ensures we start querying more
     // frequently as we approach zero.
-    const remaining = cacheExpiresAt - Date.now();
-    const newTtl = tokenCacheTtlMs(cachedTokenCount);
+    const remaining = entry.expiresAt - Date.now();
+    const newTtl = tokenCacheTtlMs(entry.count);
     if (newTtl < remaining) {
-      cacheExpiresAt = Date.now() + newTtl;
+      entry.expiresAt = Date.now() + newTtl;
     }
   }
 }
@@ -91,16 +92,20 @@ function decrementCachedTokenCount(): void {
  * Get the number of pending (unclaimed) account creation tokens for a provider.
  * Returns the `pending_claimed_accounts` field from the provider's on-chain account.
  *
- * Results are cached with a tiered TTL: high token counts cache for up to 24h,
- * low counts for minutes, and zero is never cached.
+ * Results are cached per-provider with a tiered TTL: high token counts cache
+ * for up to 24h, low counts for minutes, and zero is never cached.
  */
 export async function getPendingAccountTokens(
   config: GiftcardConfig,
+  providerAccount?: string,
 ): Promise<number> {
+  const provider = providerAccount || config.providerAccount;
+
   // Return cached value if still valid
-  if (cachedTokenCount !== null && Date.now() < cacheExpiresAt) {
-    console.log(`[TOKENS] Using cached count: ${cachedTokenCount} (expires in ${Math.round((cacheExpiresAt - Date.now()) / 1000)}s)`);
-    return cachedTokenCount;
+  const cached = tokenCache.get(provider);
+  if (cached && Date.now() < cached.expiresAt) {
+    console.log(`[TOKENS] Using cached count: ${cached.count} (expires in ${Math.round((cached.expiresAt - Date.now()) / 1000)}s)`);
+    return cached.count;
   }
 
   for (const node of config.hiveNodes) {
@@ -113,7 +118,7 @@ export async function getPendingAccountTokens(
         body: JSON.stringify({
           jsonrpc: '2.0',
           method: 'condenser_api.get_accounts',
-          params: [[config.providerAccount]],
+          params: [[provider]],
           id: 1,
         }),
         signal: ctrl.signal,
@@ -122,15 +127,14 @@ export async function getPendingAccountTokens(
 
       const data = await response.json() as any;
       const account = data.result?.[0];
-      if (!account) throw new Error(`Account @${config.providerAccount} not found`);
+      if (!account) throw new Error(`Account @${provider} not found`);
       const count = account.pending_claimed_accounts ?? 0;
 
       // Update cache
       const ttl = tokenCacheTtlMs(count);
-      cachedTokenCount = count;
-      cacheExpiresAt = Date.now() + ttl;
+      tokenCache.set(provider, { count, expiresAt: Date.now() + ttl });
 
-      console.log(`[TOKENS] @${config.providerAccount} has ${count} pending account creation tokens (via ${node}, cached for ${Math.round(ttl / 1000)}s)`);
+      console.log(`[TOKENS] @${provider} has ${count} pending account creation tokens (via ${node}, cached for ${Math.round(ttl / 1000)}s)`);
       return count;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -141,7 +145,10 @@ export async function getPendingAccountTokens(
 }
 
 /**
- * Get the current on-chain account creation fee (e.g. "3.000 HIVE").
+ * Get the current witness-median account creation fee (e.g. "3.000 HIVE").
+ *
+ * Uses condenser_api.get_chain_properties which returns the median fee set by
+ * witnesses, not the hard-coded minimum from database_api.get_config.
  */
 export async function getAccountCreationFee(
   config: GiftcardConfig,
@@ -155,8 +162,8 @@ export async function getAccountCreationFee(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           jsonrpc: '2.0',
-          method: 'database_api.get_config',
-          params: {},
+          method: 'condenser_api.get_chain_properties',
+          params: [],
           id: 1,
         }),
         signal: ctrl.signal,
@@ -164,11 +171,10 @@ export async function getAccountCreationFee(
       clearTimeout(timer);
 
       const data = await response.json() as any;
-      // database_api.get_config returns the fee under various keys depending on node version
-      const fee = data.result?.HIVE_MIN_ACCOUNT_CREATION_FEE;
-      if (!fee) throw new Error('Could not parse account creation fee from chain config');
-      // The fee is returned as a number (in HIVE). Format it as asset string.
-      const feeStr = typeof fee === 'number' ? `${fee.toFixed(3)} HIVE` : String(fee);
+      const fee = data.result?.account_creation_fee;
+      if (!fee) throw new Error('Could not parse account creation fee from chain properties');
+      // fee is returned as a string like "3.000 HIVE"
+      const feeStr = typeof fee === 'string' ? fee : `${fee} HIVE`;
       console.log(`[FEE] Account creation fee: ${feeStr} (via ${node})`);
       return feeStr;
     } catch (err) {
@@ -494,7 +500,7 @@ export async function createAccountFull(
   const effectiveProvider = providerAccount || config.providerAccount;
 
   // Step 1: Check if provider has account creation tokens
-  const pendingTokens = await getPendingAccountTokens(config);
+  const pendingTokens = await getPendingAccountTokens(config, effectiveProvider);
 
   let result: { tx_id: string };
   let method: CreationMethod;
@@ -504,7 +510,7 @@ export async function createAccountFull(
     method = 'claimed';
     console.log(`[ACCOUNT] Broadcasting create_claimed_account for @${username} by @${effectiveProvider} (${pendingTokens} tokens remaining)`);
     result = await createAccount(config, username, keys, tokenHash, providerAccount, opts);
-    decrementCachedTokenCount();
+    decrementCachedTokenCount(effectiveProvider);
   } else {
     // Fallback: pay on-chain fee
     method = 'paid';

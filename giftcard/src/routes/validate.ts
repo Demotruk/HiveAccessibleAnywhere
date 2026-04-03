@@ -32,7 +32,9 @@ interface ValidateRequest {
 }
 
 export function validateHandler(db: Database.Database, config: GiftcardConfig) {
-  const defaultMemoPublicKey = PrivateKey.from(config.memoKey).createPublic().toString();
+  const defaultMemoPublicKey = config.memoKey
+    ? PrivateKey.from(config.memoKey).createPublic().toString()
+    : null;
 
   return async (req: Request, res: Response): Promise<void> => {
     const body = req.body as ValidateRequest;
@@ -89,19 +91,24 @@ export function validateHandler(db: Database.Database, config: GiftcardConfig) {
         return;
       }
 
-      // Resolve memo public key: from chain in multi-tenant, pre-derived in single-tenant
+      // Resolve memo public key for signature verification.
+      // In multi-tenant mode, cards are signed with the service account's memo key.
+      // In single-tenant mode, use the provider's pre-derived key.
       let memoPublicKey: string;
-      if (body.provider && isMultiTenant(config)) {
+      if (isMultiTenant(config)) {
         try {
-          const resolved = await resolveProvider(effectiveProvider, config.hiveNodes);
+          const resolved = await resolveProvider(config.serviceAccount!, config.hiveNodes);
           memoPublicKey = resolved.memoPublicKey;
         } catch (err) {
-          console.error(`[VALIDATE ERROR] Provider resolution failed: ${err instanceof Error ? err.message : String(err)}`);
-          res.status(500).json({ valid: false, reason: 'Could not resolve provider' });
+          console.error(`[VALIDATE ERROR] Service account memo key resolution failed: ${err instanceof Error ? err.message : String(err)}`);
+          res.status(500).json({ valid: false, reason: 'Could not resolve service account' });
           return;
         }
-      } else {
+      } else if (defaultMemoPublicKey) {
         memoPublicKey = defaultMemoPublicKey;
+      } else {
+        res.status(500).json({ valid: false, reason: 'No memo key configured' });
+        return;
       }
 
       if (!verifyCardSignature(

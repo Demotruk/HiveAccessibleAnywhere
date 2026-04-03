@@ -14,10 +14,10 @@
 export interface GiftcardConfig {
   /** Hive account with claimed account tokens (default provider in multi-tenant) */
   providerAccount: string;
-  /** Provider's active key (WIF) — used directly in single-tenant mode */
-  activeKey: string;
-  /** Provider's memo key (WIF) — used in single-tenant mode for signature verification */
-  memoKey: string;
+  /** Provider's active key (WIF) — used directly in single-tenant mode. Optional in multi-tenant. */
+  activeKey?: string;
+  /** Provider's memo key (WIF) — used in single-tenant mode for signature verification. Optional in multi-tenant. */
+  memoKey?: string;
   /** Feed service account name (e.g. 'haa-service') */
   haaServiceAccount: string;
   /** Default amount of VESTS to delegate (e.g. '30000.000000 VESTS') */
@@ -84,7 +84,9 @@ export function isMultiTenant(config: GiftcardConfig): boolean {
  * In single-tenant mode, uses the provider's active key directly.
  */
 export function getSigningKey(config: GiftcardConfig): string {
-  return config.serviceActiveKey || config.activeKey;
+  const key = config.serviceActiveKey || config.activeKey;
+  if (!key) throw new Error('No signing key available — set GIFTCARD_SERVICE_ACTIVE_KEY or GIFTCARD_ACTIVE_KEY');
+  return key;
 }
 
 /**
@@ -98,10 +100,20 @@ export function loadConfig(): GiftcardConfig {
   const haaServiceAccount = process.env.HAA_SERVICE_ACCOUNT;
   const delegationVests = process.env.GIFTCARD_DELEGATION_VESTS;
 
+  // Multi-tenant: service account + key
+  const serviceAccount = process.env.GIFTCARD_SERVICE_ACCOUNT || undefined;
+  const serviceActiveKey = process.env.GIFTCARD_SERVICE_ACTIVE_KEY || undefined;
+  const multiTenant = !!(serviceAccount && serviceActiveKey);
+
   const missing: string[] = [];
   if (!providerAccount) missing.push('GIFTCARD_PROVIDER_ACCOUNT');
-  if (!activeKey) missing.push('GIFTCARD_ACTIVE_KEY');
-  if (!memoKey) missing.push('GIFTCARD_MEMO_KEY');
+  // In multi-tenant mode, provider's own active/memo keys are not needed —
+  // the service account holds delegated authority and memo key resolution
+  // happens on-chain per provider.
+  if (!multiTenant) {
+    if (!activeKey) missing.push('GIFTCARD_ACTIVE_KEY');
+    if (!memoKey) missing.push('GIFTCARD_MEMO_KEY');
+  }
   if (!haaServiceAccount) missing.push('HAA_SERVICE_ACCOUNT');
   if (!delegationVests) missing.push('GIFTCARD_DELEGATION_VESTS');
 
@@ -111,20 +123,16 @@ export function loadConfig(): GiftcardConfig {
     process.exit(1);
   }
 
-  const nodesRaw = process.env.HIVE_NODES;
-  const hiveNodes = nodesRaw
-    ? nodesRaw.split(',').map(s => s.trim())
-    : ['https://api.hive.blog', 'https://api.deathwing.me', 'https://hive-api.arcange.eu'];
-
-  // Multi-tenant: service account + allowed providers
-  const serviceAccount = process.env.GIFTCARD_SERVICE_ACCOUNT || undefined;
-  const serviceActiveKey = process.env.GIFTCARD_SERVICE_ACTIVE_KEY || undefined;
-
   // Validate: both must be set, or neither
   if ((serviceAccount && !serviceActiveKey) || (!serviceAccount && serviceActiveKey)) {
     console.error('Multi-tenant mode requires both GIFTCARD_SERVICE_ACCOUNT and GIFTCARD_SERVICE_ACTIVE_KEY');
     process.exit(1);
   }
+
+  const nodesRaw = process.env.HIVE_NODES;
+  const hiveNodes = nodesRaw
+    ? nodesRaw.split(',').map(s => s.trim())
+    : ['https://api.hive.blog', 'https://api.deathwing.me', 'https://hive-api.arcange.eu'];
 
   let allowedProviders: Set<string> | undefined;
   const allowedRaw = process.env.GIFTCARD_ALLOWED_PROVIDERS;
@@ -152,8 +160,8 @@ export function loadConfig(): GiftcardConfig {
 
   return {
     providerAccount: providerAccount!,
-    activeKey: activeKey!,
-    memoKey: memoKey!,
+    activeKey: activeKey || undefined,
+    memoKey: memoKey || undefined,
     haaServiceAccount: haaServiceAccount!,
     delegationVests: delegationVests!,
     dbPath: process.env.GIFTCARD_DB_PATH || './data/tokens.db',

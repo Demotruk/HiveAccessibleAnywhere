@@ -247,6 +247,7 @@ const LONG_TO_SHORT: Record<string, string> = {
   autoFollow: 'af',
   communities: 'cm',
   referrer: 'rf',
+  signer: 'si',
 };
 
 const SHORT_TO_LONG: Record<string, string> = Object.fromEntries(
@@ -300,6 +301,8 @@ export interface GiftCardPayload {
   communities?: string[];
   /** Hive username to record as account referrer (Hive Account Referral open standard) */
   referrer?: string;
+  /** Account whose memo key signed this card (multi-tenant: service account, absent in single-tenant) */
+  signer?: string;
 }
 
 /**

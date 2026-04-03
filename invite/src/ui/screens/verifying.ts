@@ -55,15 +55,18 @@ export const VerifyingScreen: ScreenFn = async (container, state, advance) => {
   const client = new HiveClient(endpoints);
 
   try {
-    // Fetch provider account to get their memo key
-    const accounts = await client.getAccounts([payload.provider]);
+    // Fetch the signing account's memo key for signature verification.
+    // In multi-tenant mode, cards are signed by the service account (payload.signer).
+    // In single-tenant mode, signed by the provider directly.
+    const signerName = payload.signer || payload.provider;
+    const accounts = await client.getAccounts([signerName]);
     if (!accounts || accounts.length === 0) {
       showError(t.verifying_counterfeit);
       return;
     }
 
-    const providerAccount = accounts[0];
-    const valid = await verifyCardSignature(payload, providerAccount.memo_key);
+    const signerAccount = accounts[0];
+    const valid = await verifyCardSignature(payload, signerAccount.memo_key);
     if (!valid) {
       showError(t.verifying_counterfeit);
       return;

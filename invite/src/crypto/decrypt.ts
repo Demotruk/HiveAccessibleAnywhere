@@ -36,6 +36,7 @@ const SHORT_TO_LONG: Record<string, string> = {
   af: 'autoFollow',
   cm: 'communities',
   rf: 'referrer',
+  si: 'signer',
 };
 
 function fromShortKeys(obj: Record<string, unknown>): GiftCardPayload {

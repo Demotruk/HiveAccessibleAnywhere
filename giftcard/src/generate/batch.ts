@@ -186,6 +186,7 @@ export async function generateBatch(
       autoFollow: autoFollow?.length ? autoFollow : undefined,
       communities: communities?.length ? communities : undefined,
       referrer: referrer || undefined,
+      signer: isMultiTenant(config) ? config.serviceAccount : undefined,
     };
 
     const encryptedBlob = encryptPayload(payload, card.pin);
