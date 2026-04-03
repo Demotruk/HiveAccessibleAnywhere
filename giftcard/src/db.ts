@@ -36,6 +36,7 @@ export interface IssuerRow {
   approved_at: string | null;
   approve_tx_id: string | null;
   delegation_verified_at: string | null;
+  service_url: string | null;
 }
 
 export interface IssuerWithStats extends IssuerRow {
@@ -171,10 +172,18 @@ function migrateIssuersTable(db: Database.Database): void {
       apply_tx_id             TEXT,
       approved_at             TEXT,
       approve_tx_id           TEXT,
-      delegation_verified_at  TEXT
+      delegation_verified_at  TEXT,
+      service_url             TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_issuers_status ON issuers(status);
   `);
+
+  // Migration: add service_url column to existing issuers tables
+  const cols = db.pragma('table_info(issuers)') as Array<{ name: string }>;
+  if (!cols.some(c => c.name === 'service_url')) {
+    db.exec('ALTER TABLE issuers ADD COLUMN service_url TEXT');
+    console.log('[DB] Migrated issuers: added service_url column');
+  }
 }
 
 // -- Issuer operations --
@@ -249,7 +258,7 @@ export function updateIssuerStatus(
   db: Database.Database,
   username: string,
   status: IssuerRow['status'],
-  extra?: { approved_at?: string; approve_tx_id?: string; delegation_verified_at?: string },
+  extra?: { approved_at?: string; approve_tx_id?: string; delegation_verified_at?: string; service_url?: string | null },
 ): boolean {
   const sets = ['status = ?'];
   const params: (string | null)[] = [status];
@@ -257,9 +266,22 @@ export function updateIssuerStatus(
   if (extra?.approved_at) { sets.push('approved_at = ?'); params.push(extra.approved_at); }
   if (extra?.approve_tx_id) { sets.push('approve_tx_id = ?'); params.push(extra.approve_tx_id); }
   if (extra?.delegation_verified_at) { sets.push('delegation_verified_at = ?'); params.push(extra.delegation_verified_at); }
+  if (extra?.service_url !== undefined) { sets.push('service_url = ?'); params.push(extra.service_url ?? null); }
 
   params.push(username);
   const result = db.prepare(`UPDATE issuers SET ${sets.join(', ')} WHERE username = ?`).run(...params);
+  return result.changes > 0;
+}
+
+/**
+ * Update an issuer's external service URL.
+ */
+export function updateIssuerServiceUrl(
+  db: Database.Database,
+  username: string,
+  serviceUrl: string | null,
+): boolean {
+  const result = db.prepare('UPDATE issuers SET service_url = ? WHERE username = ?').run(serviceUrl, username);
   return result.changes > 0;
 }
 

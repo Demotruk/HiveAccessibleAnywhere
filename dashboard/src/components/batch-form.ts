@@ -20,6 +20,8 @@ function navigate(hash: string, e: Event) {
 }
 
 export function BatchForm() {
+  const externalDown = !!(state.externalServiceUrl && !state.externalConnected);
+
   const [count, setCount] = useState(10);
   const [locale, setLocale] = useState('en');
   const [expiryDays, setExpiryDays] = useState(365);
@@ -31,6 +33,15 @@ export function BatchForm() {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<BatchCreateResponse | null>(null);
+
+  if (externalDown) {
+    return html`
+      <div class="ct">
+        <h2>Generate Batch</h2>
+        <div class="banner-warn">Your gift card service is unreachable. Batch generation is unavailable until the connection is restored.</div>
+      </div>
+    `;
+  }
 
   async function handleSubmit(e: Event) {
     e.preventDefault();

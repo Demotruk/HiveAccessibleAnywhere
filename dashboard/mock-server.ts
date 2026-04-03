@@ -86,6 +86,7 @@ interface MockIssuer {
   approved_at: string | null;
   approve_tx_id: string | null;
   delegation_verified_at: string | null;
+  service_url: string | null;
   batch_count: number;
   total_cards: number;
   claimed_cards: number;
@@ -102,6 +103,7 @@ const issuers: MockIssuer[] = [
     approved_at: null,
     approve_tx_id: null,
     delegation_verified_at: null,
+    service_url: null,
     batch_count: 0,
     total_cards: 0,
     claimed_cards: 0,
@@ -116,6 +118,7 @@ const issuers: MockIssuer[] = [
     approved_at: null,
     approve_tx_id: null,
     delegation_verified_at: null,
+    service_url: null,
     batch_count: 0,
     total_cards: 0,
     claimed_cards: 0,
@@ -133,6 +136,7 @@ issuers.push({
   approved_at: new Date(Date.now() - 29 * 86400000).toISOString(),
   approve_tx_id: randomBytes(20).toString('hex'),
   delegation_verified_at: new Date(Date.now() - 28 * 86400000).toISOString(),
+  service_url: null,
   batch_count: batches.length,
   total_cards: batches.reduce((s, b) => s + b.count, 0),
   claimed_cards: batches.reduce((s, b) => s + b.cards.filter(c => c.status === 'spent').length, 0),
@@ -347,12 +351,30 @@ const server = createServer(async (req, res) => {
         contact: body.contact || null,
         applied_at: new Date().toISOString(),
         apply_tx_id: body.txId || randomBytes(20).toString('hex'),
-        approved_at: null, approve_tx_id: null, delegation_verified_at: null,
+        approved_at: null, approve_tx_id: null, delegation_verified_at: null, service_url: null,
         batch_count: 0, total_cards: 0, claimed_cards: 0,
       };
       issuers.push(issuer);
       console.log(`[ISSUER] Application from @${currentUser}`);
       return json(res, { issuer }, 201);
+    }
+
+    // POST /api/issuers/me/service-url
+    if (method === 'POST' && path === '/api/issuers/me/service-url') {
+      if (!checkAuth(req)) return json(res, { error: 'Unauthorized' }, 401);
+      const body = JSON.parse(await readBody(req));
+      const issuer = issuers.find(i => i.username === currentUser);
+      if (!issuer) return json(res, { error: 'No issuer record found' }, 404);
+      if (issuer.status === 'pending') return json(res, { error: 'Must be approved first' }, 400);
+      issuer.service_url = body.serviceUrl ?? null;
+      // Auto-activate if approved and URL provided
+      if (issuer.status === 'approved' && issuer.service_url) {
+        issuer.status = 'active';
+        issuer.delegation_verified_at = new Date().toISOString();
+        console.log(`[ISSUER] @${currentUser} auto-activated (external service URL)`);
+      }
+      console.log(`[ISSUER] @${currentUser} service URL set to: ${issuer.service_url}`);
+      return json(res, { issuer });
     }
 
     // GET /api/issuers/me

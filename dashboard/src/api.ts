@@ -13,18 +13,50 @@ class ApiError extends Error {
   }
 }
 
-async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
+// ---------------------------------------------------------------------------
+// Core fetch helpers
+// ---------------------------------------------------------------------------
+
+type ApiTarget = 'operator' | 'external';
+
+/**
+ * Resolve the base URL and JWT for the given target.
+ * 'operator' always uses the build-time API_BASE and the operator JWT.
+ * 'external' uses the issuer's external service URL and external JWT.
+ */
+function resolveTarget(target: ApiTarget): { baseUrl: string; jwt: string | null } {
+  if (target === 'external' && state.externalServiceUrl) {
+    return { baseUrl: state.externalServiceUrl.replace(/\/$/, ''), jwt: state.externalJwt };
+  }
+  return { baseUrl: API_BASE, jwt: state.jwt };
+}
+
+/**
+ * Determine the correct target for batch operations.
+ * Uses external service if configured and connected, otherwise operator.
+ */
+function batchTarget(): ApiTarget {
+  return (state.externalServiceUrl && state.externalConnected) ? 'external' : 'operator';
+}
+
+async function apiFetch(path: string, options: RequestInit = {}, target: ApiTarget = 'operator'): Promise<Response> {
+  const { baseUrl, jwt } = resolveTarget(target);
   const headers = new Headers(options.headers);
-  if (state.jwt) {
-    headers.set('Authorization', `Bearer ${state.jwt}`);
+  if (jwt) {
+    headers.set('Authorization', `Bearer ${jwt}`);
   }
   if (options.body && typeof options.body === 'string') {
     headers.set('Content-Type', 'application/json');
   }
 
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  const res = await fetch(`${baseUrl}${path}`, { ...options, headers });
 
   if (res.status === 401) {
+    if (target === 'external') {
+      // External session expired — degrade gracefully, don't redirect
+      setState({ externalJwt: null, externalConnected: false, externalError: 'External service session expired' });
+      throw new ApiError(401, 'External service session expired');
+    }
     setState({ jwt: null, username: null, batches: [] });
     window.location.hash = '#login';
     throw new ApiError(401, 'Session expired');
@@ -37,6 +69,10 @@ async function apiFetch(path: string, options: RequestInit = {}): Promise<Respon
 
   return res;
 }
+
+// ---------------------------------------------------------------------------
+// Auth — operator service
+// ---------------------------------------------------------------------------
 
 export async function requestChallenge(username: string): Promise<string> {
   const res = await apiFetch('/auth/challenge', {
@@ -60,27 +96,77 @@ export async function verifyChallenge(
   return data.token;
 }
 
+// ---------------------------------------------------------------------------
+// Auth — external service (raw fetch, no apiFetch — different base URL)
+// ---------------------------------------------------------------------------
+
+export async function requestChallengeExternal(username: string, baseUrl: string): Promise<string> {
+  const res = await fetch(`${baseUrl.replace(/\/$/, '')}/auth/challenge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username }),
+  });
+  if (!res.ok) throw new Error('External service challenge request failed');
+  const data = await res.json();
+  return data.challenge;
+}
+
+export async function verifyChallengeExternal(
+  username: string,
+  challenge: string,
+  signature: string,
+  baseUrl: string,
+): Promise<string> {
+  const res = await fetch(`${baseUrl.replace(/\/$/, '')}/auth/verify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, challenge, signature }),
+  });
+  if (!res.ok) throw new Error('External service verification failed');
+  const data = await res.json();
+  return data.token;
+}
+
+/**
+ * Health check against an external service URL. Returns true if healthy.
+ */
+export async function healthCheckExternal(serviceUrl: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${serviceUrl.replace(/\/$/, '')}/health`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(10_000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Batch operations — routed to external service when configured
+// ---------------------------------------------------------------------------
+
 export async function createBatch(options: BatchCreateRequest): Promise<BatchCreateResponse> {
   const res = await apiFetch('/api/batches', {
     method: 'POST',
     body: JSON.stringify(options),
-  });
+  }, batchTarget());
   return res.json();
 }
 
 export async function listBatches(): Promise<Batch[]> {
-  const res = await apiFetch('/api/batches');
+  const res = await apiFetch('/api/batches', {}, batchTarget());
   const data = await res.json();
   return data.batches;
 }
 
 export async function getBatchDetail(id: string): Promise<BatchDetail> {
-  const res = await apiFetch(`/api/batches/${encodeURIComponent(id)}`);
+  const res = await apiFetch(`/api/batches/${encodeURIComponent(id)}`, {}, batchTarget());
   return res.json();
 }
 
 export async function downloadFile(path: string, filename: string): Promise<void> {
-  const res = await apiFetch(path);
+  const res = await apiFetch(path, {}, batchTarget());
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -92,7 +178,9 @@ export async function downloadFile(path: string, filename: string): Promise<void
   URL.revokeObjectURL(url);
 }
 
-// -- Issuer API --
+// ---------------------------------------------------------------------------
+// Issuer API — always operator service
+// ---------------------------------------------------------------------------
 
 export async function submitApplication(
   description: string,
@@ -116,7 +204,18 @@ export async function getMyIssuerStatus(): Promise<{
   return res.json();
 }
 
-// -- Admin API --
+export async function setServiceUrl(serviceUrl: string | null): Promise<IssuerRecord> {
+  const res = await apiFetch('/api/issuers/me/service-url', {
+    method: 'POST',
+    body: JSON.stringify({ serviceUrl }),
+  });
+  const data = await res.json();
+  return data.issuer;
+}
+
+// ---------------------------------------------------------------------------
+// Admin API — always operator service
+// ---------------------------------------------------------------------------
 
 export async function listIssuers(status?: string): Promise<IssuerWithStats[]> {
   const qs = status ? `?status=${encodeURIComponent(status)}` : '';

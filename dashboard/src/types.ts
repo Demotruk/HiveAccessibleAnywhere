@@ -69,6 +69,7 @@ export interface IssuerRecord {
   approved_at: string | null;
   approve_tx_id: string | null;
   delegation_verified_at: string | null;
+  service_url: string | null;
 }
 
 /** Issuer with batch stats from GET /api/admin/issuers */

@@ -1,5 +1,5 @@
 import type { KeychainResponse } from './types.js';
-import { requestChallenge, verifyChallenge } from './api.js';
+import { requestChallenge, verifyChallenge, requestChallengeExternal, verifyChallengeExternal } from './api.js';
 
 /** Timeout for Keychain callbacks — some versions never fire on cancel. */
 const KEYCHAIN_TIMEOUT_MS = 60_000;
@@ -51,6 +51,20 @@ export async function login(username: string): Promise<string> {
   const challenge = await requestChallenge(username);
   const signature = await signChallenge(username, challenge);
   return verifyChallenge(username, challenge, signature);
+}
+
+/**
+ * Authenticate with an external gift card service.
+ * Returns the JWT on success, or null on failure (degraded mode).
+ */
+export async function loginExternal(username: string, serviceUrl: string): Promise<string | null> {
+  try {
+    const challenge = await requestChallengeExternal(username, serviceUrl);
+    const signature = await signChallenge(username, challenge);
+    return await verifyChallengeExternal(username, challenge, signature, serviceUrl);
+  } catch {
+    return null;
+  }
 }
 
 /**

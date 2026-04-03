@@ -16,6 +16,7 @@ import {
   listAllIssuers,
   listIssuersByStatus,
   updateIssuerStatus,
+  updateIssuerServiceUrl,
 } from '../db.js';
 import { getIssuerAccountInfo, sendApprovalNotification } from '../hive/issuer-ops.js';
 
@@ -109,6 +110,62 @@ export function meHandler(db: Database.Database, config: GiftcardConfig) {
       role: req.role,
       setupStatus,
     });
+  };
+}
+
+/**
+ * POST /api/issuers/me/service-url
+ * Set or update the authenticated issuer's external gift card service URL.
+ * If the issuer is 'approved' and provides a valid URL, auto-transitions to 'active'.
+ * Send `{ serviceUrl: null }` to clear the external URL.
+ */
+export function setServiceUrlHandler(db: Database.Database) {
+  return (req: Request, res: Response): void => {
+    const username = req.issuer!;
+    const { serviceUrl } = req.body as { serviceUrl?: string | null };
+
+    // Validate: must be null (clear) or a valid HTTPS URL
+    if (serviceUrl !== null && serviceUrl !== undefined) {
+      if (typeof serviceUrl !== 'string' || serviceUrl.trim().length === 0) {
+        res.status(400).json({ error: 'serviceUrl must be a non-empty string or null' });
+        return;
+      }
+      try {
+        const parsed = new URL(serviceUrl);
+        if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+          res.status(400).json({ error: 'serviceUrl must use HTTPS (or HTTP for local development)' });
+          return;
+        }
+      } catch {
+        res.status(400).json({ error: 'serviceUrl must be a valid URL' });
+        return;
+      }
+    }
+
+    const issuer = getIssuer(db, username);
+    if (!issuer) {
+      res.status(404).json({ error: 'No issuer record found' });
+      return;
+    }
+
+    if (issuer.status === 'pending') {
+      res.status(400).json({ error: 'Application must be approved before configuring a service URL' });
+      return;
+    }
+
+    const url = serviceUrl?.trim() ?? null;
+    updateIssuerServiceUrl(db, username, url);
+
+    // Auto-transition: approved → active when a service URL is set
+    if (issuer.status === 'approved' && url) {
+      updateIssuerStatus(db, username, 'active', {
+        delegation_verified_at: new Date().toISOString(),
+      });
+      console.log(`[ISSUER] @${username} auto-activated (external service URL registered)`);
+    }
+
+    const updated = getIssuer(db, username);
+    res.json({ issuer: updated });
   };
 }
 

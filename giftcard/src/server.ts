@@ -34,7 +34,7 @@ import {
   downloadPdfHandler, downloadManifestHandler,
 } from './routes/batches.js';
 import {
-  applyHandler, meHandler, listIssuersHandler, approveHandler,
+  applyHandler, meHandler, setServiceUrlHandler, listIssuersHandler, approveHandler,
 } from './routes/issuers.js';
 import { loadConfig, isMultiTenant } from './config.js';
 import { initDatabase } from './db.js';
@@ -128,6 +128,7 @@ app.post('/auth/verify', authLimiter, verifyHandler(config));
 const auth = requireAuth(config, db);
 app.post('/api/issuers/apply', apiLimiter, auth, applyHandler(db));
 app.get('/api/issuers/me', apiLimiter, auth, meHandler(db, config));
+app.post('/api/issuers/me/service-url', apiLimiter, auth, setServiceUrlHandler(db));
 
 // Admin routes
 const admin = requireAdmin(config, db);

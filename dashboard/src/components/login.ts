@@ -1,6 +1,6 @@
 import { html } from 'htm/preact';
 import { useState } from 'preact/hooks';
-import { isKeychainAvailable, login } from '../auth.js';
+import { isKeychainAvailable, login, loginExternal } from '../auth.js';
 import { setState } from '../state.js';
 import { getMyIssuerStatus } from '../api.js';
 
@@ -8,6 +8,7 @@ export function Login() {
   const [username, setUsername] = useState('');
   const [error, setError] = useState('');
   const [signing, setSigning] = useState(false);
+  const [statusMsg, setStatusMsg] = useState('');
 
   async function handleLogin(e: Event) {
     e.preventDefault();
@@ -26,12 +27,27 @@ export function Login() {
 
     setSigning(true);
     try {
+      setStatusMsg('Signing in...');
       const jwt = await login(name);
       setState({ jwt, username: name });
 
       // Fetch issuer status and role to determine where to route
       const data = await getMyIssuerStatus();
       setState({ role: data.role, issuerStatus: data.issuer });
+
+      // If issuer has an external service URL, authenticate with it
+      if (data.issuer?.service_url) {
+        const serviceUrl = data.issuer.service_url;
+        setState({ externalServiceUrl: serviceUrl });
+        setStatusMsg('Connecting to your service...');
+
+        const extJwt = await loginExternal(name, serviceUrl);
+        if (extJwt) {
+          setState({ externalJwt: extJwt, externalConnected: true, externalError: null });
+        } else {
+          setState({ externalConnected: false, externalError: 'Could not connect to your gift card service' });
+        }
+      }
 
       // Route based on role and status
       if (data.role === 'admin') {
@@ -56,6 +72,7 @@ export function Login() {
       }
     } finally {
       setSigning(false);
+      setStatusMsg('');
     }
   }
 
@@ -82,7 +99,7 @@ export function Login() {
         </div>
 
         <button type="submit" disabled=${signing}>
-          ${signing ? html`<span class="spinner" style="width:14px;height:14px;border-width:2px;vertical-align:middle;margin-right:8px" /> Signing in...` : 'Sign in with Keychain'}
+          ${signing ? html`<span class="spinner" style="width:14px;height:14px;border-width:2px;vertical-align:middle;margin-right:8px" /> ${statusMsg || 'Signing in...'}` : 'Sign in with Keychain'}
         </button>
       </form>
 

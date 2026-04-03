@@ -61,7 +61,10 @@ export function BatchList() {
   const [error, setError] = useState('');
   const batches = state.batches;
 
+  const externalDown = !!(state.externalServiceUrl && !state.externalConnected);
+
   useEffect(() => {
+    if (externalDown) { setLoading(false); return; }
     setLoading(true);
     setError('');
     listBatches()
@@ -73,10 +76,19 @@ export function BatchList() {
         setError(err instanceof Error ? err.message : String(err));
         setLoading(false);
       });
-  }, []);
+  }, [externalDown]);
 
   if (loading) {
     return html`<div class="ct"><div class="loading"><span class="spinner" /> Loading batches...</div></div>`;
+  }
+
+  if (externalDown) {
+    return html`
+      <div class="ct">
+        <h2>Batches</h2>
+        <div class="banner-warn">Your gift card service is unreachable. Batch operations are unavailable until the connection is restored.</div>
+      </div>
+    `;
   }
 
   if (error) {

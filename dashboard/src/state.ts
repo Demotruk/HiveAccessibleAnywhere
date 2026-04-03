@@ -7,6 +7,14 @@ export interface DashboardState {
   issuerStatus: IssuerRecord | null;
   batches: Batch[];
   loading: boolean;
+  /** JWT for the issuer's external gift card service (self-hosted mode). */
+  externalJwt: string | null;
+  /** External service URL from the issuer's profile. */
+  externalServiceUrl: string | null;
+  /** Whether the external service auth succeeded. */
+  externalConnected: boolean;
+  /** Error message if external service is unreachable. */
+  externalError: string | null;
 }
 
 type Listener = () => void;
@@ -20,6 +28,10 @@ export const state: DashboardState = {
   issuerStatus: null,
   batches: [],
   loading: false,
+  externalJwt: null,
+  externalServiceUrl: null,
+  externalConnected: false,
+  externalError: null,
 };
 
 export function setState(partial: Partial<DashboardState>): void {
@@ -33,5 +45,8 @@ export function subscribe(fn: Listener): () => void {
 }
 
 export function resetState(): void {
-  setState({ jwt: null, username: null, role: null, issuerStatus: null, batches: [], loading: false });
+  setState({
+    jwt: null, username: null, role: null, issuerStatus: null, batches: [], loading: false,
+    externalJwt: null, externalServiceUrl: null, externalConnected: false, externalError: null,
+  });
 }
