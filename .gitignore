@@ -12,6 +12,9 @@ scripts/giftcard-output/
 # Drafts (blog posts, charts — working files)
 docs/drafts/
 
+# Dev certificates
+.claude/certs/
+
 # OS
 .DS_Store
 Thumbs.db
