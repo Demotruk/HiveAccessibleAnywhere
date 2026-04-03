@@ -61,32 +61,43 @@ async function fetchAccount(
 }
 
 /**
- * Check if the service account's public key is in a user's active authority key_auths.
+ * Check if the service account has active authority over a user's account.
+ * Checks both key_auths (direct public key) and account_auths (account name delegation).
  */
 export async function checkActiveDelegation(
   username: string,
   servicePublicKey: string,
+  serviceAccountName: string | undefined,
   hiveNodes: string[],
 ): Promise<boolean> {
   const account = await fetchAccount(username, hiveNodes);
-  return account.active.key_auths.some(([key]) => key === servicePublicKey);
+  const keyMatch = account.active.key_auths.some(([key]) => key === servicePublicKey);
+  const accountMatch = serviceAccountName
+    ? account.active.account_auths.some(([name]) => name === serviceAccountName)
+    : false;
+  return keyMatch || accountMatch;
 }
 
 /**
  * Get account info relevant for issuer setup status.
+ * Checks both key_auths and account_auths for delegation.
  */
 export async function getIssuerAccountInfo(
   username: string,
   servicePublicKey: string,
+  serviceAccountName: string | undefined,
   hiveNodes: string[],
 ): Promise<{
   delegated: boolean;
   pendingTokens: number;
 }> {
   const account = await fetchAccount(username, hiveNodes);
-  const delegated = account.active.key_auths.some(([key]) => key === servicePublicKey);
+  const keyMatch = account.active.key_auths.some(([key]) => key === servicePublicKey);
+  const accountMatch = serviceAccountName
+    ? account.active.account_auths.some(([name]) => name === serviceAccountName)
+    : false;
   return {
-    delegated,
+    delegated: keyMatch || accountMatch,
     pendingTokens: account.pending_claimed_accounts ?? 0,
   };
 }

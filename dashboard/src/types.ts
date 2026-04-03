@@ -83,6 +83,7 @@ export interface IssuerWithStats extends IssuerRecord {
 export interface SetupStatus {
   delegated: boolean;
   pendingTokens: number;
+  serviceAccount?: string;
 }
 
 /** User role determined by the server */
@@ -110,6 +111,14 @@ export interface HiveKeychain {
     username: string,
     operations: unknown[][],
     keyType: string,
+    callback: (response: KeychainResponse) => void,
+  ): void;
+
+  requestAddAccountAuthority(
+    username: string,
+    authorizedUsername: string,
+    role: 'Posting' | 'Active',
+    weight: number,
     callback: (response: KeychainResponse) => void,
   ): void;
 }

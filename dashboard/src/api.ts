@@ -233,4 +233,56 @@ export async function approveIssuer(username: string, txId?: string): Promise<Is
   return data.issuer;
 }
 
+// ---------------------------------------------------------------------------
+// Hive chain queries (public, no auth needed)
+// ---------------------------------------------------------------------------
+
+const HIVE_NODES = ['https://api.hive.blog', 'https://api.deathwing.me'];
+
+export interface HiveAuthority {
+  weight_threshold: number;
+  account_auths: [string, number][];
+  key_auths: [string, number][];
+}
+
+export interface HiveAccount {
+  name: string;
+  active: HiveAuthority;
+  posting: HiveAuthority;
+  owner: HiveAuthority;
+  memo_key: string;
+  json_metadata: string;
+  posting_json_metadata: string;
+}
+
+/**
+ * Fetch a Hive account's data from public API nodes.
+ */
+export async function fetchHiveAccount(username: string): Promise<HiveAccount> {
+  let lastError: Error | null = null;
+  for (const node of HIVE_NODES) {
+    try {
+      const res = await fetch(node, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'condenser_api.get_accounts',
+          params: [[username]],
+          id: 1,
+        }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error.message);
+      if (!data.result?.[0]) throw new Error(`Account @${username} not found`);
+      return data.result[0];
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+    }
+  }
+  throw lastError || new Error('All Hive nodes failed');
+}
+
 export { ApiError };

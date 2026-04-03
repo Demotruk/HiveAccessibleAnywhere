@@ -88,6 +88,25 @@ export function broadcastCustomJson(
 }
 
 /**
+ * Request to add an account to the user's active or posting authority via Keychain.
+ * Keychain handles fetching current authority and merging — no manual account_update needed.
+ */
+export function addAccountAuthority(
+  username: string,
+  authorizedAccount: string,
+  role: 'Posting' | 'Active',
+  weight: number = 1,
+): Promise<string> {
+  return withKeychainTimeout(
+    (cb) => window.hive_keychain!.requestAddAccountAuthority(
+      username, authorizedAccount, role, weight, cb,
+    ),
+    (r) => r.result,
+    'Add account authority failed',
+  );
+}
+
+/**
  * Broadcast a raw operation via Keychain (e.g., account_update for delegation).
  * Returns the tx result string.
  */

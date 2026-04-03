@@ -9,7 +9,7 @@
 import { html } from 'htm/preact';
 import { useState, useEffect } from 'preact/hooks';
 import { state, setState } from '../state.js';
-import { isKeychainAvailable, loginExternal } from '../auth.js';
+import { isKeychainAvailable, loginExternal, addAccountAuthority } from '../auth.js';
 import { getMyIssuerStatus, setServiceUrl, healthCheckExternal } from '../api.js';
 import type { SetupStatus } from '../types.js';
 
@@ -23,6 +23,9 @@ export function Setup() {
 
   // Mode selection
   const [mode, setMode] = useState<Mode>(null);
+
+  // Delegate state
+  const [delegating, setDelegating] = useState(false);
 
   // Self-hosted state
   const [serviceUrlInput, setServiceUrlInput] = useState('');
@@ -63,7 +66,7 @@ export function Setup() {
       }
       setSetupStatus(data.setupStatus);
 
-      if (data.issuer?.status === 'active') {
+      if (data.setupStatus?.delegated || data.issuer?.status === 'active') {
         window.location.hash = '#batches';
       } else if (data.setupStatus && !data.setupStatus.delegated) {
         setError('Delegation not detected yet. Please complete the delegation step and try again.');
@@ -72,6 +75,50 @@ export function Setup() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setChecking(false);
+    }
+  }
+
+  async function handleDelegate() {
+    setDelegating(true);
+    setError('');
+    try {
+      if (!isKeychainAvailable()) {
+        throw new Error('Hive Keychain extension is required.');
+      }
+
+      const serviceAccount = setupStatus?.serviceAccount;
+      if (!serviceAccount) {
+        throw new Error('Service account name not available. Please refresh and try again.');
+      }
+
+      // Use Keychain's dedicated authority method — handles fetching/merging internally
+      await addAccountAuthority(state.username!, serviceAccount, 'Active');
+
+      // Poll for chain propagation — the on-chain change may take a few seconds
+      for (let attempt = 0; attempt < 5; attempt++) {
+        await new Promise(r => setTimeout(r, 3000));
+        const data = await getMyIssuerStatus();
+        if (data.issuer) {
+          setState({ issuerStatus: data.issuer, role: data.role });
+        }
+        setSetupStatus(data.setupStatus);
+        if (data.setupStatus?.delegated) {
+          // Server auto-transitions approved → active when delegation is detected,
+          // so data.role should be 'issuer' by now. Navigate immediately.
+          window.location.hash = '#batches';
+          return;
+        }
+      }
+      setError('Delegation broadcast succeeded but verification is taking longer than expected. Try clicking "Check Delegation" in a moment.');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/not respond|cancel|denied|rejected/i.test(msg)) {
+        setError('');
+      } else {
+        setError(msg);
+      }
+    } finally {
+      setDelegating(false);
     }
   }
 
@@ -240,7 +287,7 @@ export function Setup() {
         </div>
       `}
 
-      ${mode === 'delegate' && renderDelegateSetup(setupStatus, checking, error, handleCheckDelegation, () => setMode(null))}
+      ${mode === 'delegate' && renderDelegateSetup(setupStatus, delegating, checking, error, handleDelegate, handleCheckDelegation, () => setMode(null))}
       ${mode === 'self-hosted' && renderSelfHostedSetup(
         serviceUrlInput, setServiceUrlInput,
         healthChecking, healthResult, setHealthResult,
@@ -279,43 +326,44 @@ function renderSteps(stepNum: number) {
 
 function renderDelegateSetup(
   setupStatus: SetupStatus | null,
+  delegating: boolean,
   checking: boolean,
   error: string,
+  handleDelegate: () => void,
   handleCheckDelegation: () => void,
   goBack: () => void,
 ) {
+  const serviceAccount = setupStatus?.serviceAccount || 'the service account';
+  const busy = delegating || checking;
+
   return html`
     <div class="card">
       <h2>Delegate Active Authority</h2>
       <div class="notice">
         <strong>What this means:</strong>
-        <p>You need to add the service account's active key to your account's active authority. This allows the service to create Hive accounts and delegate HP on your behalf when gift cards are claimed.</p>
+        <p>You will grant <strong>@${serviceAccount}</strong> active authority over your account. This allows the service to create Hive accounts and delegate HP on your behalf when gift cards are claimed.</p>
         <p><strong>Important:</strong> You retain full control of your account. You can revoke this delegation at any time through Peakd or any Hive wallet.</p>
       </div>
 
-      <h3 class="mt1">How to delegate:</h3>
-      <ol class="setup-steps">
-        <li>Go to <a href="https://peakd.com/@${state.username}/permissions" target="_blank" rel="noopener">your Peakd permissions page</a></li>
-        <li>Under "Active" authority, add the service account's key</li>
-        <li>Confirm the transaction with Hive Keychain</li>
-        <li>Come back here and click "Check Delegation"</li>
-      </ol>
-
       <div class="fx mt1 gap">
-        <button onClick=${handleCheckDelegation} disabled=${checking}>
-          ${checking
-            ? html`<span class="spinner" style="width:14px;height:14px;border-width:2px;vertical-align:middle;margin-right:8px" /> Checking...`
-            : 'Check Delegation'}
+        <button onClick=${handleDelegate} disabled=${busy}>
+          ${delegating
+            ? html`<span class="spinner" style="width:14px;height:14px;border-width:2px;vertical-align:middle;margin-right:8px" /> Delegating...`
+            : checking
+              ? html`<span class="spinner" style="width:14px;height:14px;border-width:2px;vertical-align:middle;margin-right:8px" /> Verifying...`
+              : html`Delegate to @${serviceAccount}`}
         </button>
-        <button onClick=${goBack} class="btn-secondary">Back</button>
+        <button onClick=${goBack} class="btn-secondary" disabled=${busy}>Back</button>
       </div>
+
+      <p class="sm tm mt1">Clicking the button will prompt Hive Keychain to approve adding @${serviceAccount} to your active authority.</p>
+
+      ${setupStatus?.delegated && html`
+        <p class="mt1" style="color:var(--ok)">Delegation verified — you already have @${serviceAccount} in your active authority.</p>
+      `}
 
       ${setupStatus && html`
         <dl class="meta mt1">
-          <dt>Delegation Status</dt>
-          <dd>${setupStatus.delegated
-            ? html`<span style="color:var(--ok)">Delegated</span>`
-            : html`<span style="color:var(--er)">Not delegated</span>`}</dd>
           <dt>Account Creation Tokens</dt>
           <dd>${setupStatus.pendingTokens}</dd>
         </dl>

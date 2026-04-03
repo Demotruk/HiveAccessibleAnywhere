@@ -65,4 +65,20 @@ window.hive_keychain = {
       });
     }, 500);
   },
+
+  requestAddAccountAuthority(
+    _username: string,
+    authorizedUsername: string,
+    role: string,
+    weight: number,
+    callback: (response: KeychainResponse) => void,
+  ) {
+    console.log(`[MOCK KEYCHAIN] requestAddAccountAuthority: @${authorizedUsername} ${role} weight=${weight}`);
+    setTimeout(() => {
+      callback({
+        success: true,
+        result: 'mock-tx-' + Date.now().toString(16),
+      });
+    }, 500);
+  },
 };
