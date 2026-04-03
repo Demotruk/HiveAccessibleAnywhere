@@ -134,6 +134,23 @@ export function Setup() {
   }
 
   const issuer = state.issuerStatus;
+
+  // Whitelisted issuers (via GIFTCARD_ALLOWED_PROVIDERS) or admins may have no DB record.
+  // If they already have an issuer/admin role, treat them as active.
+  if (!issuer && (state.role === 'issuer' || state.role === 'admin')) {
+    return html`
+      <div class="ct">
+        <h1>Issuer Setup</h1>
+        ${renderSteps(4)}
+        <div class="card center">
+          <h2 style="color:var(--ok)">Setup Complete</h2>
+          <p>You're ready to generate gift cards.</p>
+          <p class="mt1"><a href="#batches" class="btn">Go to Dashboard →</a></p>
+        </div>
+      </div>
+    `;
+  }
+
   if (!issuer || issuer.status === 'pending') {
     return html`
       <div class="ct">

@@ -46,8 +46,11 @@ function PendingList() {
         `Approve @${username} as an issuer`,
       );
 
-      // Register approval with backend
-      await apiApprove(username, txResult);
+      // Register approval with backend — txResult may be an object {id, tx_id, confirmed}
+      const txId = typeof txResult === 'object' && txResult !== null
+        ? (txResult as Record<string, unknown>).tx_id as string ?? (txResult as Record<string, unknown>).id as string
+        : String(txResult);
+      await apiApprove(username, txId);
 
       // Remove from pending list
       setIssuers(prev => prev.filter(i => i.username !== username));

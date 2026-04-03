@@ -72,11 +72,14 @@ export function Apply() {
         'Apply to become an onboarder on HiveInvite',
       );
 
-      // Register with backend
+      // Register with backend — txResult may be an object {id, tx_id, confirmed} or a string
+      const txId = typeof txResult === 'object' && txResult !== null
+        ? (txResult as Record<string, unknown>).tx_id as string ?? (txResult as Record<string, unknown>).id as string
+        : String(txResult);
       const issuer = await submitApplication(
         description.trim(),
         contact.trim() || undefined,
-        txResult,
+        txId,
       );
 
       setResult(issuer);

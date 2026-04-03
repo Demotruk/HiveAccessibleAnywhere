@@ -52,12 +52,17 @@ export function applyHandler(db: Database.Database) {
       return;
     }
 
+    // txId may arrive as an object from Keychain ({id, tx_id}) — normalize to string
+    const normalizedTxId = typeof txId === 'object' && txId !== null
+      ? (txId as Record<string, unknown>).tx_id as string ?? (txId as Record<string, unknown>).id as string ?? undefined
+      : txId;
+
     const created = createIssuerApplication(
       db,
       username,
       description.trim(),
       contact?.trim(),
-      txId,
+      normalizedTxId,
     );
 
     if (!created) {
@@ -216,10 +221,15 @@ export function approveHandler(db: Database.Database, config: GiftcardConfig) {
       return;
     }
 
+    // txId may arrive as an object from Keychain — normalize to string
+    const normalizedTxId = typeof txId === 'object' && txId !== null
+      ? (txId as Record<string, unknown>).tx_id as string ?? (txId as Record<string, unknown>).id as string ?? undefined
+      : txId;
+
     const now = new Date().toISOString();
     updateIssuerStatus(db, normalized, 'approved', {
       approved_at: now,
-      approve_tx_id: txId,
+      approve_tx_id: normalizedTxId,
     });
 
     console.log(`[ISSUER] @${normalized} approved by @${req.issuer}`);
