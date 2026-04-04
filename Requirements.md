@@ -382,12 +382,33 @@ Delegating active key authority to a third-party service is a significant trust 
 
 - They are trusting the service operator not to misuse their active key authority (e.g. transferring funds, changing account settings)
 - **They do not need to trust the service with their memo key** — batch signing is performed client-side via Hive Keychain. The service only needs the batch signature (which the issuer provides), not the key that produced it
-- They should set up **key monitoring** on their account to detect any unexpected operations — anything other than `create_claimed_account` and `delegate_vesting_shares` (the only operations the gift card service should perform). All administrative transfers to issuers (e.g. approval notifications) must originate from the operator's own account, not from the service account that holds delegated authority, so that *any* transfer operation from the issuer's account via the service is unambiguously suspicious. Hive ecosystem tools exist for this (e.g. account history watchers, custom_json monitors)
+- They should set up **key monitoring** on their account to detect any unexpected operations — anything other than `create_claimed_account` and `delegate_vesting_shares` (the only operations the gift card service should perform). All administrative transfers to issuers (e.g. approval notifications) must originate from the operator's own account, not from the service account that holds delegated authority, so that *any* transfer operation from the issuer's account via the service is unambiguously suspicious. A standalone key monitoring tool is provided for this purpose (see Key Monitoring Tool below)
 - They can **revoke the delegation at any time** by removing the service's public key from their active authority (via Peakd, Hive Keychain, or any wallet that supports `update_account`)
 - They should consider starting with a small allocation of account creation tokens to limit exposure while building trust with the operator
 - The service operator should clearly communicate the scope of operations the service will perform on their behalf
 
 The gift card service itself has no obligation beyond making issuers aware of the trust implications at onboarding time. Key monitoring, risk management, and revocation decisions are the issuer's responsibility.
+
+**Key Monitoring Tool:**
+
+A standalone account monitoring tool that watches one or more Hive accounts for unexpected operations by a delegated service account. This is a security tool intended to be run by a third party (not the issuer themselves), since the whole point of monitoring is to watch for misuse by the entity the issuer has trusted with active key authority. The gift card service operator will typically run it as well. It is opt-in — anyone can run an instance for any set of accounts.
+
+The tool is a long-lived Node.js process, designed to run independently of the gift card service or dashboard. It should be lightweight enough to run on a Raspberry Pi or similar, as well as on Fly.io or any hosting provider.
+
+Core behaviour:
+- Polls `getAccountHistory` for each watched account on a short interval (default ~15 seconds). Hive blocks are produced every 3 seconds, so this gives near-real-time detection while remaining lightweight. The interval is configurable.
+- Maintains an allowlist of expected operation types from the service account: `create_claimed_account` and `delegate_vesting_shares`. Any other operation triggers an alert.
+- Tracks the last-seen operation ID per account, persisted to a local file, so that restarts do not re-alert on already-processed operations.
+
+Alerting (v1 — Telegram):
+- Sends alerts via a Telegram bot. Configuration requires a bot token and chat ID.
+- Alert message includes: the unexpected operation type, the affected issuer account, and a link to `https://peakd.com/@{account}/authorities` so the recipient can review and revoke the delegation.
+- Speed is critical — the alert should fire within seconds of detection, as time-to-revocation is the primary defence against a compromised service account draining funds.
+
+Configuration:
+- Configured via environment variables or a simple config file (e.g. JSON or TOML).
+- Required: list of accounts to watch, Telegram bot token, Telegram chat ID.
+- Optional: polling interval override, path for the state file.
 
 **On-chain service discovery:**
 Gift card issuers register their service URL on-chain so the invite app can discover it from the issuer account name. Registration is via `custom_json` on the issuer's account or via a transfer memo to a known discovery account. This enables the invite app to look up the service URL at redemption time without the QR needing to embed a domain that might change.
