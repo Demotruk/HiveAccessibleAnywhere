@@ -31,6 +31,7 @@ const SHORT_TO_LONG: Record<string, string> = {
   y: 'promiseType',
   pp: 'promiseParams',
   m: 'merkleProof',
+  mr: 'merkleRoot',
   v: 'variant',
   l: 'locale',
   af: 'autoFollow',
