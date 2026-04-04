@@ -1,0 +1,22 @@
+app = 'haa-key-monitor'
+primary_region = 'lhr'
+
+[build]
+
+[env]
+  NODE_ENV = 'production'
+  STATE_FILE = '/data/state.json'
+  # WATCH_ACCOUNTS, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID set via: fly secrets set ...
+
+[processes]
+  app = 'node --import tsx src/index.ts'
+
+[[mounts]]
+  source = 'key_monitor_data'
+  destination = '/data'
+
+[[vm]]
+  cpu_kind = 'shared'
+  cpus = 1
+  memory_mb = 256
+  auto_stop_machines = 'off'
