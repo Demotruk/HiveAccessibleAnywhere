@@ -12,6 +12,7 @@ import { initDatabase } from './db.js';
 import { createBot } from './bot.js';
 import { createDiscordBot, startDiscordBot } from './discord-bot.js';
 import { startTransferMonitor } from './hive/transfer-monitor.js';
+import { startApplicationMonitor } from './hive/application-monitor.js';
 import { TelegramNotifier, DiscordNotifier, type PaymentNotifier } from './notifier.js';
 
 const config = loadConfig();
@@ -42,6 +43,9 @@ if (config.discordBotToken) {
 
 // Start HBD transfer monitor (shared across both platforms)
 startTransferMonitor(notifiers, db, config);
+
+// Start issuer application monitor (notifies operator via Telegram)
+startApplicationMonitor(bot, db, config);
 
 // Start Telegram polling (catch errors so they don't crash Discord)
 bot.start({

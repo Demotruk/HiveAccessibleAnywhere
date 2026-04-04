@@ -20,6 +20,7 @@ src/
   v4v.ts                      # Lightning invoice generation via v4v.app
   hive/
     transfer-monitor.ts       # Monitor HBD transfers, dispatch to platform notifiers
+    application-monitor.ts    # Stream blocks for issuer applications, notify operator
   commands/                   # Telegram command handlers
     gift.ts buygift.ts load.ts stock.ts setprice.ts
     clear.ts trust.ts share.ts
