@@ -30,14 +30,15 @@ import { claimHandler } from './routes/claim.js';
 import { validateHandler } from './routes/validate.js';
 import { challengeHandler, verifyHandler } from './routes/auth.js';
 import {
-  createBatchHandler, listBatchesHandler, getBatchDetailHandler,
+  createBatchHandler, prepareBatchHandler, finalizeBatchHandler,
+  listBatchesHandler, getBatchDetailHandler,
   downloadPdfHandler, downloadManifestHandler,
 } from './routes/batches.js';
 import {
   applyHandler, meHandler, setServiceUrlHandler, listIssuersHandler, approveHandler,
 } from './routes/issuers.js';
 import { loadConfig, isMultiTenant } from './config.js';
-import { initDatabase } from './db.js';
+import { initDatabase, cleanupPendingBatches } from './db.js';
 import { warmBatchCache } from './hive/batch-lookup.js';
 
 const config = loadConfig();
@@ -137,11 +138,16 @@ app.post('/api/admin/issuers/:username/approve', apiLimiter, admin, approveHandl
 
 // Batch routes (active issuers + admins)
 const issuer = requireIssuer(config, db);
+app.post('/api/batches/prepare', apiLimiter, issuer, prepareBatchHandler(db, config));
 app.post('/api/batches', apiLimiter, issuer, createBatchHandler(db, config));
 app.get('/api/batches', apiLimiter, issuer, listBatchesHandler(db));
-app.get('/api/batches/:id', apiLimiter, issuer, getBatchDetailHandler(db));
+app.post('/api/batches/:id/finalize', apiLimiter, issuer, finalizeBatchHandler(db, config));
 app.get('/api/batches/:id/pdf', apiLimiter, issuer, downloadPdfHandler(db));
 app.get('/api/batches/:id/manifest', apiLimiter, issuer, downloadManifestHandler(db));
+app.get('/api/batches/:id', apiLimiter, issuer, getBatchDetailHandler(db));
+
+// Clean up abandoned pending batches every 15 minutes
+setInterval(() => cleanupPendingBatches(db), 15 * 60 * 1000);
 
 // 404 for everything else (looks like a normal site)
 app.use((_req, res) => {

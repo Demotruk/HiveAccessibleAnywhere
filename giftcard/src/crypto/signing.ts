@@ -65,6 +65,67 @@ export function verifyCardSignature(
   return recoveredKey.toString() === expectedKey.toString();
 }
 
+// -- Batch-Level Signing --
+
+/**
+ * Build the canonical string for a batch-level signature.
+ *
+ * Batch signing replaces the per-card token with the Merkle root, so one
+ * signature covers the entire batch. Each card carries the shared batch
+ * signature plus its own Merkle inclusion proof.
+ */
+export function batchCanonicalString(
+  merkleRoot: string,
+  batchId: string,
+  provider: string,
+  expires: string,
+  promiseType: string,
+): string {
+  return `${merkleRoot}:${batchId}:${provider}:${expires}:${promiseType}`;
+}
+
+/**
+ * Sign a batch's canonical data with the issuer's memo private key.
+ * Returns a hex-encoded signature string.
+ *
+ * Used for self-hosted/CLI batch generation where the server holds the memo key.
+ * In multi-tenant dashboard mode, the issuer signs via Hive Keychain instead.
+ */
+export function signBatchData(
+  merkleRoot: string,
+  batchId: string,
+  provider: string,
+  expires: string,
+  promiseType: string,
+  memoPrivateKeyWif: string,
+): string {
+  const message = batchCanonicalString(merkleRoot, batchId, provider, expires, promiseType);
+  const msgHash = createHash('sha256').update(message, 'utf-8').digest();
+  const key = PrivateKey.from(memoPrivateKeyWif);
+  const sig = key.sign(msgHash);
+  return sig.customToString();
+}
+
+/**
+ * Verify a batch-level signature against the issuer's public memo key.
+ */
+export function verifyBatchSignature(
+  merkleRoot: string,
+  batchId: string,
+  provider: string,
+  expires: string,
+  promiseType: string,
+  signatureHex: string,
+  memoPublicKeyStr: string,
+): boolean {
+  const message = batchCanonicalString(merkleRoot, batchId, provider, expires, promiseType);
+  const msgHash = createHash('sha256').update(message, 'utf-8').digest();
+  const sig = Signature.from(signatureHex);
+  const recoveredKey = sig.getPublicKey(msgHash);
+  const expectedKey = PublicKey.from(memoPublicKeyStr);
+  return recoveredKey.toString() === expectedKey.toString();
+}
+
 // -- Merkle Tree --
 
 /**
@@ -242,6 +303,7 @@ const LONG_TO_SHORT: Record<string, string> = {
   promiseType: 'y',
   promiseParams: 'pp',
   merkleProof: 'm',
+  merkleRoot: 'mr',
   variant: 'v',
   locale: 'l',
   autoFollow: 'af',
@@ -291,6 +353,8 @@ export interface GiftCardPayload {
   promiseParams?: Record<string, unknown>;
   /** Compact-encoded Merkle inclusion proof (see encodeMerkleProof) */
   merkleProof?: string;
+  /** Merkle root of the batch (present for batch-signed cards, absent for legacy per-card) */
+  merkleRoot?: string;
   /** Card variant: 'standard' (HiveSigner redirect) or 'robust' (proxy + bootstrap) */
   variant: 'standard' | 'robust';
   /** Wallet locale for robust invites (determines which on-chain wallet to fetch) */

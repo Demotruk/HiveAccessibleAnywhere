@@ -68,6 +68,18 @@ export async function loginExternal(username: string, serviceUrl: string): Promi
 }
 
 /**
+ * Sign a batch canonical string with the issuer's memo key via Keychain.
+ * Used during the two-phase batch generation flow.
+ */
+export function signBatchCanonical(username: string, canonicalString: string): Promise<string> {
+  return withKeychainTimeout(
+    (cb) => window.hive_keychain!.requestSignBuffer(username, canonicalString, 'Memo', cb),
+    (r) => r.result,
+    'Batch signing failed',
+  );
+}
+
+/**
  * Broadcast a custom_json operation via Keychain.
  * Returns the tx result string from Keychain.
  */

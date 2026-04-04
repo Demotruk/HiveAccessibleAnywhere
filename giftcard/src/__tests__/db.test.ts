@@ -3,6 +3,11 @@ import Database from 'better-sqlite3';
 import {
   initDatabase,
   createBatch,
+  createPendingBatch,
+  getPendingBatch,
+  finalizeBatchRecord,
+  cleanupPendingBatches,
+  listTokensForBatch,
   insertToken,
   getToken,
   getTokenWithBatch,
@@ -10,6 +15,7 @@ import {
   revokeToken,
   revokeBatch,
   listBatches,
+  listBatchesByProvider,
   listTokens,
   getStats,
   updateBatchDeclaration,
@@ -260,6 +266,106 @@ describe('Database layer', () => {
       expect(() => {
         markTokenSpentByHash(db, 'hash-dup', 'batch-1', 'user2', '2.2.2.2', 'tx2');
       }).toThrow();
+    });
+  });
+
+  describe('batch signing (two-phase flow)', () => {
+    it('creates a pending batch and retrieves it', () => {
+      createPendingBatch(db, 'pending-1', '2027-01-01T00:00:00Z', 5, 'issuer1', 'root123', '{"count":5}');
+      const batch = getPendingBatch(db, 'pending-1', 'issuer1');
+      expect(batch).not.toBeNull();
+      expect(batch!.id).toBe('pending-1');
+      expect(batch!.status).toBe('pending');
+      expect(batch!.merkle_root).toBe('root123');
+      expect(batch!.options_json).toBe('{"count":5}');
+      expect(batch!.provider).toBe('issuer1');
+    });
+
+    it('returns null for pending batch with wrong provider', () => {
+      createPendingBatch(db, 'pending-2', '2027-01-01T00:00:00Z', 3, 'issuer1', 'root456', '{}');
+      expect(getPendingBatch(db, 'pending-2', 'wrong-issuer')).toBeNull();
+    });
+
+    it('returns null for active batch via getPendingBatch', () => {
+      createBatch(db, 'active-1', '2027-01-01T00:00:00Z', 5);
+      expect(getPendingBatch(db, 'active-1', 'anyone')).toBeNull();
+    });
+
+    it('finalizes a pending batch (pending -> active)', () => {
+      createPendingBatch(db, 'pending-3', '2027-01-01T00:00:00Z', 2, 'issuer2', 'root789', '{}');
+      const ok = finalizeBatchRecord(db, 'pending-3', 'issuer2', 'sig-hex-abc');
+      expect(ok).toBe(true);
+
+      // Should no longer be pending
+      expect(getPendingBatch(db, 'pending-3', 'issuer2')).toBeNull();
+
+      // Should now have active status and signature
+      const row = db.prepare('SELECT status, signature FROM batches WHERE id = ?').get('pending-3') as any;
+      expect(row.status).toBe('active');
+      expect(row.signature).toBe('sig-hex-abc');
+    });
+
+    it('returns false when finalizing a non-pending batch', () => {
+      createPendingBatch(db, 'pending-4', '2027-01-01T00:00:00Z', 1, 'issuer3', 'rootabc', '{}');
+      finalizeBatchRecord(db, 'pending-4', 'issuer3', 'sig1');
+      // Second finalize should fail (already active)
+      const ok = finalizeBatchRecord(db, 'pending-4', 'issuer3', 'sig2');
+      expect(ok).toBe(false);
+    });
+
+    it('excludes pending batches from listBatchesByProvider', () => {
+      createPendingBatch(db, 'pending-5', '2027-01-01T00:00:00Z', 1, 'issuer4', 'root', '{}');
+      const batches = listBatchesByProvider(db, 'issuer4');
+      expect(batches).toHaveLength(0);
+
+      // After finalizing, it should appear
+      finalizeBatchRecord(db, 'pending-5', 'issuer4', 'sig');
+      const batches2 = listBatchesByProvider(db, 'issuer4');
+      expect(batches2).toHaveLength(1);
+    });
+
+    it('cleans up old pending batches and their tokens', () => {
+      // Create a pending batch with tokens
+      createPendingBatch(db, 'pending-old', '2027-01-01T00:00:00Z', 2, 'issuer5', 'root', '{}');
+      insertToken(db, 'tok-old-1', 'pending-old', 'PIN1', '', '2027-01-01T00:00:00Z');
+      insertToken(db, 'tok-old-2', 'pending-old', 'PIN2', '', '2027-01-01T00:00:00Z');
+
+      // Set created_at to 2 hours ago to simulate an abandoned batch
+      db.prepare("UPDATE batches SET created_at = datetime('now', '-2 hours') WHERE id = 'pending-old'").run();
+
+      const cleaned = cleanupPendingBatches(db);
+      expect(cleaned).toBe(1);
+
+      // Batch and tokens should be gone
+      expect(getPendingBatch(db, 'pending-old', 'issuer5')).toBeNull();
+      expect(getToken(db, 'tok-old-1')).toBeNull();
+      expect(getToken(db, 'tok-old-2')).toBeNull();
+    });
+
+    it('does not clean up recent pending batches', () => {
+      createPendingBatch(db, 'pending-recent', '2027-01-01T00:00:00Z', 1, 'issuer6', 'root', '{}');
+      const cleaned = cleanupPendingBatches(db);
+      expect(cleaned).toBe(0);
+      expect(getPendingBatch(db, 'pending-recent', 'issuer6')).not.toBeNull();
+    });
+
+    it('does not clean up active batches', () => {
+      createPendingBatch(db, 'pending-active', '2027-01-01T00:00:00Z', 1, 'issuer7', 'root', '{}');
+      finalizeBatchRecord(db, 'pending-active', 'issuer7', 'sig');
+      db.prepare("UPDATE batches SET created_at = datetime('now', '-2 hours') WHERE id = 'pending-active'").run();
+
+      const cleaned = cleanupPendingBatches(db);
+      expect(cleaned).toBe(0);
+    });
+
+    it('listTokensForBatch returns tokens in order', () => {
+      createPendingBatch(db, 'pending-list', '2027-01-01T00:00:00Z', 3, 'issuer8', 'root', '{}');
+      insertToken(db, 'tok-c', 'pending-list', 'P1', '', '2027-01-01T00:00:00Z');
+      insertToken(db, 'tok-a', 'pending-list', 'P2', '', '2027-01-01T00:00:00Z');
+      insertToken(db, 'tok-b', 'pending-list', 'P3', '', '2027-01-01T00:00:00Z');
+
+      const tokens = listTokensForBatch(db, 'pending-list');
+      expect(tokens).toHaveLength(3);
     });
   });
 });

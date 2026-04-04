@@ -40,6 +40,15 @@ export interface BatchCreateRequest {
   referrer?: string;
 }
 
+/** POST /api/batches/prepare response */
+export interface PrepareResponse {
+  batchId: string;
+  count: number;
+  expiresAt: string;
+  merkleRoot: string;
+  canonicalString: string;
+}
+
 /** POST /api/batches response */
 export interface BatchCreateResponse {
   batchId: string;

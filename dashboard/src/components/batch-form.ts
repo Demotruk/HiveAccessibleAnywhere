@@ -1,6 +1,7 @@
 import { html } from 'htm/preact';
 import { useState } from 'preact/hooks';
-import { createBatch, downloadFile } from '../api.js';
+import { prepareBatchApi, finalizeBatchApi, downloadFile } from '../api.js';
+import { signBatchCanonical, isKeychainAvailable } from '../auth.js';
 import { state } from '../state.js';
 import type { BatchCreateResponse } from '../types.js';
 
@@ -30,9 +31,11 @@ export function BatchForm() {
   const [communitiesStr, setCommunitiesStr] = useState('');
   const [referrer, setReferrer] = useState('');
   const [note, setNote] = useState('');
-  const [generating, setGenerating] = useState(false);
+  const [phase, setPhase] = useState<'form' | 'preparing' | 'signing' | 'finalizing' | 'done'>('form');
   const [error, setError] = useState('');
   const [result, setResult] = useState<BatchCreateResponse | null>(null);
+
+  const generating = phase !== 'form' && phase !== 'done';
 
   if (externalDown) {
     return html`
@@ -46,32 +49,50 @@ export function BatchForm() {
   async function handleSubmit(e: Event) {
     e.preventDefault();
     setError('');
-    setGenerating(true);
+
+    if (!isKeychainAvailable()) {
+      setError('Hive Keychain is required to sign batches. Please install the Keychain browser extension.');
+      return;
+    }
+
+    const autoFollow = autoFollowStr.trim()
+      ? autoFollowStr.split(',').map(s => s.trim().toLowerCase().replace(/^@/, '')).filter(Boolean)
+      : undefined;
+    const communities = communitiesStr.trim()
+      ? communitiesStr.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+      : undefined;
+    const refUser = referrer.trim().toLowerCase().replace(/^@/, '') || undefined;
+
+    const options = {
+      count,
+      locale,
+      expiryDays,
+      variant,
+      design: 'hive' as const,
+      ...(note.trim() && { note: note.trim() }),
+      ...(autoFollow?.length && { autoFollow }),
+      ...(communities?.length && { communities }),
+      ...(refUser && { referrer: refUser }),
+    };
 
     try {
-      const autoFollow = autoFollowStr.trim()
-        ? autoFollowStr.split(',').map(s => s.trim().toLowerCase().replace(/^@/, '')).filter(Boolean)
-        : undefined;
-      const communities = communitiesStr.trim()
-        ? communitiesStr.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
-        : undefined;
-      const refUser = referrer.trim().toLowerCase().replace(/^@/, '') || undefined;
-      const res = await createBatch({
-        count,
-        locale,
-        expiryDays,
-        variant,
-        design: 'hive',
-        ...(note.trim() && { note: note.trim() }),
-        ...(autoFollow?.length && { autoFollow }),
-        ...(communities?.length && { communities }),
-        ...(refUser && { referrer: refUser }),
-      });
+      // Phase 1: Prepare batch (server generates tokens + Merkle tree)
+      setPhase('preparing');
+      const prepared = await prepareBatchApi(options);
+
+      // Phase 2: Sign canonical string with Keychain (issuer's memo key)
+      setPhase('signing');
+      const signature = await signBatchCanonical(state.username!, prepared.canonicalString);
+
+      // Phase 3: Finalize batch (server generates payloads + PDFs + on-chain declaration)
+      setPhase('finalizing');
+      const res = await finalizeBatchApi(prepared.batchId, signature);
+
       setResult(res);
+      setPhase('done');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setGenerating(false);
+      setPhase('form');
     }
   }
 
@@ -101,7 +122,7 @@ export function BatchForm() {
           <button class="btn-s" onClick=${(e: Event) => navigate(`#batches/${result.batchId}`, e)}>
             View Batch
           </button>
-          <button class="btn-s" onClick=${() => { setResult(null); setNote(''); }}>
+          <button class="btn-s" onClick=${() => { setResult(null); setNote(''); setPhase('form'); }}>
             Generate Another
           </button>
         </div>
@@ -192,8 +213,12 @@ export function BatchForm() {
         <p class="sm mt mb" style="color:var(--tm)">Design: Hive Community (default)</p>
 
         <button type="submit" disabled=${generating}>
-          ${generating
-            ? html`<span class="spinner" style="width:14px;height:14px;border-width:2px;vertical-align:middle;margin-right:8px" /> Generating ${count} cards...`
+          ${phase === 'preparing'
+            ? html`<span class="spinner" style="width:14px;height:14px;border-width:2px;vertical-align:middle;margin-right:8px" /> Preparing batch...`
+            : phase === 'signing'
+            ? html`<span class="spinner" style="width:14px;height:14px;border-width:2px;vertical-align:middle;margin-right:8px" /> Waiting for Keychain...`
+            : phase === 'finalizing'
+            ? html`<span class="spinner" style="width:14px;height:14px;border-width:2px;vertical-align:middle;margin-right:8px" /> Finalizing batch...`
             : `Generate ${count} Cards`}
         </button>
       </form>

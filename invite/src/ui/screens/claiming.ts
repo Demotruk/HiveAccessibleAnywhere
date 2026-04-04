@@ -102,6 +102,8 @@ export const ClaimingScreen: ScreenFn = async (container, state, advance) => {
         promiseType: payload.promiseType,
         promiseParams: payload.promiseParams,
         merkleProof: payload.merkleProof,
+        // Batch-level signing: include merkleRoot so the service uses the correct verification scheme
+        ...(payload.merkleRoot && { merkleRoot: payload.merkleRoot }),
         // Post-creation options
         ...(payload.autoFollow?.length && { autoFollow: payload.autoFollow }),
         ...(payload.communities?.length && { communities: payload.communities }),

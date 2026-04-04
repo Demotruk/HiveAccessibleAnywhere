@@ -15,7 +15,7 @@ import {
   getBatchManifest,
   listTokens,
 } from '../db.js';
-import { generateBatch, type BatchGenerateOptions } from '../generate/batch.js';
+import { generateBatch, prepareBatch, finalizeBatch, type BatchGenerateOptions } from '../generate/batch.js';
 
 const VALID_LOCALES = new Set(['en', 'zh', 'ar', 'fa', 'ru', 'tr', 'vi']);
 
@@ -105,6 +105,126 @@ export function createBatchHandler(db: Database.Database, config: GiftcardConfig
     } catch (err) {
       console.error(`[BATCH API] Generation failed for @${issuer}:`, err instanceof Error ? err.message : String(err));
       res.status(500).json({ error: err instanceof Error ? err.message : 'Batch generation failed' });
+    }
+  };
+}
+
+/**
+ * POST /api/batches/prepare — Phase 1 of two-phase batch generation.
+ * Generates tokens and Merkle tree, returns the canonical string for signing.
+ */
+export function prepareBatchHandler(db: Database.Database, config: GiftcardConfig) {
+  return async (req: Request, res: Response): Promise<void> => {
+    const issuer = req.issuer!;
+    const body = req.body as {
+      count?: number;
+      expiryDays?: number;
+      design?: string;
+      locale?: string;
+      variant?: 'standard' | 'robust';
+      note?: string;
+      autoFollow?: string[];
+      communities?: string[];
+      referrer?: string;
+    };
+
+    // Validate count
+    const count = body.count;
+    if (!count || typeof count !== 'number' || count < 1 || count > 100 || !Number.isInteger(count)) {
+      res.status(400).json({ error: 'count must be an integer between 1 and 100' });
+      return;
+    }
+
+    // Validate locale
+    const locale = body.locale ?? 'en';
+    if (!VALID_LOCALES.has(locale)) {
+      res.status(400).json({ error: `Invalid locale. Must be one of: ${[...VALID_LOCALES].join(', ')}` });
+      return;
+    }
+
+    // Validate design
+    const design = body.design ?? 'hive';
+    if (design !== 'hive') {
+      res.status(400).json({ error: 'Only "hive" design is supported in v1' });
+      return;
+    }
+
+    // Validate auto-follow
+    if (body.autoFollow !== undefined) {
+      if (!Array.isArray(body.autoFollow) || body.autoFollow.length > 20 || body.autoFollow.some(u => typeof u !== 'string' || !u)) {
+        res.status(400).json({ error: 'autoFollow must be an array of up to 20 non-empty usernames' });
+        return;
+      }
+    }
+
+    // Validate communities
+    if (body.communities !== undefined) {
+      if (!Array.isArray(body.communities) || body.communities.length > 10 || body.communities.some(c => typeof c !== 'string' || !c)) {
+        res.status(400).json({ error: 'communities must be an array of up to 10 non-empty community names' });
+        return;
+      }
+    }
+
+    // Validate referrer
+    if (body.referrer !== undefined && (typeof body.referrer !== 'string' || !body.referrer)) {
+      res.status(400).json({ error: 'referrer must be a non-empty string' });
+      return;
+    }
+
+    const options: BatchGenerateOptions = {
+      count,
+      expiryDays: body.expiryDays ?? 365,
+      design,
+      locale,
+      variant: body.variant ?? 'standard',
+      note: body.note,
+      autoFollow: body.autoFollow,
+      communities: body.communities,
+      referrer: body.referrer,
+    };
+
+    try {
+      const result = await prepareBatch(db, config, issuer, options);
+      res.json(result);
+    } catch (err) {
+      console.error(`[BATCH API] Prepare failed for @${issuer}:`, err instanceof Error ? err.message : String(err));
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Batch preparation failed' });
+    }
+  };
+}
+
+/**
+ * POST /api/batches/:id/finalize — Phase 2 of two-phase batch generation.
+ * Receives the issuer's batch signature, generates payloads, PDFs, and on-chain declaration.
+ */
+export function finalizeBatchHandler(db: Database.Database, config: GiftcardConfig) {
+  return async (req: Request, res: Response): Promise<void> => {
+    const issuer = req.issuer!;
+    const batchId = req.params.id as string;
+    const body = req.body as { signature?: string };
+
+    if (!body.signature || typeof body.signature !== 'string') {
+      res.status(400).json({ error: 'Missing required field: signature' });
+      return;
+    }
+
+    try {
+      const result = await finalizeBatch(db, config, issuer, batchId, body.signature);
+      res.json({
+        ...result,
+        downloads: {
+          pdf: `/api/batches/${result.batchId}/pdf`,
+          manifest: `/api/batches/${result.batchId}/manifest`,
+        },
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[BATCH API] Finalize failed for @${issuer} batch ${batchId}:`, msg);
+      if (msg.includes('not found') || msg.includes('already finalized')) {
+        res.status(404).json({ error: msg });
+      } else {
+        res.status(500).json({ error: 'Batch finalization failed' });
+      }
     }
   };
 }

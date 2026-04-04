@@ -16,7 +16,7 @@ import type Database from 'better-sqlite3';
 import type { GiftcardConfig } from '../config.js';
 import { isMultiTenant } from '../config.js';
 import { getTokenWithBatch, isTokenSpent } from '../db.js';
-import { verifyMerkleProof, verifyCardSignature, decodeMerkleProof } from '../crypto/signing.js';
+import { verifyMerkleProof, verifyCardSignature, verifyBatchSignature, decodeMerkleProof } from '../crypto/signing.js';
 import { fetchBatchDeclaration } from '../hive/batch-lookup.js';
 import { resolveProvider, isProviderAllowed } from '../hive/provider.js';
 
@@ -29,6 +29,8 @@ interface ValidateRequest {
   expires?: string;
   promiseType?: string;
   merkleProof?: string;
+  /** Merkle root of the batch (present for batch-signed cards) */
+  merkleRoot?: string;
 }
 
 export function validateHandler(db: Database.Database, config: GiftcardConfig) {
@@ -91,32 +93,51 @@ export function validateHandler(db: Database.Database, config: GiftcardConfig) {
         return;
       }
 
-      // Resolve memo public key for signature verification.
-      // In multi-tenant mode, cards are signed with the service account's memo key.
-      // In single-tenant mode, use the provider's pre-derived key.
+      // Resolve memo public key and verify signature.
+      // Dual-scheme: batch-signed (merkleRoot present) verifies against provider's
+      // own memo key; legacy per-card verifies against service account's.
       let memoPublicKey: string;
-      if (isMultiTenant(config)) {
+      if (body.merkleRoot) {
+        // Batch-signed: verify against provider's own memo key
         try {
-          const resolved = await resolveProvider(config.serviceAccount!, config.hiveNodes);
+          const resolved = await resolveProvider(effectiveProvider, config.hiveNodes);
           memoPublicKey = resolved.memoPublicKey;
         } catch (err) {
-          console.error(`[VALIDATE ERROR] Service account memo key resolution failed: ${err instanceof Error ? err.message : String(err)}`);
-          res.status(500).json({ valid: false, reason: 'Could not resolve service account' });
+          console.error(`[VALIDATE ERROR] Provider memo key resolution failed: ${err instanceof Error ? err.message : String(err)}`);
+          res.status(500).json({ valid: false, reason: 'Could not resolve provider account' });
           return;
         }
-      } else if (defaultMemoPublicKey) {
-        memoPublicKey = defaultMemoPublicKey;
+        if (!verifyBatchSignature(
+          body.merkleRoot, body.batchId, effectiveProvider,
+          body.expires, body.promiseType, body.signature, memoPublicKey,
+        )) {
+          res.json({ valid: false, reason: 'Invalid signature' });
+          return;
+        }
       } else {
-        res.status(500).json({ valid: false, reason: 'No memo key configured' });
-        return;
-      }
-
-      if (!verifyCardSignature(
-        body.token, body.batchId, effectiveProvider,
-        body.expires, body.promiseType, body.signature, memoPublicKey,
-      )) {
-        res.json({ valid: false, reason: 'Invalid signature' });
-        return;
+        // Legacy per-card: resolve service account in multi-tenant, provider in single-tenant
+        if (isMultiTenant(config)) {
+          try {
+            const resolved = await resolveProvider(config.serviceAccount!, config.hiveNodes);
+            memoPublicKey = resolved.memoPublicKey;
+          } catch (err) {
+            console.error(`[VALIDATE ERROR] Service account memo key resolution failed: ${err instanceof Error ? err.message : String(err)}`);
+            res.status(500).json({ valid: false, reason: 'Could not resolve service account' });
+            return;
+          }
+        } else if (defaultMemoPublicKey) {
+          memoPublicKey = defaultMemoPublicKey;
+        } else {
+          res.status(500).json({ valid: false, reason: 'No memo key configured' });
+          return;
+        }
+        if (!verifyCardSignature(
+          body.token, body.batchId, effectiveProvider,
+          body.expires, body.promiseType, body.signature, memoPublicKey,
+        )) {
+          res.json({ valid: false, reason: 'Invalid signature' });
+          return;
+        }
       }
 
       res.json({

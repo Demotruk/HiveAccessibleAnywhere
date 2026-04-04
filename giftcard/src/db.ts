@@ -24,6 +24,9 @@ export interface BatchRow {
   provider: string | null;
   pdf_data: Buffer | null;
   manifest_data: string | null;
+  status: 'pending' | 'active';
+  signature: string | null;
+  options_json: string | null;
 }
 
 export interface IssuerRow {
@@ -121,6 +124,7 @@ export function initDatabase(dbPath: string): Database.Database {
   migrateSpentTokensProvider(db);
   migrateBatchesForDashboard(db);
   migrateIssuersTable(db);
+  migrateBatchSigning(db);
 
   return db;
 }
@@ -183,6 +187,29 @@ function migrateIssuersTable(db: Database.Database): void {
   if (!cols.some(c => c.name === 'service_url')) {
     db.exec('ALTER TABLE issuers ADD COLUMN service_url TEXT');
     console.log('[DB] Migrated issuers: added service_url column');
+  }
+}
+
+/**
+ * Add batch-signing columns to batches table if they don't exist.
+ * - status: 'pending' or 'active' (default 'active' for existing rows)
+ * - signature: batch-level signature hex string
+ * - options_json: serialized generation options for the finalize step
+ */
+function migrateBatchSigning(db: Database.Database): void {
+  const columns = db.pragma('table_info(batches)') as Array<{ name: string }>;
+  const colNames = new Set(columns.map(c => c.name));
+  if (!colNames.has('status')) {
+    db.exec("ALTER TABLE batches ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
+    console.log('[DB] Migrated batches: added status column');
+  }
+  if (!colNames.has('signature')) {
+    db.exec('ALTER TABLE batches ADD COLUMN signature TEXT');
+    console.log('[DB] Migrated batches: added signature column');
+  }
+  if (!colNames.has('options_json')) {
+    db.exec('ALTER TABLE batches ADD COLUMN options_json TEXT');
+    console.log('[DB] Migrated batches: added options_json column');
   }
 }
 
@@ -548,11 +575,12 @@ export function createBatchWithProvider(
 }
 
 /**
- * List batches belonging to a specific provider (issuer).
+ * List active batches belonging to a specific provider (issuer).
+ * Pending (unfinalized) batches are excluded from the listing.
  */
 export function listBatchesByProvider(db: Database.Database, provider: string): BatchRow[] {
   return db.prepare(
-    'SELECT * FROM batches WHERE provider = ? ORDER BY created_at DESC',
+    "SELECT * FROM batches WHERE provider = ? AND status = 'active' ORDER BY created_at DESC",
   ).all(provider) as BatchRow[];
 }
 
@@ -609,4 +637,90 @@ export function getBatchManifest(
     'SELECT manifest_data FROM batches WHERE id = ? AND provider = ?',
   ).get(batchId, provider) as { manifest_data: string | null } | undefined;
   return row?.manifest_data ?? null;
+}
+
+// -- Batch signing (two-phase flow) --
+
+/**
+ * Create a pending batch for the two-phase signing flow.
+ * Tokens are generated and stored, but the batch is not yet finalized
+ * (no signature, no PDFs, no on-chain declaration).
+ */
+export function createPendingBatch(
+  db: Database.Database,
+  id: string,
+  expiresAt: string,
+  count: number,
+  provider: string,
+  merkleRoot: string,
+  optionsJson: string,
+  note?: string,
+  promiseType: string = 'account-creation',
+  promiseParams?: Record<string, unknown>,
+): void {
+  db.prepare(`
+    INSERT INTO batches (id, expires_at, count, merkle_root, note, promise_type, promise_params, provider, status, options_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+  `).run(
+    id, expiresAt, count, merkleRoot, note ?? null,
+    promiseType, promiseParams ? JSON.stringify(promiseParams) : null,
+    provider, optionsJson,
+  );
+}
+
+/**
+ * Retrieve a pending batch by ID, scoped to provider.
+ */
+export function getPendingBatch(
+  db: Database.Database,
+  batchId: string,
+  provider: string,
+): BatchRow | null {
+  return (db.prepare(
+    "SELECT * FROM batches WHERE id = ? AND provider = ? AND status = 'pending'",
+  ).get(batchId, provider) as BatchRow | undefined) ?? null;
+}
+
+/**
+ * Finalize a pending batch: store the signature and transition to active.
+ * Returns true if the update was applied (batch existed and was pending).
+ */
+export function finalizeBatchRecord(
+  db: Database.Database,
+  batchId: string,
+  provider: string,
+  signature: string,
+): boolean {
+  const result = db.prepare(
+    "UPDATE batches SET status = 'active', signature = ? WHERE id = ? AND provider = ? AND status = 'pending'",
+  ).run(signature, batchId, provider);
+  return result.changes > 0;
+}
+
+/**
+ * Delete pending batches (and their tokens) that were not finalized
+ * within the cleanup window. Safe to call periodically.
+ *
+ * Uses SQLite's datetime() for comparison to avoid format mismatches
+ * between SQLite's datetime('now') and JavaScript's Date.toISOString().
+ */
+export function cleanupPendingBatches(db: Database.Database, maxAgeMinutes: number = 60): number {
+  const modifier = `-${maxAgeMinutes} minutes`;
+  db.prepare(
+    "DELETE FROM tokens WHERE batch_id IN (SELECT id FROM batches WHERE status = 'pending' AND created_at < datetime('now', ?))",
+  ).run(modifier);
+  const result = db.prepare(
+    "DELETE FROM batches WHERE status = 'pending' AND created_at < datetime('now', ?)",
+  ).run(modifier);
+  if (result.changes > 0) {
+    console.log(`[DB] Cleaned up ${result.changes} abandoned pending batch(es)`);
+  }
+  return result.changes;
+}
+
+/**
+ * List tokens for a batch (needed by finalize to generate payloads).
+ */
+export function listTokensForBatch(db: Database.Database, batchId: string): TokenRow[] {
+  return db.prepare('SELECT * FROM tokens WHERE batch_id = ? ORDER BY created_at ASC').all(batchId) as TokenRow[];
 }

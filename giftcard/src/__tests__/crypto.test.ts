@@ -13,6 +13,9 @@ import {
   hashToken,
   signCardData,
   verifyCardSignature,
+  batchCanonicalString,
+  signBatchData,
+  verifyBatchSignature,
   type GiftCardPayload,
 } from '../crypto/signing.js';
 
@@ -375,5 +378,116 @@ describe('Authenticity signing', () => {
     const sig1 = signCardData(token, batchId, provider, expires, 'account-creation', testWif);
     const sig2 = signCardData(token, batchId, provider, expires, 'transfer', testWif);
     expect(sig1).not.toBe(sig2);
+  });
+});
+
+describe('Batch-level signing', () => {
+  const testWif = '5JRaypasxMx1L97ZUX7YuC5Psb5EAbF821kkAGtBj7xCJFQcbLg';
+  const privKey = PrivateKey.from(testWif);
+  const pubKey = privKey.createPublic().toString();
+
+  const otherWif = '5HueCGU8rMjxEXxiPuD5BDku4MkFqeZyd4dZ1jvhTVqvbTLvyTJ';
+  const otherPubKey = PrivateKey.from(otherWif).createPublic().toString();
+
+  it('batchCanonicalString uses merkleRoot instead of token', () => {
+    const root = 'abc123';
+    const canonical = batchCanonicalString(root, 'batch-1', 'provider', '2027-01-01', 'account-creation');
+    expect(canonical).toBe('abc123:batch-1:provider:2027-01-01:account-creation');
+  });
+
+  it('batch canonical differs from per-card canonical for same batchId', () => {
+    const token = generateToken();
+    const root = merkleRoot([token]);
+    const batchId = 'batch-test';
+    const provider = 'prov';
+    const expires = '2027-01-01';
+    const pt = 'account-creation';
+
+    const perCard = `${token}:${batchId}:${provider}:${expires}:${pt}`;
+    const batch = batchCanonicalString(root, batchId, provider, expires, pt);
+    expect(perCard).not.toBe(batch);
+  });
+
+  it('signBatchData and verifyBatchSignature roundtrip correctly', () => {
+    const tokens = Array.from({ length: 5 }, () => generateToken());
+    const root = merkleRoot(tokens);
+    const batchId = 'batch-roundtrip';
+    const provider = 'testissuer';
+    const expires = '2027-06-01T00:00:00Z';
+    const promiseType = 'account-creation';
+
+    const sig = signBatchData(root, batchId, provider, expires, promiseType, testWif);
+    expect(sig).toBeTruthy();
+    expect(typeof sig).toBe('string');
+
+    const valid = verifyBatchSignature(root, batchId, provider, expires, promiseType, sig, pubKey);
+    expect(valid).toBe(true);
+  });
+
+  it('rejects batch signature with wrong merkle root', () => {
+    const root = merkleRoot(['tok1', 'tok2']);
+    const sig = signBatchData(root, 'batch-1', 'prov', '2027-01-01', 'account-creation', testWif);
+
+    const wrongRoot = merkleRoot(['tok3', 'tok4']);
+    const valid = verifyBatchSignature(wrongRoot, 'batch-1', 'prov', '2027-01-01', 'account-creation', sig, pubKey);
+    expect(valid).toBe(false);
+  });
+
+  it('rejects batch signature with wrong provider', () => {
+    const root = merkleRoot(['tok1']);
+    const sig = signBatchData(root, 'batch-1', 'legit-issuer', '2027-01-01', 'account-creation', testWif);
+
+    const valid = verifyBatchSignature(root, 'batch-1', 'fake-issuer', '2027-01-01', 'account-creation', sig, pubKey);
+    expect(valid).toBe(false);
+  });
+
+  it('rejects batch signature with wrong key', () => {
+    const root = merkleRoot(['tok1']);
+    const sig = signBatchData(root, 'batch-1', 'prov', '2027-01-01', 'account-creation', testWif);
+
+    const valid = verifyBatchSignature(root, 'batch-1', 'prov', '2027-01-01', 'account-creation', sig, otherPubKey);
+    expect(valid).toBe(false);
+  });
+
+  it('per-card signature is not valid as batch signature and vice versa', () => {
+    const token = generateToken();
+    const root = merkleRoot([token]);
+    const batchId = 'batch-cross';
+    const provider = 'prov';
+    const expires = '2027-01-01T00:00:00Z';
+    const pt = 'account-creation';
+
+    const cardSig = signCardData(token, batchId, provider, expires, pt, testWif);
+    const batchSig = signBatchData(root, batchId, provider, expires, pt, testWif);
+
+    // Card sig should not verify as batch sig
+    expect(verifyBatchSignature(root, batchId, provider, expires, pt, cardSig, pubKey)).toBe(false);
+    // Batch sig should not verify as card sig
+    expect(verifyCardSignature(token, batchId, provider, expires, pt, batchSig, pubKey)).toBe(false);
+  });
+
+  it('roundtrips encrypted payload with merkleRoot field', () => {
+    const tokens = ['tok-a', 'tok-b', 'tok-c'];
+    const root = merkleRoot(tokens);
+    const proof = generateMerkleProof(tokens, 'tok-b');
+
+    const payload: GiftCardPayload = {
+      token: 'a'.repeat(64),
+      provider: 'testprovider',
+      serviceUrl: 'https://example.com',
+      endpoints: [],
+      batchId: 'batch-test',
+      expires: '2027-01-01T00:00:00Z',
+      signature: 'sig-placeholder',
+      promiseType: 'account-creation',
+      merkleProof: encodeMerkleProof(proof),
+      merkleRoot: root,
+      variant: 'standard',
+    };
+
+    const blob = encryptPayload(payload, 'TESTPN');
+    const decrypted = decryptPayload(blob, 'TESTPN');
+    expect(decrypted.merkleRoot).toBe(root);
+    expect(decrypted.merkleProof).toBe(payload.merkleProof);
   });
 });

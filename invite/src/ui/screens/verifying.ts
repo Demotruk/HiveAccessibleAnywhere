@@ -56,9 +56,9 @@ export const VerifyingScreen: ScreenFn = async (container, state, advance) => {
 
   try {
     // Fetch the signing account's memo key for signature verification.
-    // In multi-tenant mode, cards are signed by the service account (payload.signer).
-    // In single-tenant mode, signed by the provider directly.
-    const signerName = payload.signer || payload.provider;
+    // Batch-signed cards (merkleRoot present): always verify against the provider's own memo key.
+    // Legacy per-card cards: verify against the signer (service account in multi-tenant).
+    const signerName = payload.merkleRoot ? payload.provider : (payload.signer || payload.provider);
     const accounts = await client.getAccounts([signerName]);
     if (!accounts || accounts.length === 0) {
       showError(t.verifying_counterfeit);

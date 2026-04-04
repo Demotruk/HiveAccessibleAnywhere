@@ -37,7 +37,9 @@ export interface GiftcardConfig {
   serviceAccount?: string;
   /** Service account's own active key (WIF) — signs on behalf of providers */
   serviceActiveKey?: string;
-  /** Service account's memo key (WIF) — signs gift cards on behalf of issuers in multi-tenant mode */
+  /** Service account's memo key (WIF) — signs gift cards on behalf of issuers in multi-tenant mode.
+   *  Deprecated for new deployments: batch-level signing eliminates this requirement.
+   *  Still needed for the legacy single-phase POST /api/batches endpoint. */
   serviceMemoKey?: string;
   /** Approved provider accounts. Claims for unlisted providers are rejected. */
   allowedProviders?: Set<string>;

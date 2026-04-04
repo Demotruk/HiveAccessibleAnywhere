@@ -17,7 +17,7 @@ import type Database from 'better-sqlite3';
 import type { GiftcardConfig } from '../config.js';
 import { isMultiTenant } from '../config.js';
 import { getTokenWithBatch, markTokenSpent, isTokenSpent, markTokenSpentByHash, type TokenWithPromise } from '../db.js';
-import { verifyMerkleProof, verifyCardSignature, decodeMerkleProof } from '../crypto/signing.js';
+import { verifyMerkleProof, verifyCardSignature, verifyBatchSignature, decodeMerkleProof } from '../crypto/signing.js';
 import { fetchBatchDeclaration } from '../hive/batch-lookup.js';
 import { resolveProvider, isProviderAllowed } from '../hive/provider.js';
 import { isValidUsername } from '../hive/username.js';
@@ -45,6 +45,8 @@ interface ClaimRequest {
   promiseType?: string;
   promiseParams?: Record<string, unknown>;
   merkleProof?: string;
+  /** Merkle root of the batch (present for batch-signed cards) */
+  merkleRoot?: string;
   // For account-creation:
   username?: string;
   keys?: PublicKeys;
@@ -149,35 +151,54 @@ export function claimHandler(db: Database.Database, config: GiftcardConfig) {
         return;
       }
 
-      // Resolve the memo public key for signature verification.
-      // In multi-tenant mode, cards are signed with the service account's memo key,
-      // so verify against the service account's on-chain memo public key.
-      // In single-tenant mode, use the provider's pre-derived key.
+      // Resolve the memo public key and verify signature.
+      // Dual-scheme detection: if merkleRoot is present, the card uses batch-level
+      // signing (verify against the provider's own memo key). Otherwise, legacy
+      // per-card signing (verify against the service account's memo key in multi-tenant).
       let memoPublicKey: string;
-      if (isMultiTenant(config)) {
+      if (body.merkleRoot) {
+        // Batch-signed: always verify against the provider's own memo key
         try {
-          const resolved = await resolveProvider(config.serviceAccount!, config.hiveNodes);
+          const resolved = await resolveProvider(effectiveProvider, config.hiveNodes);
           memoPublicKey = resolved.memoPublicKey;
         } catch (err) {
-          console.error(`[CLAIM ERROR] Service account memo key resolution failed: ${err instanceof Error ? err.message : String(err)}`);
-          res.status(500).json({ success: false, error: 'Could not resolve service account' });
+          console.error(`[CLAIM ERROR] Provider memo key resolution failed: ${err instanceof Error ? err.message : String(err)}`);
+          res.status(500).json({ success: false, error: 'Could not resolve provider account' });
           return;
         }
-      } else if (defaultMemoPublicKey) {
-        memoPublicKey = defaultMemoPublicKey;
+        if (!verifyBatchSignature(
+          body.merkleRoot, body.batchId, effectiveProvider,
+          body.expires, body.promiseType, body.signature, memoPublicKey,
+        )) {
+          console.log(`[CLAIM DENIED] Invalid batch signature | Token: ${body.token.slice(0, 8)}... | IP: ${ip}`);
+          res.status(400).json({ success: false, error: 'Invalid signature' });
+          return;
+        }
       } else {
-        res.status(500).json({ success: false, error: 'No memo key configured' });
-        return;
-      }
-
-      // Verify signature
-      if (!verifyCardSignature(
-        body.token, body.batchId, effectiveProvider,
-        body.expires, body.promiseType, body.signature, memoPublicKey,
-      )) {
-        console.log(`[CLAIM DENIED] Invalid signature (merkle) | Token: ${body.token.slice(0, 8)}... | IP: ${ip}`);
-        res.status(400).json({ success: false, error: 'Invalid signature' });
-        return;
+        // Legacy per-card: resolve service account in multi-tenant, provider in single-tenant
+        if (isMultiTenant(config)) {
+          try {
+            const resolved = await resolveProvider(config.serviceAccount!, config.hiveNodes);
+            memoPublicKey = resolved.memoPublicKey;
+          } catch (err) {
+            console.error(`[CLAIM ERROR] Service account memo key resolution failed: ${err instanceof Error ? err.message : String(err)}`);
+            res.status(500).json({ success: false, error: 'Could not resolve service account' });
+            return;
+          }
+        } else if (defaultMemoPublicKey) {
+          memoPublicKey = defaultMemoPublicKey;
+        } else {
+          res.status(500).json({ success: false, error: 'No memo key configured' });
+          return;
+        }
+        if (!verifyCardSignature(
+          body.token, body.batchId, effectiveProvider,
+          body.expires, body.promiseType, body.signature, memoPublicKey,
+        )) {
+          console.log(`[CLAIM DENIED] Invalid signature (merkle) | Token: ${body.token.slice(0, 8)}... | IP: ${ip}`);
+          res.status(400).json({ success: false, error: 'Invalid signature' });
+          return;
+        }
       }
 
       // Extract delegation_vests from batch promise_params if present

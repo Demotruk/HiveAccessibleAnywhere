@@ -1,6 +1,6 @@
 import { state, setState } from './state.js';
 import type {
-  Batch, BatchCreateRequest, BatchCreateResponse, BatchDetail,
+  Batch, BatchCreateRequest, BatchCreateResponse, PrepareResponse, BatchDetail,
   IssuerRecord, IssuerWithStats, SetupStatus, UserRole,
 } from './types.js';
 
@@ -150,6 +150,22 @@ export async function createBatch(options: BatchCreateRequest): Promise<BatchCre
   const res = await apiFetch('/api/batches', {
     method: 'POST',
     body: JSON.stringify(options),
+  }, batchTarget());
+  return res.json();
+}
+
+export async function prepareBatchApi(options: BatchCreateRequest): Promise<PrepareResponse> {
+  const res = await apiFetch('/api/batches/prepare', {
+    method: 'POST',
+    body: JSON.stringify(options),
+  }, batchTarget());
+  return res.json();
+}
+
+export async function finalizeBatchApi(batchId: string, signature: string): Promise<BatchCreateResponse> {
+  const res = await apiFetch(`/api/batches/${encodeURIComponent(batchId)}/finalize`, {
+    method: 'POST',
+    body: JSON.stringify({ signature }),
   }, batchTarget());
   return res.json();
 }
