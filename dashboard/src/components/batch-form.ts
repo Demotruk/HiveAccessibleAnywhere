@@ -8,11 +8,6 @@ import type { BatchCreateResponse } from '../types.js';
 const LOCALES = [
   { value: 'en', label: 'English' },
   { value: 'zh', label: 'Chinese' },
-  { value: 'ar', label: 'Arabic' },
-  { value: 'fa', label: 'Persian' },
-  { value: 'ru', label: 'Russian' },
-  { value: 'tr', label: 'Turkish' },
-  { value: 'vi', label: 'Vietnamese' },
 ];
 
 function navigate(hash: string, e: Event) {
@@ -26,7 +21,7 @@ export function BatchForm() {
   const [count, setCount] = useState(10);
   const [locale, setLocale] = useState('en');
   const [expiryDays, setExpiryDays] = useState(365);
-  const [variant, setVariant] = useState<'standard' | 'robust'>('standard');
+  const variant = 'standard' as const;
   const [autoFollowStr, setAutoFollowStr] = useState('');
   const [communitiesStr, setCommunitiesStr] = useState('');
   const [referrer, setReferrer] = useState('');
@@ -155,16 +150,6 @@ export function BatchForm() {
         </div>
 
         <div class="form-row">
-          <label for="variant">Variant</label>
-          <select id="variant" value=${variant}
-            onChange=${(e: Event) => setVariant((e.target as HTMLSelectElement).value as 'standard' | 'robust')}
-            disabled=${generating}>
-            <option value="standard">Standard (unrestricted internet)</option>
-            <option value="robust">Robust (restricted regions)</option>
-          </select>
-        </div>
-
-        <div class="form-row">
           <label for="expiry">Expiry (days)</label>
           <input id="expiry" type="number" min="1" max="3650" step="1"
             value=${expiryDays}
@@ -179,7 +164,7 @@ export function BatchForm() {
             value=${autoFollowStr}
             onInput=${(e: Event) => setAutoFollowStr((e.target as HTMLInputElement).value)}
             disabled=${generating} />
-          <p class="form-hint">Comma-separated Hive usernames to follow on account creation (max 20)</p>
+          <p class="form-hint">Comma-separated Hive usernames to follow on account creation (max 20). Adding many increases QR code density — keep it reasonable for reliable scanning.</p>
         </div>
 
         <div class="form-row">
@@ -189,7 +174,7 @@ export function BatchForm() {
             value=${communitiesStr}
             onInput=${(e: Event) => setCommunitiesStr((e.target as HTMLInputElement).value)}
             disabled=${generating} />
-          <p class="form-hint">Comma-separated Hive community names to subscribe on account creation (max 10)</p>
+          <p class="form-hint">Comma-separated Hive community names to subscribe on account creation (max 10). Adding many increases QR code density.</p>
         </div>
 
         <div class="form-row">
