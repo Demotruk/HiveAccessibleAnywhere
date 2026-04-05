@@ -35,7 +35,7 @@ import {
   downloadPdfHandler, downloadManifestHandler,
 } from './routes/batches.js';
 import {
-  applyHandler, meHandler, setServiceUrlHandler, listIssuersHandler, approveHandler,
+  applyHandler, meHandler, setServiceUrlHandler, listIssuersHandler, approveHandler, revokeHandler, banHandler,
 } from './routes/issuers.js';
 import { loadConfig, isMultiTenant } from './config.js';
 import { initDatabase, cleanupPendingBatches } from './db.js';
@@ -135,6 +135,8 @@ app.post('/api/issuers/me/service-url', apiLimiter, auth, setServiceUrlHandler(d
 const admin = requireAdmin(config, db);
 app.get('/api/admin/issuers', apiLimiter, admin, listIssuersHandler(db));
 app.post('/api/admin/issuers/:username/approve', apiLimiter, admin, approveHandler(db, config));
+app.post('/api/admin/issuers/:username/revoke', apiLimiter, admin, revokeHandler(db, config));
+app.post('/api/admin/issuers/:username/ban', apiLimiter, admin, banHandler(db));
 
 // Batch routes (active issuers + admins)
 const issuer = requireIssuer(config, db);

@@ -9,14 +9,17 @@ import type { Request, Response } from 'express';
 import type Database from 'better-sqlite3';
 import { PrivateKey } from 'hive-tx';
 import type { GiftcardConfig } from '../config.js';
-import { getSigningKey } from '../config.js';
+import { getSigningKey, isPreapproved } from '../config.js';
 import {
   createIssuerApplication,
+  createPreapprovedIssuer,
   getIssuer,
   listAllIssuers,
   listIssuersByStatus,
   updateIssuerStatus,
   updateIssuerServiceUrl,
+  revokeIssuer,
+  banIssuer,
 } from '../db.js';
 import { getIssuerAccountInfo, sendApprovalNotification } from '../hive/issuer-ops.js';
 
@@ -85,7 +88,16 @@ export function applyHandler(db: Database.Database) {
 export function meHandler(db: Database.Database, config: GiftcardConfig) {
   return async (req: Request, res: Response): Promise<void> => {
     const username = req.issuer!;
-    const issuer = getIssuer(db, username);
+    let issuer = getIssuer(db, username);
+    let preApproved = false;
+
+    // Auto-create approved record for pre-approved issuers on first login
+    if (!issuer && isPreapproved(config, username)) {
+      createPreapprovedIssuer(db, username);
+      issuer = getIssuer(db, username);
+      preApproved = true;
+      console.log(`[ISSUER] @${username} auto-approved (pre-approved list)`);
+    }
 
     // Derive service public key for delegation check
     let setupStatus: { delegated: boolean; pendingTokens: number; serviceAccount?: string; operatorAccount?: string } | null = null;
@@ -123,6 +135,7 @@ export function meHandler(db: Database.Database, config: GiftcardConfig) {
       issuer,
       role,
       setupStatus,
+      ...(preApproved && { preApproved: true }),
     });
   };
 }
@@ -244,10 +257,12 @@ export function approveHandler(db: Database.Database, config: GiftcardConfig) {
     console.log(`[ISSUER] @${normalized} approved by @${req.issuer}`);
 
     // Send notification transfer (best-effort, from dedicated notify account)
-    if (config.notifyAccount && config.notifyActiveKey) {
+    if (!config.notifyAccount || !config.notifyActiveKey) {
+      console.log(`[ISSUER] Notification skipped for @${normalized}: GIFTCARD_NOTIFY_ACCOUNT/GIFTCARD_NOTIFY_ACTIVE_KEY not configured`);
+    } else {
       try {
-        const dashboardUrl = config.serviceUrl
-          ? `${config.serviceUrl.replace(/\/$/, '')}/dashboard/#setup`
+        const dashboardUrl = config.dashboardUrl
+          ? `${config.dashboardUrl.replace(/\/$/, '')}/#setup`
           : 'the HiveInvite dashboard';
         const memo = `Your issuer application has been approved! Visit ${dashboardUrl} to complete setup.`;
         await sendApprovalNotification(
@@ -256,12 +271,111 @@ export function approveHandler(db: Database.Database, config: GiftcardConfig) {
           normalized,
           memo,
           config.hiveNodes,
+          config.notifyCurrency,
         );
         console.log(`[ISSUER] Notification sent to @${normalized} from @${config.notifyAccount}`);
       } catch (err) {
         console.warn(`[ISSUER] Notification to @${normalized} failed:`, err instanceof Error ? err.message : String(err));
       }
     }
+
+    const updated = getIssuer(db, normalized);
+    res.json({ issuer: updated });
+  };
+}
+
+/**
+ * POST /api/admin/issuers/:username/revoke
+ * Revoke an approved or active issuer's authorization.
+ */
+export function revokeHandler(db: Database.Database, config: GiftcardConfig) {
+  return async (req: Request, res: Response): Promise<void> => {
+    const username = req.params.username as string;
+
+    if (!username) {
+      res.status(400).json({ error: 'Missing username' });
+      return;
+    }
+
+    const normalized = username.toLowerCase().trim();
+    const issuer = getIssuer(db, normalized);
+
+    if (!issuer) {
+      res.status(404).json({ error: 'Issuer not found' });
+      return;
+    }
+
+    if (issuer.status !== 'approved' && issuer.status !== 'active') {
+      res.status(400).json({ error: `Cannot revoke issuer with status '${issuer.status}'` });
+      return;
+    }
+
+    const revoked = revokeIssuer(db, normalized, req.issuer!);
+    if (!revoked) {
+      res.status(500).json({ error: 'Failed to revoke issuer' });
+      return;
+    }
+
+    console.log(`[ISSUER] @${normalized} revoked by @${req.issuer}`);
+
+    // Send notification transfer (best-effort)
+    if (!config.notifyAccount || !config.notifyActiveKey) {
+      console.log(`[ISSUER] Revocation notification skipped for @${normalized}: GIFTCARD_NOTIFY_ACCOUNT/GIFTCARD_NOTIFY_ACTIVE_KEY not configured`);
+    } else {
+      try {
+        const memo = 'Your issuer authorization has been revoked. Contact us to discuss.';
+        await sendApprovalNotification(
+          config.notifyAccount,
+          config.notifyActiveKey,
+          normalized,
+          memo,
+          config.hiveNodes,
+          config.notifyCurrency,
+        );
+        console.log(`[ISSUER] Revocation notification sent to @${normalized} from @${config.notifyAccount}`);
+      } catch (err) {
+        console.warn(`[ISSUER] Revocation notification to @${normalized} failed:`, err instanceof Error ? err.message : String(err));
+      }
+    }
+
+    const updated = getIssuer(db, normalized);
+    res.json({ issuer: updated });
+  };
+}
+
+/**
+ * POST /api/admin/issuers/:username/ban
+ * Ban an issuer. Blocks dashboard access AND card redemption.
+ */
+export function banHandler(db: Database.Database) {
+  return (req: Request, res: Response): void => {
+    const username = req.params.username as string;
+
+    if (!username) {
+      res.status(400).json({ error: 'Missing username' });
+      return;
+    }
+
+    const normalized = username.toLowerCase().trim();
+    const issuer = getIssuer(db, normalized);
+
+    if (!issuer) {
+      res.status(404).json({ error: 'Issuer not found' });
+      return;
+    }
+
+    if (issuer.status === 'pending' || issuer.status === 'banned') {
+      res.status(400).json({ error: `Cannot ban issuer with status '${issuer.status}'` });
+      return;
+    }
+
+    const banned = banIssuer(db, normalized, req.issuer!);
+    if (!banned) {
+      res.status(500).json({ error: 'Failed to ban issuer' });
+      return;
+    }
+
+    console.log(`[ISSUER] @${normalized} banned by @${req.issuer}`);
 
     const updated = getIssuer(db, normalized);
     res.json({ issuer: updated });

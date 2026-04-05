@@ -98,7 +98,7 @@ export function claimHandler(db: Database.Database, config: GiftcardConfig) {
     }
 
     // 1b. In multi-tenant mode, check provider is allowed
-    if (isMultiTenant(config) && !isProviderAllowed(effectiveProvider, config)) {
+    if (isMultiTenant(config) && !isProviderAllowed(effectiveProvider, config, db)) {
       console.log(`[CLAIM DENIED] Provider not allowed: @${effectiveProvider} | IP: ${ip}`);
       res.status(403).json({ success: false, error: 'Provider not authorized' });
       return;

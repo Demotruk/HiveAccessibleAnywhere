@@ -16,6 +16,8 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .btn-s:hover{background:var(--in)}
 .btn-ok{background:var(--ok);color:#111}
 .btn-sm{font-size:.85rem;padding:6px 12px;width:auto;margin-bottom:0}
+.btn-danger{background:transparent;border:1px solid var(--er);color:var(--er)}
+.btn-danger:hover{background:rgba(233,69,96,.15)}
 .btn-row{display:flex;gap:8px;margin-bottom:8px}
 .btn-row button{width:auto;flex:1}
 
@@ -67,6 +69,7 @@ nav .logout:hover{color:var(--tx);border-color:var(--tm)}
 .badge-active{background:rgba(78,204,163,.15);color:var(--ok)}
 .badge-spent{background:rgba(160,160,176,.15);color:var(--tm)}
 .badge-revoked{background:rgba(233,69,96,.15);color:var(--er)}
+.badge-banned{background:rgba(233,69,96,.3);color:var(--er)}
 
 /* Status summary */
 .status-row{display:flex;gap:12px;font-size:.85rem}

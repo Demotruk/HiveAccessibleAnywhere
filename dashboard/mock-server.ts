@@ -78,7 +78,7 @@ seedBatches();
 // In-memory issuer store
 interface MockIssuer {
   username: string;
-  status: 'pending' | 'approved' | 'active';
+  status: 'pending' | 'approved' | 'active' | 'revoked' | 'banned';
   description: string | null;
   contact: string | null;
   applied_at: string;
@@ -426,6 +426,36 @@ const server = createServer(async (req, res) => {
       issuer.approved_at = new Date().toISOString();
       issuer.approve_tx_id = randomBytes(20).toString('hex');
       console.log(`[ISSUER] @${username} approved`);
+      return json(res, { issuer });
+    }
+
+    // POST /api/admin/issuers/:username/revoke
+    const revokeMatch = path.match(/^\/api\/admin\/issuers\/([^/]+)\/revoke$/);
+    if (method === 'POST' && revokeMatch) {
+      if (!checkAuth(req)) return json(res, { error: 'Unauthorized' }, 401);
+      const username = revokeMatch[1].toLowerCase();
+      const issuer = issuers.find(i => i.username === username);
+      if (!issuer) return json(res, { error: 'Not found' }, 404);
+      if (issuer.status !== 'approved' && issuer.status !== 'active') {
+        return json(res, { error: `Cannot revoke issuer with status '${issuer.status}'` }, 400);
+      }
+      issuer.status = 'revoked';
+      console.log(`[ISSUER] @${username} revoked`);
+      return json(res, { issuer });
+    }
+
+    // POST /api/admin/issuers/:username/ban
+    const banMatch = path.match(/^\/api\/admin\/issuers\/([^/]+)\/ban$/);
+    if (method === 'POST' && banMatch) {
+      if (!checkAuth(req)) return json(res, { error: 'Unauthorized' }, 401);
+      const username = banMatch[1].toLowerCase();
+      const issuer = issuers.find(i => i.username === username);
+      if (!issuer) return json(res, { error: 'Not found' }, 404);
+      if (issuer.status === 'pending' || issuer.status === 'banned') {
+        return json(res, { error: `Cannot ban issuer with status '${issuer.status}'` }, 400);
+      }
+      issuer.status = 'banned';
+      console.log(`[ISSUER] @${username} banned`);
       return json(res, { issuer });
     }
 

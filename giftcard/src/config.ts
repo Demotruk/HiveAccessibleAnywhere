@@ -43,6 +43,8 @@ export interface GiftcardConfig {
   serviceMemoKey?: string;
   /** Approved provider accounts. Claims for unlisted providers are rejected. */
   allowedProviders?: Set<string>;
+  /** Pre-approved issuer accounts. Auto-created as 'approved' on first login (skip application). */
+  preapprovedIssuers?: Set<string>;
 
   // -- Admin fields (optional) --
 
@@ -55,6 +57,8 @@ export interface GiftcardConfig {
   notifyAccount?: string;
   /** Active key for the notification account (WIF) */
   notifyActiveKey?: string;
+  /** Currency for notification transfers: 'HIVE' or 'HBD' (default: 'HBD') */
+  notifyCurrency?: 'HIVE' | 'HBD';
 
   // -- Dashboard API fields (optional) --
 
@@ -67,6 +71,9 @@ export interface GiftcardConfig {
   /** Posting key (WIF) for the service/provider account. Required for auto-follow and community subscribe
    *  operations — these use delegated posting authority on the new account. */
   postingKey?: string;
+
+  /** Base URL for the issuer dashboard (e.g. 'http://localhost:5179/dashboard'). Used in approval notification memos. */
+  dashboardUrl?: string;
 
   /** Base URL for invite/restore apps (e.g. 'https://hiveinvite.com'). Used in generated QR/PDF URLs. */
   inviteBaseUrl: string;
@@ -145,6 +152,12 @@ export function loadConfig(): GiftcardConfig {
   // In multi-tenant mode, memo key is resolved per-provider from chain,
   // but we still require GIFTCARD_MEMO_KEY for the default provider (backward compat)
 
+  let preapprovedIssuers: Set<string> | undefined;
+  const preapprovedRaw = process.env.GIFTCARD_PREAPPROVED_ISSUERS;
+  if (preapprovedRaw) {
+    preapprovedIssuers = new Set(preapprovedRaw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean));
+  }
+
   let adminAccounts: Set<string> | undefined;
   const adminRaw = process.env.GIFTCARD_ADMIN_ACCOUNTS;
   if (adminRaw) {
@@ -153,10 +166,13 @@ export function loadConfig(): GiftcardConfig {
 
   const notifyAccount = process.env.GIFTCARD_NOTIFY_ACCOUNT || undefined;
   const notifyActiveKey = process.env.GIFTCARD_NOTIFY_ACTIVE_KEY || undefined;
+  const notifyCurrencyRaw = (process.env.GIFTCARD_NOTIFY_CURRENCY || '').toUpperCase();
+  const notifyCurrency: 'HIVE' | 'HBD' = notifyCurrencyRaw === 'HIVE' ? 'HIVE' : 'HBD';
 
   const serviceMemoKey = process.env.GIFTCARD_SERVICE_MEMO_KEY || undefined;
   const jwtSecret = process.env.GIFTCARD_JWT_SECRET || undefined;
   const serviceUrl = process.env.GIFTCARD_SERVICE_URL || undefined;
+  const dashboardUrl = process.env.GIFTCARD_DASHBOARD_URL || undefined;
   const inviteBaseUrl = (process.env.GIFTCARD_INVITE_BASE_URL || 'https://hiveinvite.com').replace(/\/+$/, '');
   const postingKey = process.env.GIFTCARD_POSTING_KEY || undefined;
 
@@ -174,11 +190,14 @@ export function loadConfig(): GiftcardConfig {
     serviceActiveKey,
     serviceMemoKey,
     allowedProviders,
+    preapprovedIssuers,
     adminAccounts,
     notifyAccount,
     notifyActiveKey,
+    notifyCurrency,
     jwtSecret,
     serviceUrl,
+    dashboardUrl,
     inviteBaseUrl,
     postingKey,
   };
@@ -194,4 +213,11 @@ export function isAdmin(config: GiftcardConfig, username: string): boolean {
   if (!config.serviceAccount && u === config.providerAccount.toLowerCase()) return true;
   if (config.adminAccounts?.has(u)) return true;
   return false;
+}
+
+/**
+ * Check if a username is on the pre-approved issuers list.
+ */
+export function isPreapproved(config: GiftcardConfig, username: string): boolean {
+  return config.preapprovedIssuers?.has(username.toLowerCase()) ?? false;
 }

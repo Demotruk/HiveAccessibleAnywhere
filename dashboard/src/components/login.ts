@@ -33,7 +33,7 @@ export function Login() {
 
       // Fetch issuer status and role to determine where to route
       const data = await getMyIssuerStatus();
-      setState({ role: data.role, issuerStatus: data.issuer });
+      setState({ role: data.role, issuerStatus: data.issuer, preApproved: !!data.preApproved });
 
       // If issuer has an external service URL, authenticate with it
       if (data.issuer?.service_url) {
@@ -56,8 +56,13 @@ export function Login() {
         }).catch(() => {});
       }
 
-      // Route based on role and status
-      if (data.role === 'admin') {
+      // Redirect to saved destination (e.g. from approval memo link) or role-based default
+      const redirect = sessionStorage.getItem('propolis_redirect');
+      sessionStorage.removeItem('propolis_redirect');
+
+      if (redirect) {
+        window.location.hash = redirect;
+      } else if (data.role === 'admin') {
         window.location.hash = '#admin';
       } else if (data.role === 'issuer') {
         window.location.hash = '#batches';

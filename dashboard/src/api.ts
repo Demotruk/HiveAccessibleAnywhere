@@ -215,6 +215,7 @@ export async function getMyIssuerStatus(): Promise<{
   issuer: IssuerRecord | null;
   role: UserRole;
   setupStatus: SetupStatus | null;
+  preApproved?: boolean;
 }> {
   const res = await apiFetch('/api/issuers/me');
   return res.json();
@@ -244,6 +245,22 @@ export async function approveIssuer(username: string, txId?: string): Promise<Is
   const res = await apiFetch(`/api/admin/issuers/${encodeURIComponent(username)}/approve`, {
     method: 'POST',
     body: JSON.stringify({ txId }),
+  });
+  const data = await res.json();
+  return data.issuer;
+}
+
+export async function revokeIssuer(username: string): Promise<IssuerRecord> {
+  const res = await apiFetch(`/api/admin/issuers/${encodeURIComponent(username)}/revoke`, {
+    method: 'POST',
+  });
+  const data = await res.json();
+  return data.issuer;
+}
+
+export async function banIssuer(username: string): Promise<IssuerRecord> {
+  const res = await apiFetch(`/api/admin/issuers/${encodeURIComponent(username)}/ban`, {
+    method: 'POST',
   });
   const data = await res.json();
   return data.issuer;

@@ -52,7 +52,7 @@ export function validateHandler(db: Database.Database, config: GiftcardConfig) {
     }
 
     // In multi-tenant mode, check provider is allowed
-    if (isMultiTenant(config) && !isProviderAllowed(effectiveProvider, config)) {
+    if (isMultiTenant(config) && !isProviderAllowed(effectiveProvider, config, db)) {
       res.status(403).json({ valid: false, reason: 'Provider not authorized' });
       return;
     }

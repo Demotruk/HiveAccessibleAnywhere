@@ -114,12 +114,13 @@ export async function sendApprovalNotification(
   issuerUsername: string,
   memoText: string,
   hiveNodes: string[],
+  currency: 'HIVE' | 'HBD' = 'HBD',
 ): Promise<string> {
   const tx = new Transaction();
   await tx.addOperation('transfer' as any, {
     from: serviceAccount,
     to: issuerUsername,
-    amount: '0.001 HBD',
+    amount: `0.001 ${currency}`,
     memo: `#${memoText}`,
   } as any);
 

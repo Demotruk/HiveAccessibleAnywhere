@@ -31,7 +31,7 @@ export interface BatchRow {
 
 export interface IssuerRow {
   username: string;
-  status: 'pending' | 'approved' | 'active';
+  status: 'pending' | 'approved' | 'active' | 'revoked' | 'banned';
   description: string | null;
   contact: string | null;
   applied_at: string;
@@ -40,6 +40,8 @@ export interface IssuerRow {
   approve_tx_id: string | null;
   delegation_verified_at: string | null;
   service_url: string | null;
+  revoked_at: string | null;
+  revoked_by: string | null;
 }
 
 export interface IssuerWithStats extends IssuerRow {
@@ -124,6 +126,7 @@ export function initDatabase(dbPath: string): Database.Database {
   migrateSpentTokensProvider(db);
   migrateBatchesForDashboard(db);
   migrateIssuersTable(db);
+  migrateIssuersRevoke(db);
   migrateBatchSigning(db);
 
   return db;
@@ -191,6 +194,22 @@ function migrateIssuersTable(db: Database.Database): void {
 }
 
 /**
+ * Add revocation columns to issuers table if they don't exist.
+ */
+function migrateIssuersRevoke(db: Database.Database): void {
+  const cols = db.pragma('table_info(issuers)') as Array<{ name: string }>;
+  const colNames = new Set(cols.map(c => c.name));
+  if (!colNames.has('revoked_at')) {
+    db.exec('ALTER TABLE issuers ADD COLUMN revoked_at TEXT');
+    console.log('[DB] Migrated issuers: added revoked_at column');
+  }
+  if (!colNames.has('revoked_by')) {
+    db.exec('ALTER TABLE issuers ADD COLUMN revoked_by TEXT');
+    console.log('[DB] Migrated issuers: added revoked_by column');
+  }
+}
+
+/**
  * Add batch-signing columns to batches table if they don't exist.
  * - status: 'pending' or 'active' (default 'active' for existing rows)
  * - signature: batch-level signature hex string
@@ -233,6 +252,23 @@ export function createIssuerApplication(
     return true;
   } catch (err: unknown) {
     // UNIQUE constraint = already exists
+    if (err instanceof Error && err.message.includes('UNIQUE')) return false;
+    throw err;
+  }
+}
+
+/**
+ * Create a pre-approved issuer record (status='approved', no application step).
+ */
+export function createPreapprovedIssuer(db: Database.Database, username: string): boolean {
+  try {
+    const now = new Date().toISOString();
+    db.prepare(`
+      INSERT INTO issuers (username, status, description, approved_at)
+      VALUES (?, 'approved', 'Pre-approved issuer', ?)
+    `).run(username, now);
+    return true;
+  } catch (err: unknown) {
     if (err instanceof Error && err.message.includes('UNIQUE')) return false;
     throw err;
   }
@@ -318,6 +354,50 @@ export function updateIssuerServiceUrl(
 export function isIssuerActive(db: Database.Database, username: string): boolean {
   const row = db.prepare("SELECT 1 FROM issuers WHERE username = ? AND status = 'active'").get(username);
   return !!row;
+}
+
+/**
+ * Check if a username is allowed as a provider for card redemption.
+ * Returns true for active or revoked issuers — revoked issuers' cards remain
+ * redeemable as long as delegation exists. Banned issuers are excluded.
+ */
+export function isIssuerRedeemable(db: Database.Database, username: string): boolean {
+  const row = db.prepare("SELECT 1 FROM issuers WHERE username = ? AND status IN ('active', 'revoked')").get(username);
+  return !!row;
+}
+
+/**
+ * Revoke an issuer's authorization. Sets status to 'revoked' and records who revoked it.
+ * Only works on approved or active issuers.
+ */
+export function revokeIssuer(
+  db: Database.Database,
+  username: string,
+  revokedBy: string,
+): boolean {
+  const result = db.prepare(`
+    UPDATE issuers
+    SET status = 'revoked', revoked_at = datetime('now'), revoked_by = ?
+    WHERE username = ? AND status IN ('approved', 'active')
+  `).run(revokedBy, username);
+  return result.changes > 0;
+}
+
+/**
+ * Ban an issuer. Blocks both dashboard access and card redemption.
+ * Can be applied to any non-pending issuer.
+ */
+export function banIssuer(
+  db: Database.Database,
+  username: string,
+  revokedBy: string,
+): boolean {
+  const result = db.prepare(`
+    UPDATE issuers
+    SET status = 'banned', revoked_at = datetime('now'), revoked_by = ?
+    WHERE username = ? AND status IN ('approved', 'active', 'revoked')
+  `).run(revokedBy, username);
+  return result.changes > 0;
 }
 
 // -- Batch operations --

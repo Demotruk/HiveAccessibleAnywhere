@@ -267,6 +267,11 @@ export function Setup() {
   return html`
     <div class="ct">
       <h1>Issuer Setup</h1>
+      ${state.preApproved && html`
+        <div class="notice mb">
+          You've been pre-approved as a trusted Hive community member — no application needed. Complete the setup below to start issuing gift cards.
+        </div>
+      `}
       ${renderSteps(stepNum)}
 
       ${!mode && html`

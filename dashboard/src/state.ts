@@ -17,6 +17,8 @@ export interface DashboardState {
   externalError: string | null;
   /** Number of pending issuer applications (admin only). */
   pendingCount: number;
+  /** Whether the user was auto-approved from the pre-approved list (shown once on first login). */
+  preApproved: boolean;
 }
 
 type Listener = () => void;
@@ -102,6 +104,7 @@ export const state: DashboardState = {
   externalConnected: false,
   externalError: null,
   pendingCount: 0,
+  preApproved: false,
   ...restored,
 };
 
@@ -120,7 +123,7 @@ export function resetState(): void {
   clearSession();
   Object.assign(state, {
     jwt: null, username: null, role: null, issuerStatus: null, batches: [], loading: false,
-    externalJwt: null, externalServiceUrl: null, externalConnected: false, externalError: null, pendingCount: 0,
+    externalJwt: null, externalServiceUrl: null, externalConnected: false, externalError: null, pendingCount: 0, preApproved: false,
   });
   for (const fn of listeners) fn();
 }

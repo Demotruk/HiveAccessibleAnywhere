@@ -13,18 +13,19 @@ import { Admin } from './admin.js';
 interface Route {
   view: string;
   param?: string;
+  path?: string;
 }
 
 function parseRoute(hash: string): Route {
   const path = hash.replace(/^#\/?/, '') || 'login';
-  if (path === 'login') return { view: 'login' };
-  if (path === 'apply') return { view: 'apply' };
-  if (path === 'setup') return { view: 'setup' };
-  if (path === 'admin') return { view: 'admin' };
-  if (path === 'batches') return { view: 'batch-list' };
-  if (path === 'batches/generate') return { view: 'batch-form' };
-  if (path.startsWith('batches/')) return { view: 'batch-detail', param: path.slice(8) };
-  return { view: 'batch-list' };
+  if (path === 'login') return { view: 'login', path };
+  if (path === 'apply') return { view: 'apply', path };
+  if (path === 'setup') return { view: 'setup', path };
+  if (path === 'admin') return { view: 'admin', path };
+  if (path === 'batches') return { view: 'batch-list', path };
+  if (path === 'batches/generate') return { view: 'batch-form', path };
+  if (path.startsWith('batches/')) return { view: 'batch-detail', param: path.slice(8), path };
+  return { view: 'batch-list', path };
 }
 
 export function App() {
@@ -47,8 +48,8 @@ export function App() {
 
   // Login page — show if not logged in
   if (!loggedIn && route.view !== 'login') {
-    window.location.hash = '#login';
-    return null;
+    sessionStorage.setItem('propolis_redirect', `#${route.path}`);
+    return html`<${Login} />`;
   }
   if (loggedIn && route.view === 'login') {
     // Redirect based on role

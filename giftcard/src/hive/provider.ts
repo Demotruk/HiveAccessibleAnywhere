@@ -10,7 +10,9 @@
  * from the config's GIFTCARD_MEMO_KEY environment variable.
  */
 
+import type Database from 'better-sqlite3';
 import type { GiftcardConfig } from '../config.js';
+import { isIssuerRedeemable } from '../db.js';
 
 // -- Types --
 
@@ -136,7 +138,10 @@ export async function resolveProvider(
 export function isProviderAllowed(
   providerAccount: string,
   config: GiftcardConfig,
+  db?: Database.Database,
 ): boolean {
   if (!config.allowedProviders) return true;
-  return config.allowedProviders.has(providerAccount.toLowerCase());
+  const name = providerAccount.toLowerCase();
+  // Static allowlist (env var) or active/revoked issuer (banned issuers are excluded)
+  return config.allowedProviders.has(name) || (!!db && isIssuerRedeemable(db, name));
 }
