@@ -1,0 +1,22 @@
+services:
+  invite-service:
+    build: ./giftcard
+    image: ghcr.io/demotruk/hive-invite-service:latest
+    ports:
+      - "3200:3200"
+    volumes:
+      - invite-data:/data
+    env_file:
+      - giftcard/.env
+
+  key-monitor:
+    build: ./key-monitor
+    image: ghcr.io/demotruk/hive-key-monitor:latest
+    volumes:
+      - key-monitor-data:/data
+    env_file:
+      - key-monitor/.env
+
+volumes:
+  invite-data:
+  key-monitor-data:

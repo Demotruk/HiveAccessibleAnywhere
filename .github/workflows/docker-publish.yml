@@ -1,0 +1,52 @@
+name: Publish Docker Images
+
+on:
+  push:
+    tags:
+      - 'giftcard-v*'
+      - 'key-monitor-v*'
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine service and version
+        id: meta
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if [[ "$TAG" == giftcard-v* ]]; then
+            echo "service=giftcard" >> "$GITHUB_OUTPUT"
+            echo "image=hive-invite-service" >> "$GITHUB_OUTPUT"
+            echo "context=./giftcard" >> "$GITHUB_OUTPUT"
+            echo "version=${TAG#giftcard-v}" >> "$GITHUB_OUTPUT"
+          elif [[ "$TAG" == key-monitor-v* ]]; then
+            echo "service=key-monitor" >> "$GITHUB_OUTPUT"
+            echo "image=hive-key-monitor" >> "$GITHUB_OUTPUT"
+            echo "context=./key-monitor" >> "$GITHUB_OUTPUT"
+            echo "version=${TAG#key-monitor-v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ steps.meta.outputs.context }}
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ steps.meta.outputs.image }}:latest

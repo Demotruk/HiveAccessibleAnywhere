@@ -1,0 +1,11 @@
+node_modules
+.env
+.env.*
+!.env.example
+data/
+*.db
+npm-debug.log*
+.git
+.gitignore
+README.md
+fly.toml
