@@ -16,6 +16,7 @@ This is a monorepo with several independent applications:
 | `telegram-bot/` | Telegram bot for gift card distribution in group chats | Phase 2, deployed on Fly.io |
 | `scripts/` | Publishing, deployment, and card generation scripts | Tooling |
 | `hive-branding/` | Brand assets | Static |
+| `project/` | Requirements, specs, plans, and other project documentation | Active |
 | `docs/` | GitHub Pages site (bootstrap files, QR codes, landing page) | Deployed |
 
 ## Branding
@@ -98,4 +99,4 @@ Security: Only comments from the publisher account are processed. All chunks ver
 
 ## Full Requirements
 
-See `Requirements.md` for the complete product specification, including detailed design rationale, open questions, and future considerations. The CLAUDE.md files in each subdirectory contain the operational subset relevant to that component.
+See `project/requirements.md` for the complete product specification, including detailed design rationale, open questions, and future considerations. The CLAUDE.md files in each subdirectory contain the operational subset relevant to that component.

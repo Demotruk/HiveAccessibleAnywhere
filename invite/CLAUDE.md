@@ -74,4 +74,4 @@ npm run dev      # dev server
 - `giftcard/` — the backend service this app calls
 - `restore/` — companion app for recovering keys from backup QR
 - `scripts/giftcard-generate.ts` — generates the card batches with encrypted QR payloads
-- Requirements.md section 2.4 for complete gift card onboarding design
+- project/requirements.md section 2.4 for complete gift card onboarding design

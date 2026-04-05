@@ -97,4 +97,4 @@ npm start        # production
 
 - `scripts/giftcard-generate.ts` — produces the PDF card batches loaded via `/load`
 - `giftcard/` — the separate claim service (this bot distributes cards, that service redeems them)
-- Requirements.md "Telegram Gift Card Bot" and "Discord Gift Card Bot" sections
+- project/requirements.md "Telegram Gift Card Bot" and "Discord Gift Card Bot" sections

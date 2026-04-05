@@ -34,7 +34,7 @@ src/
 
 ## Traffic Obfuscation Protocol
 
-See `docs/obfuscation-protocol.md` for the full spec.
+See `project/obfuscation-protocol.md` for the full spec.
 
 Requests are wrapped to look like REST API calls:
 - Random REST-like paths (`/api/comments`, `/api/search`, etc.)
@@ -58,4 +58,4 @@ npm start      # node --import tsx src/server.ts
 
 ## Endpoint Discovery
 
-Proxy URLs are delivered to users via encrypted Hive memo transfers from `haa-service`. Each user/group gets specific endpoints. If endpoints are blocked, the user group is subdivided to isolate leaks. See Requirements.md section 2.1 for the full per-user endpoint feed design.
+Proxy URLs are delivered to users via encrypted Hive memo transfers from `haa-service`. Each user/group gets specific endpoints. If endpoints are blocked, the user group is subdivided to isolate leaks. See project/requirements.md section 2.1 for the full per-user endpoint feed design.

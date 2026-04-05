@@ -27,4 +27,4 @@ npm run dev      # dev server
 ## Related
 
 - `invite/` — generates the encrypted QR backups this app restores
-- Requirements.md "Backup Restore App" in Future Considerations
+- project/requirements.md "Backup Restore App" in Future Considerations

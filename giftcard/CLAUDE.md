@@ -118,4 +118,4 @@ npm test       # vitest
 - `invite/` — the frontend that calls this service
 - `dashboard/` — the issuer dashboard (calls dashboard API)
 - `scripts/giftcard-generate.ts` — CLI batch generation (independent copy)
-- Requirements.md section 2.4 (gift card design) and 2.9 (dashboard)
+- project/requirements.md section 2.4 (gift card design) and 2.9 (dashboard)

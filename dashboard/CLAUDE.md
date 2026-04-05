@@ -77,4 +77,4 @@ API_BASE=https://giftcard-service.fly.dev npm run build
 - `giftcard/` — backend API
 - `invite/` — end-user claim flow
 - `scripts/deploy-hiveinvite.ts` — assembles HiveInvite.com static site
-- Requirements.md section 2.9 for full dashboard specification
+- project/requirements.md section 2.9 for full dashboard specification
