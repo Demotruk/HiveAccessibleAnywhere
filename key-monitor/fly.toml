@@ -6,7 +6,7 @@ primary_region = 'lhr'
 [env]
   NODE_ENV = 'production'
   STATE_FILE = '/data/state.json'
-  # WATCH_ACCOUNTS, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID set via: fly secrets set ...
+  # WATCH_ACCOUNTS, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID set via: fly secrets import
 
 [processes]
   app = 'node --import tsx src/index.ts'

@@ -149,13 +149,19 @@ if (existsSync(envPath)) {
   const envContent = `# HAA Live Deployment Workspace — Environment Variables
 # Fill in the REPLACE_ME values before running anything.
 
+# ============================================================
+# Core — Required
+# ============================================================
+
 # Hive account that owns claimed account tokens
 GIFTCARD_PROVIDER_ACCOUNT=REPLACE_ME
 
 # Provider's active key (WIF) — for create_claimed_account + delegate
+# Required in single-tenant mode; optional in multi-tenant (service account signs instead)
 GIFTCARD_ACTIVE_KEY=REPLACE_ME
 
 # Provider's memo key (WIF) — for signing gift card authenticity
+# Required in single-tenant mode; optional in multi-tenant
 GIFTCARD_MEMO_KEY=REPLACE_ME
 
 # HAA enrollment service account name
@@ -163,6 +169,10 @@ HAA_SERVICE_ACCOUNT=haa-service
 
 # HP to delegate to new accounts (in VESTS)
 GIFTCARD_DELEGATION_VESTS=30000.000000 VESTS
+
+# ============================================================
+# Local Service Settings
+# ============================================================
 
 # SQLite database path (relative to giftcard/ since service runs from there)
 GIFTCARD_DB_PATH=../data/tokens.db
@@ -181,32 +191,71 @@ GIFTCARD_TLS_KEY=../certs/dev-key.pem
 # Keep this outside the workspace so cards persist across re-deployments.
 GIFTCARD_OUTPUT_DIR=D:\\HiveGiftCards
 
+# ============================================================
+# URLs
+# ============================================================
+
 # Public URL of this service (used in generated gift card QR payloads)
 # Must match the Fly.io app URL or wherever the service is deployed.
 GIFTCARD_SERVICE_URL=https://haa-giftcard-prod.fly.dev
-
-# --- Dashboard ---
 
 # API base URL for the dashboard production build.
 # This is baked into the built JS at build time.
 API_BASE=https://haa-giftcard-prod.fly.dev
 
-# --- Dashboard API ---
+# Base URL for the issuer dashboard (used in approval notification memos)
+GIFTCARD_DASHBOARD_URL=https://hiveinvite.com/dashboard
+
+# Base URL for invite/restore apps (defaults to https://hiveinvite.com)
+GIFTCARD_INVITE_BASE_URL=https://hiveinvite.com
+
+# ============================================================
+# Dashboard API
+# ============================================================
 
 # JWT signing secret for dashboard authentication (required for dashboard)
 # Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 GIFTCARD_JWT_SECRET=REPLACE_ME
 
-# Comma-separated list of Hive usernames allowed to use the dashboard.
-# These are the approved issuers. The provider account is always allowed.
-# GIFTCARD_ALLOWED_PROVIDERS=issuer1,issuer2
-
-# --- Multi-Tenant (optional — leave commented for single-tenant) ---
+# ============================================================
+# Multi-Tenant (optional — leave commented for single-tenant)
+# ============================================================
 
 # Shared service account (enables multi-tenant mode when both are set)
 # GIFTCARD_SERVICE_ACCOUNT=
 # GIFTCARD_SERVICE_ACTIVE_KEY=
 # GIFTCARD_SERVICE_MEMO_KEY=
+
+# Comma-separated list of Hive usernames allowed to use the dashboard.
+# These are the approved issuers. The provider account is always allowed.
+# GIFTCARD_ALLOWED_PROVIDERS=issuer1,issuer2
+
+# Comma-separated list of issuers auto-approved on first login (skip application).
+# GIFTCARD_PREAPPROVED_ISSUERS=
+
+# Additional admin accounts (service account is always admin in multi-tenant)
+# GIFTCARD_ADMIN_ACCOUNTS=
+
+# ============================================================
+# Account Operations
+# ============================================================
+
+# Posting key (WIF) for the service/provider account.
+# Required for auto-follow and community subscribe on new accounts.
+# GIFTCARD_POSTING_KEY=
+
+# ============================================================
+# Notifications (optional)
+# ============================================================
+
+# Account for sending approval/revocation notification memos
+# GIFTCARD_NOTIFY_ACCOUNT=
+# GIFTCARD_NOTIFY_ACTIVE_KEY=
+# GIFTCARD_NOTIFY_CURRENCY=HBD
+
+# ============================================================
+# Other
+# ============================================================
 
 # Hive API nodes (comma-separated, optional — defaults to public nodes)
 # HIVE_NODES=https://api.hive.blog,https://api.deathwing.me

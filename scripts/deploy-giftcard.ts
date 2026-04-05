@@ -110,15 +110,37 @@ async function main() {
 
   // Validate env vars needed for secrets
   const providerAccount = requireEnv('GIFTCARD_PROVIDER_ACCOUNT');
-  const activeKey = requireEnv('GIFTCARD_ACTIVE_KEY');
-  const memoKey = requireEnv('GIFTCARD_MEMO_KEY');
   const haaServiceAccount = requireEnv('HAA_SERVICE_ACCOUNT');
   const delegationVests = requireEnv('GIFTCARD_DELEGATION_VESTS');
+
+  // Multi-tenant: service account holds delegated authority, provider keys optional
+  const serviceAccount = process.env.GIFTCARD_SERVICE_ACCOUNT || '';
+  const serviceActiveKey = process.env.GIFTCARD_SERVICE_ACTIVE_KEY || '';
+  const serviceMemoKey = process.env.GIFTCARD_SERVICE_MEMO_KEY || '';
+  const multiTenant = !!(serviceAccount && serviceActiveKey);
+
+  // Provider keys: required in single-tenant, optional in multi-tenant
+  const activeKey = process.env.GIFTCARD_ACTIVE_KEY || '';
+  const memoKey = process.env.GIFTCARD_MEMO_KEY || '';
+  if (!multiTenant) {
+    if (!activeKey) { console.error('Missing GIFTCARD_ACTIVE_KEY (required in single-tenant mode)'); process.exit(1); }
+    if (!memoKey) { console.error('Missing GIFTCARD_MEMO_KEY (required in single-tenant mode)'); process.exit(1); }
+  }
 
   // Dashboard API (optional but needed for dashboard to work)
   const jwtSecret = process.env.GIFTCARD_JWT_SECRET || '';
   const allowedProviders = process.env.GIFTCARD_ALLOWED_PROVIDERS || '';
   const serviceUrl = process.env.GIFTCARD_SERVICE_URL || '';
+
+  // Additional optional env vars
+  const postingKey = process.env.GIFTCARD_POSTING_KEY || '';
+  const preapprovedIssuers = process.env.GIFTCARD_PREAPPROVED_ISSUERS || '';
+  const adminAccounts = process.env.GIFTCARD_ADMIN_ACCOUNTS || '';
+  const notifyAccount = process.env.GIFTCARD_NOTIFY_ACCOUNT || '';
+  const notifyActiveKey = process.env.GIFTCARD_NOTIFY_ACTIVE_KEY || '';
+  const notifyCurrency = process.env.GIFTCARD_NOTIFY_CURRENCY || '';
+  const dashboardUrl = process.env.GIFTCARD_DASHBOARD_URL || '';
+  const inviteBaseUrl = process.env.GIFTCARD_INVITE_BASE_URL || '';
 
   console.log('=== HAA Gift Card Service Deployer ===');
   console.log(`App name:     ${appName}`);
@@ -128,6 +150,7 @@ async function main() {
   console.log(`Provider:     @${providerAccount}`);
   console.log(`HAA Service:  @${haaServiceAccount}`);
   console.log(`Delegation:   ${delegationVests}`);
+  console.log(`Multi-tenant: ${multiTenant ? `yes (service: @${serviceAccount})` : 'no'}`);
   console.log(`URL:          ${deployedUrl}`);
   console.log(`Mode:         ${dryRun ? 'DRY RUN' : 'LIVE'}`);
   console.log('');
@@ -160,17 +183,41 @@ primary_region = '${region}'
   memory_mb = 256
 `;
 
-  // Build secrets command
-  const secretParts = [
-    `GIFTCARD_PROVIDER_ACCOUNT="${providerAccount}"`,
-    `GIFTCARD_ACTIVE_KEY="${activeKey}"`,
-    `GIFTCARD_MEMO_KEY="${memoKey}"`,
-    `HAA_SERVICE_ACCOUNT="${haaServiceAccount}"`,
-    `GIFTCARD_DELEGATION_VESTS="${delegationVests}"`,
+  // Build secrets as key=value pairs for `fly secrets import` (reads from stdin, never in CLI args)
+  const secretEntries: [string, string][] = [
+    ['GIFTCARD_PROVIDER_ACCOUNT', providerAccount],
+    ['HAA_SERVICE_ACCOUNT', haaServiceAccount],
+    ['GIFTCARD_DELEGATION_VESTS', delegationVests],
   ];
-  if (jwtSecret) secretParts.push(`GIFTCARD_JWT_SECRET="${jwtSecret}"`);
-  if (allowedProviders) secretParts.push(`GIFTCARD_ALLOWED_PROVIDERS="${allowedProviders}"`);
-  if (serviceUrl) secretParts.push(`GIFTCARD_SERVICE_URL="${serviceUrl}"`);
+  if (activeKey) secretEntries.push(['GIFTCARD_ACTIVE_KEY', activeKey]);
+  if (memoKey) secretEntries.push(['GIFTCARD_MEMO_KEY', memoKey]);
+
+  // Multi-tenant
+  if (serviceAccount) secretEntries.push(['GIFTCARD_SERVICE_ACCOUNT', serviceAccount]);
+  if (serviceActiveKey) secretEntries.push(['GIFTCARD_SERVICE_ACTIVE_KEY', serviceActiveKey]);
+  if (serviceMemoKey) secretEntries.push(['GIFTCARD_SERVICE_MEMO_KEY', serviceMemoKey]);
+  if (allowedProviders) secretEntries.push(['GIFTCARD_ALLOWED_PROVIDERS', allowedProviders]);
+  if (preapprovedIssuers) secretEntries.push(['GIFTCARD_PREAPPROVED_ISSUERS', preapprovedIssuers]);
+  if (adminAccounts) secretEntries.push(['GIFTCARD_ADMIN_ACCOUNTS', adminAccounts]);
+
+  // Dashboard API
+  if (jwtSecret) secretEntries.push(['GIFTCARD_JWT_SECRET', jwtSecret]);
+  if (serviceUrl) secretEntries.push(['GIFTCARD_SERVICE_URL', serviceUrl]);
+  if (dashboardUrl) secretEntries.push(['GIFTCARD_DASHBOARD_URL', dashboardUrl]);
+  if (inviteBaseUrl) secretEntries.push(['GIFTCARD_INVITE_BASE_URL', inviteBaseUrl]);
+
+  // Posting key (auto-follow, community subscribe)
+  if (postingKey) secretEntries.push(['GIFTCARD_POSTING_KEY', postingKey]);
+
+  // Notifications
+  if (notifyAccount) secretEntries.push(['GIFTCARD_NOTIFY_ACCOUNT', notifyAccount]);
+  if (notifyActiveKey) secretEntries.push(['GIFTCARD_NOTIFY_ACTIVE_KEY', notifyActiveKey]);
+  if (notifyCurrency) secretEntries.push(['GIFTCARD_NOTIFY_CURRENCY', notifyCurrency]);
+
+  // Format for display (names only, never values)
+  const secretNames = secretEntries.map(([k]) => k);
+  // Format for fly secrets import (key=value lines piped via stdin)
+  const secretsStdin = secretEntries.map(([k, v]) => `${k}=${v}`).join('\n');
 
   if (dryRun) {
     // Check if app exists to show accurate dry-run info
@@ -185,7 +232,7 @@ primary_region = '${region}'
     console.log('Generated fly.toml:');
     console.log(flyToml);
     console.log(`Would deploy from: ${GIFTCARD_DIR}`);
-    console.log(`Would set secrets: ${secretParts.map(s => s.replace(/=.*/, '')).join(', ')}`);
+    console.log(`Would set secrets: ${secretNames.join(', ')}`);
     if (existing) {
       console.log(`\nApp "${appName}" already exists — would redeploy (update secrets + code).`);
       console.log('Existing volume and data will be preserved.');
@@ -242,15 +289,25 @@ primary_region = '${region}'
       console.log('Volume already exists — skipping creation.');
     }
 
-    // 3. Set secrets
-    console.log('\nSetting secrets...');
-    execSync(
-      `fly secrets set ${secretParts.join(' ')} -a ${appName}`,
-      {
-        cwd: GIFTCARD_DIR,
-        stdio: 'inherit',
-      },
-    );
+    // 3. Set secrets via stdin (never pass secrets as CLI arguments)
+    console.log(`\nSetting ${secretEntries.length} secrets...`);
+    try {
+      execSync(
+        `fly secrets import -a ${appName}`,
+        {
+          cwd: GIFTCARD_DIR,
+          input: secretsStdin,
+          stdio: ['pipe', 'inherit', 'pipe'],
+        },
+      );
+    } catch (err: unknown) {
+      // Redact: only show the fly command and exit code, never the secret values
+      const code = (err as { status?: number }).status ?? 1;
+      const stderr = (err as { stderr?: Buffer }).stderr?.toString() || '';
+      console.error(`Failed to set secrets (exit code ${code})`);
+      if (stderr) console.error(stderr);
+      process.exit(1);
+    }
 
     // 4. Deploy
     console.log('\nDeploying...');

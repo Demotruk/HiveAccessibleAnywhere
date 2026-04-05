@@ -125,7 +125,7 @@ primary_region = '${region}'
     console.log('Generated fly.toml:');
     console.log(flyToml);
     console.log(`Would deploy from: ${BOT_DIR}`);
-    console.log(`Would set secrets: TELEGRAM_BOT_TOKEN, OPERATOR_TELEGRAM_ID, HIVE_ACCOUNT`);
+    console.log('Would set secrets: TELEGRAM_BOT_TOKEN, OPERATOR_TELEGRAM_ID, HIVE_ACCOUNT');
     console.log(`Would create ${volumeSize}GB volume: telegram_bot_data in region ${region}`);
     console.log('\nDry run complete. Remove --dry-run to deploy for real.');
     return;
@@ -163,19 +163,29 @@ primary_region = '${region}'
       stdio: 'inherit',
     });
 
-    // 3. Set secrets
+    // 3. Set secrets via stdin (never pass secrets as CLI arguments)
     console.log('\nSetting secrets...');
-    execSync(
-      `fly secrets set ` +
-      `TELEGRAM_BOT_TOKEN="${telegramBotToken}" ` +
-      `OPERATOR_TELEGRAM_ID="${operatorTelegramId}" ` +
-      `HIVE_ACCOUNT="${hiveAccount}" ` +
-      `-a ${appName}`,
-      {
-        cwd: BOT_DIR,
-        stdio: 'inherit',
-      },
-    );
+    const secretsStdin = [
+      `TELEGRAM_BOT_TOKEN=${telegramBotToken}`,
+      `OPERATOR_TELEGRAM_ID=${operatorTelegramId}`,
+      `HIVE_ACCOUNT=${hiveAccount}`,
+    ].join('\n');
+    try {
+      execSync(
+        `fly secrets import -a ${appName}`,
+        {
+          cwd: BOT_DIR,
+          input: secretsStdin,
+          stdio: ['pipe', 'inherit', 'pipe'],
+        },
+      );
+    } catch (err: unknown) {
+      const code = (err as { status?: number }).status ?? 1;
+      const stderr = (err as { stderr?: Buffer }).stderr?.toString() || '';
+      console.error(`Failed to set secrets (exit code ${code})`);
+      if (stderr) console.error(stderr);
+      process.exit(1);
+    }
 
     // 4. Deploy
     console.log('\nDeploying...');
