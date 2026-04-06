@@ -76,17 +76,17 @@ const STRINGS_ZH: CardStrings = {
 };
 
 const STRINGS_ES: CardStrings = {
-  inviteLine1: 'Tu invitación a la comunidad Hive.',
-  inviteLine2: 'Escanea el código QR para recibir tu cuenta gratuita.',
+  inviteLine1: 'Tu invitación a la comunidad de Hive.',
+  inviteLine2: 'Escanea el código QR para crear tu cuenta gratis.',
   issuedBy: (issuer) => `Emitida por: @${issuer}`,
   expires: (date) => `Expira: ${date}`,
   flipHint: '>> Ver PIN en el reverso',
   to: 'Para:',
   from: 'De:',
-  pinHeading: 'Tu PIN de Invitación',
+  pinHeading: 'Tu PIN de invitación:',
   pinInstruction: 'Ingresa este PIN cuando se te solicite después de escanear el código QR del frente.',
-  restoreHeading: 'Restaura tu respaldo',
-  restoreBody: 'Escanea para recuperar tus claves desde el respaldo.',
+  restoreHeading: 'Haz un respaldo.',
+  restoreBody: 'Escanea para recuperar tus llaves a partir del respaldo.',
   pinNotice: 'Esta tarjeta es personal \u2014 no compartas el PIN',
   signalPrompt: '¿Necesitas ayuda? Contáctanos en Signal:',
 };
