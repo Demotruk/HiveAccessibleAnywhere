@@ -66,9 +66,26 @@ const STRINGS_ZH: CardStrings = {
   signalPrompt: '\u9700\u8981\u5e2e\u52a9\uff1f\u901a\u8fc7 Signal \u8054\u7cfb\u6211\u4eec\uff1a',
 };
 
+const STRINGS_ES: CardStrings = {
+  inviteLine1: 'Tu invitación a la comunidad Hive.',
+  inviteLine2: 'Escanea el código QR para recibir tu cuenta gratuita.',
+  issuedBy: (issuer) => `Emitida por: @${issuer}`,
+  expires: (date) => `Expira: ${date}`,
+  flipHint: '>> Ver PIN en el reverso',
+  to: 'Para:',
+  from: 'De:',
+  pinHeading: 'Tu PIN de Invitación',
+  pinInstruction: 'Ingresa este PIN cuando se te solicite después de escanear el código QR del frente.',
+  restoreHeading: 'Restaura tu respaldo',
+  restoreBody: 'Escanea para recuperar tus claves desde el respaldo.',
+  pinNotice: 'Esta tarjeta es personal \u2014 no compartas el PIN',
+  signalPrompt: '¿Necesitas ayuda? Contáctanos en Signal:',
+};
+
 const LOCALE_STRINGS: Record<string, CardStrings> = {
   en: STRINGS_EN,
   zh: STRINGS_ZH,
+  es: STRINGS_ES,
 };
 
 // ---------------------------------------------------------------------------

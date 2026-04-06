@@ -8,6 +8,7 @@ import type { BatchCreateResponse } from '../types.js';
 const LOCALES = [
   { value: 'en', label: 'English' },
   { value: 'zh', label: 'Chinese' },
+  { value: 'es', label: 'Spanish' },
 ];
 
 function navigate(hash: string, e: Event) {

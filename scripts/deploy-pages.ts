@@ -14,7 +14,7 @@ const INVITE_DIST = resolve(ROOT, 'invite', 'dist');
 const RESTORE_DIST = resolve(ROOT, 'restore', 'dist');
 const DOCS = resolve(ROOT, 'docs');
 
-const LOCALES = ['en', 'zh', 'ar', 'fa', 'ru', 'tr', 'vi'];
+const LOCALES = ['en', 'zh', 'ar', 'fa', 'ru', 'tr', 'vi', 'es'];
 
 mkdirSync(DOCS, { recursive: true });
 

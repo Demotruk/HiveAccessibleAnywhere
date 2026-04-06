@@ -76,7 +76,7 @@ export interface BatchPrepareResult {
 }
 
 const MAX_BATCH_SIZE = 100;
-const VALID_LOCALES = new Set(['en', 'zh', 'ar', 'fa', 'ru', 'tr', 'vi']);
+const VALID_LOCALES = new Set(['en', 'zh', 'ar', 'fa', 'ru', 'tr', 'vi', 'es']);
 
 // ---------------------------------------------------------------------------
 // Two-Phase Pipeline (batch-level signing)

@@ -17,7 +17,7 @@ import {
 } from '../db.js';
 import { generateBatch, prepareBatch, finalizeBatch, type BatchGenerateOptions } from '../generate/batch.js';
 
-const VALID_LOCALES = new Set(['en', 'zh', 'ar', 'fa', 'ru', 'tr', 'vi']);
+const VALID_LOCALES = new Set(['en', 'zh', 'ar', 'fa', 'ru', 'tr', 'vi', 'es']);
 
 /**
  * POST /api/batches — Generate a new batch of gift cards.

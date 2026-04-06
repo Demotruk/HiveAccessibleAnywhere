@@ -94,7 +94,7 @@ function parseArgs() {
   return { parsed, flags };
 }
 
-const VALID_LOCALES = ['en', 'zh', 'ar', 'fa', 'ru', 'tr', 'vi'];
+const VALID_LOCALES = ['en', 'zh', 'ar', 'fa', 'ru', 'tr', 'vi', 'es'];
 
 // -- Endpoint Liveness --
 

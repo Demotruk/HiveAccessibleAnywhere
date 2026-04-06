@@ -9,6 +9,7 @@
     "build:standard": "cross-env VARIANT=standard vite build",
     "build:robust": "cross-env VARIANT=robust vite build",
     "build:all": "npm run build:standard && npm run build:robust",
+    "build:locales": "node build-locales.js",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest"
