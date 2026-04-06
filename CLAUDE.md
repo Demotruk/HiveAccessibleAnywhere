@@ -1,6 +1,6 @@
 # HiveAccessibleAnywhere / Propolis
 
-Make HBD savings (~20% APR, USD-pegged stablecoin) accessible to anyone, including regions where Hive infrastructure is blocked.
+Make HBD savings (~15% APR, USD-pegged stablecoin) accessible to anyone, including regions where Hive infrastructure is blocked.
 
 ## Project Structure
 

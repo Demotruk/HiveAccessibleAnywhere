@@ -135,6 +135,7 @@ export function meHandler(db: Database.Database, config: GiftcardConfig) {
       issuer,
       role,
       setupStatus,
+      serviceAccount: config.serviceAccount || config.providerAccount,
       ...(preApproved && { preApproved: true }),
     });
   };

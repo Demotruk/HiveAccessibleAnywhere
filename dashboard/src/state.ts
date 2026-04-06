@@ -19,6 +19,8 @@ export interface DashboardState {
   pendingCount: number;
   /** Whether the user was auto-approved from the pre-approved list (shown once on first login). */
   preApproved: boolean;
+  /** Service account name from the API (used in issuer application custom_json). */
+  serviceAccount: string | null;
 }
 
 type Listener = () => void;
@@ -105,6 +107,7 @@ export const state: DashboardState = {
   externalError: null,
   pendingCount: 0,
   preApproved: false,
+  serviceAccount: null,
   ...restored,
 };
 

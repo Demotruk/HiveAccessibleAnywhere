@@ -33,7 +33,7 @@ export function Login() {
 
       // Fetch issuer status and role to determine where to route
       const data = await getMyIssuerStatus();
-      setState({ role: data.role, issuerStatus: data.issuer, preApproved: !!data.preApproved });
+      setState({ role: data.role, issuerStatus: data.issuer, preApproved: !!data.preApproved, serviceAccount: data.serviceAccount || null });
 
       // If issuer has an external service URL, authenticate with it
       if (data.issuer?.service_url) {

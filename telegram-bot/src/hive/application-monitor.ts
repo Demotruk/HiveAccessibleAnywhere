@@ -120,14 +120,20 @@ async function pollBlocks(bot: Bot, db: Database.Database, config: BotConfig): P
 
           if (app.service !== config.hiveAccount) continue;
 
-          // Extract applicant from required_auths
+          // Extract applicant from required_posting_auths (posting key) or required_auths (active key)
+          const postingAuths = opData.required_posting_auths;
           const requiredAuths = opData.required_auths;
           const applicant =
-            typeof requiredAuths === 'string'
+            (typeof postingAuths === 'string'
+              ? JSON.parse(postingAuths)[0]
+              : Array.isArray(postingAuths)
+                ? postingAuths[0]
+                : undefined)
+            || (typeof requiredAuths === 'string'
               ? JSON.parse(requiredAuths)[0]
               : Array.isArray(requiredAuths)
                 ? requiredAuths[0]
-                : undefined;
+                : undefined);
 
           if (!applicant) continue;
 

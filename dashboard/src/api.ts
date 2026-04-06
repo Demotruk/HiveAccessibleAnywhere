@@ -215,6 +215,7 @@ export async function getMyIssuerStatus(): Promise<{
   issuer: IssuerRecord | null;
   role: UserRole;
   setupStatus: SetupStatus | null;
+  serviceAccount?: string;
   preApproved?: boolean;
 }> {
   const res = await apiFetch('/api/issuers/me');

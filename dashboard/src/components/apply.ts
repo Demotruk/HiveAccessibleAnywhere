@@ -12,8 +12,6 @@ import { isKeychainAvailable, broadcastCustomJson } from '../auth.js';
 import { submitApplication } from '../api.js';
 import type { IssuerRecord } from '../types.js';
 
-declare const __API_BASE__: string;
-
 export function Apply() {
   const [description, setDescription] = useState('');
   const [contact, setContact] = useState('');
@@ -56,8 +54,11 @@ export function Apply() {
         throw new Error('Hive Keychain extension is required. Please install it and refresh.');
       }
 
-      // Determine service account from API base URL context
-      const serviceAccount = __API_BASE__ ? 'haa-giftcard' : 'haa-giftcard';
+      // Use the service account name from the API (set at login)
+      const serviceAccount = state.serviceAccount;
+      if (!serviceAccount) {
+        throw new Error('Service account not available. Please log out and log in again.');
+      }
 
       // Broadcast custom_json on-chain via Keychain
       const txResult = await broadcastCustomJson(
