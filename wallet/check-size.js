@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MAX_SIZE = 170 * 1024; // 170KB (raised from 120KB to accommodate qr-scanner)
 
-const LOCALES = ['en', 'zh', 'ar', 'fa', 'ru', 'tr', 'vi'];
+const LOCALES = ['en', 'zh', 'ar', 'fa', 'ru', 'tr', 'vi', 'es'];
 
 // Check both locale builds and the default build
 const files = [

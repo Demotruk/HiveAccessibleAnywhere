@@ -3,6 +3,7 @@ import { viteSingleFile } from 'vite-plugin-singlefile';
 import basicSsl from '@vitejs/plugin-basic-ssl';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { fileURLToPath, URL } from 'node:url';
 
 // Use shared dev cert if available, otherwise fall back to basicSsl auto-generated.
 // Check both repo location (../.claude/certs) and haa-local workspace (../certs).
@@ -13,6 +14,7 @@ const certDir = existsSync(resolve(repoCertDir, 'dev-cert.pem')) ? repoCertDir
 const hasCerts = existsSync(resolve(certDir, 'dev-cert.pem'));
 
 const variant = (process.env.VARIANT || 'standard') as 'standard' | 'robust';
+const locale = process.env.LOCALE || 'en';
 
 export default defineConfig({
   plugins: [
@@ -37,5 +39,13 @@ export default defineConfig({
     outDir: variant === 'robust' ? 'dist/robust' : 'dist/standard',
     minify: 'esbuild',
     reportCompressedSize: true,
+  },
+  resolve: {
+    alias: locale !== 'en' ? [
+      {
+        find: /^\.\/locales\/en$/,
+        replacement: fileURLToPath(new URL(`./src/ui/locales/${locale}.ts`, import.meta.url)),
+      },
+    ] : [],
   },
 });

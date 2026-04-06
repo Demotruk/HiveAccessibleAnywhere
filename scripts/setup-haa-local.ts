@@ -114,10 +114,19 @@ const testRobustSrc = join(repoRoot, 'invite', 'test-robust.html');
 if (existsSync(testRobustSrc)) {
   cpSync(testRobustSrc, join(target, 'invite', 'test-robust.html'));
 }
+// Copy build-locales.js for multi-locale builds
+const buildLocalesSrc = join(repoRoot, 'invite', 'build-locales.js');
+if (existsSync(buildLocalesSrc)) {
+  cpSync(buildLocalesSrc, join(target, 'invite', 'build-locales.js'));
+}
 console.log('✓ Copied invite/ app source');
 
 // -- 4. Restore app source --
 copyApp('restore');
+const restoreBuildLocalesSrc = join(repoRoot, 'restore', 'build-locales.js');
+if (existsSync(restoreBuildLocalesSrc)) {
+  cpSync(restoreBuildLocalesSrc, join(target, 'restore', 'build-locales.js'));
+}
 console.log('✓ Copied restore/ app source');
 
 // -- 4b. Root tsconfig (extended by dashboard, invite, restore) --
@@ -260,31 +269,142 @@ npx vite --host localhost
 writeFileSync(join(target, 'dashboard.ps1'), dashPs1);
 console.log('✓ Created dashboard.sh / dashboard.ps1');
 
-// -- 11. Invite app dev script (HTTPS for LAN testing from phone) --
+// -- 11. Frontend static server (HTTPS, all locales, production-like paths) --
+// Serves both invite and restore apps from a single HTTPS server on port 5175,
+// mirroring the production layout where both live under the same domain:
+//   /invite/index.html            → English invite
+//   /invite/es/index.html         → Spanish invite
+//   /restore/index.html           → English restore
+//   /restore/es/index.html        → Spanish restore
+const frontendServeSrc = `
+const https = require('https');
+const { readFileSync, existsSync, readdirSync } = require('fs');
+const { resolve, join } = require('path');
+
+const ROOT = __dirname;
+const CERT_DIR = resolve(ROOT, 'certs');
+const INVITE_DIST = resolve(ROOT, 'invite', 'dist', 'standard');
+const RESTORE_DIST = resolve(ROOT, 'restore', 'dist');
+const PORT = parseInt(process.env.PORT || '5175');
+
+if (!existsSync(join(CERT_DIR, 'dev-cert.pem'))) {
+  console.error('No TLS certs found at certs/ — cannot start HTTPS server');
+  process.exit(1);
+}
+
+// Build the file map: URL path → file content
+const files = {};
+
+function addFile(urlPath, filePath) {
+  if (existsSync(filePath)) {
+    const content = readFileSync(filePath);
+    files[urlPath] = content;
+    // Also serve without trailing index.html
+    if (urlPath.endsWith('/index.html')) {
+      files[urlPath.replace('/index.html', '/')] = content;
+    }
+  }
+}
+
+// Invite: English
+addFile('/invite/index.html', join(INVITE_DIST, 'index.html'));
+
+// Invite: locale-specific (index-es.html → /invite/es/)
+if (existsSync(INVITE_DIST)) {
+  for (const f of readdirSync(INVITE_DIST)) {
+    const m = f.match(/^index-([a-z]{2})\\.html$/);
+    if (m) addFile('/invite/' + m[1] + '/index.html', join(INVITE_DIST, f));
+  }
+}
+
+// Restore: English (restore-en.html or index.html)
+const restoreEn = join(RESTORE_DIST, 'restore-en.html');
+const restoreDefault = join(RESTORE_DIST, 'index.html');
+addFile('/restore/index.html', existsSync(restoreEn) ? restoreEn : restoreDefault);
+
+// Restore: locale-specific (restore-es.html → /restore/es/)
+if (existsSync(RESTORE_DIST)) {
+  for (const f of readdirSync(RESTORE_DIST)) {
+    const m = f.match(/^restore-([a-z]{2})\\.html$/);
+    if (m && m[1] !== 'en') addFile('/restore/' + m[1] + '/index.html', join(RESTORE_DIST, f));
+  }
+}
+
+if (Object.keys(files).length === 0) {
+  console.error('No built files found. Run build-locales.js in invite/ and restore/ first.');
+  process.exit(1);
+}
+
+const server = https.createServer({
+  cert: readFileSync(join(CERT_DIR, 'dev-cert.pem')),
+  key: readFileSync(join(CERT_DIR, 'dev-key.pem')),
+}, (req, res) => {
+  let url = req.url.split('?')[0].split('#')[0];
+  const content = files[url] || files[url + '/'] || files[url + '/index.html'];
+  if (content) {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(content);
+  } else {
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('Not found');
+  }
+});
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log('Frontend apps (HTTPS, all locales) listening on port ' + PORT);
+  console.log('Routes:');
+  for (const path of Object.keys(files).filter(p => p.endsWith('/')).sort()) {
+    console.log('  https://localhost:' + PORT + path);
+  }
+});
+`;
+// Place serve.cjs at workspace root (serves both invite and restore)
+writeFileSync(join(target, 'serve-frontend.cjs'), frontendServeSrc);
+
 const inviteSh = `#!/bin/bash
-# Start the invite app Vite dev server (HTTPS for LAN/phone testing)
-cd "$(dirname "$0")/invite"
-HTTPS_DEV=1 npx vite --host 0.0.0.0
+# Build all invite + restore locales and serve with HTTPS static server
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+echo "Building invite app (all locales)..."
+cd "\$SCRIPT_DIR/invite"
+node build-locales.js
+echo ""
+echo "Building restore app (all locales)..."
+cd "\$SCRIPT_DIR/restore"
+node build-locales.js
+echo ""
+cd "\$SCRIPT_DIR"
+node serve-frontend.cjs
 `;
 writeFileSync(join(target, 'invite.sh'), inviteSh, { mode: 0o755 });
 
-const invitePs1 = `# Start the invite app Vite dev server (HTTPS for LAN/phone testing)
+const invitePs1 = `# Build all invite + restore locales and serve with HTTPS static server
+Write-Host "Building invite app (all locales)..." -ForegroundColor Cyan
 Set-Location (Join-Path $PSScriptRoot "invite")
-$env:HTTPS_DEV = "1"
-npx vite --host 0.0.0.0
+node build-locales.js
+Write-Host ""
+Write-Host "Building restore app (all locales)..." -ForegroundColor Cyan
+Set-Location (Join-Path $PSScriptRoot "restore")
+node build-locales.js
+Write-Host ""
+Set-Location $PSScriptRoot
+node serve-frontend.cjs
 `;
 writeFileSync(join(target, 'invite.ps1'), invitePs1);
 console.log('✓ Created invite.sh / invite.ps1');
 
 // -- 12. Restore app dev script --
+// Note: In production-like mode, restore is served by serve-frontend.cjs (via invite.ps1).
+// This standalone script is for restore-only development.
 const restoreSh = `#!/bin/bash
-# Start the restore app Vite dev server
+# Start the restore app Vite dev server (single locale, for dev only)
+# For production-like multi-locale serving, use invite.sh instead.
 cd "$(dirname "$0")/restore"
 npx vite --host localhost
 `;
 writeFileSync(join(target, 'restore.sh'), restoreSh, { mode: 0o755 });
 
-const restorePs1 = `# Start the restore app Vite dev server
+const restorePs1 = `# Start the restore app Vite dev server (single locale, for dev only)
+# For production-like multi-locale serving, use invite.ps1 instead.
 Set-Location (Join-Path $PSScriptRoot "restore")
 npx vite --host localhost
 `;
@@ -316,16 +436,16 @@ PIDS+=(\$!)
 
 sleep 2
 
-# Start invite app in background (HTTPS for LAN/phone testing)
-echo "Starting invite app dev server..."
+# Build and start invite + restore apps in background (HTTPS, all locales)
+echo "Building invite app (all locales)..."
 cd "\$SCRIPT_DIR/invite"
-HTTPS_DEV=1 npx vite --host 0.0.0.0 &
-PIDS+=(\$!)
-
-# Start restore app in background
-echo "Starting restore app dev server..."
+node build-locales.js
+echo "Building restore app (all locales)..."
 cd "\$SCRIPT_DIR/restore"
-npx vite --host localhost &
+node build-locales.js
+echo "Starting frontend static server..."
+cd "\$SCRIPT_DIR"
+node serve-frontend.cjs &
 PIDS+=(\$!)
 
 # Start dashboard in foreground
@@ -349,11 +469,8 @@ const startAllPs1 = [
   '',
   'Start-Sleep -Seconds 1',
   '',
-  '# Invite app (HTTPS for LAN/phone testing)',
-  'Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location \'$(Join-Path $root invite)\'; Write-Host \'Invite app (HTTPS)\' -ForegroundColor Cyan; `$env:HTTPS_DEV = \'1\'; npx vite --host 0.0.0.0"',
-  '',
-  '# Restore app',
-  'Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location \'$(Join-Path $root restore)\'; Write-Host \'Restore app\' -ForegroundColor Cyan; npx vite --host localhost"',
+  '# Invite + Restore apps (build all locales + HTTPS static server)',
+  'Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location \'$(Join-Path $root invite)\'; Write-Host \'Building invite app (all locales)...\' -ForegroundColor Cyan; node build-locales.js; Set-Location \'$(Join-Path $root restore)\'; Write-Host \'Building restore app (all locales)...\' -ForegroundColor Cyan; node build-locales.js; Set-Location \'$root\'; Write-Host \'\'; node serve-frontend.cjs"',
   '',
   '# Dashboard in this window',
   'Write-Host "Starting dashboard dev server on port 5179..." -ForegroundColor Cyan',
@@ -427,8 +544,8 @@ ${'='.repeat(56)}
     .env              ← Edit REPLACE_ME values first!
     start.ps1         ← Start the giftcard service (HTTPS :3200)
     dashboard.ps1     ← Start dashboard dev server (:5179)
-    invite.ps1        ← Start invite app dev server
-    restore.ps1       ← Start restore app dev server
+    invite.ps1        ← Build + serve invite & restore (HTTPS, all locales)
+    restore.ps1       ← Restore app dev server (single locale)
     start-all.ps1     ← Start all services at once
     generate.ps1      ← Generate gift cards (forwards all args)
     giftcard/         ← Service source code

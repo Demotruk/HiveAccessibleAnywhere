@@ -76,7 +76,7 @@ export interface BatchPrepareResult {
 }
 
 const MAX_BATCH_SIZE = 100;
-const VALID_LOCALES = new Set(['en', 'zh', 'ar', 'fa', 'ru', 'tr', 'vi']);
+const VALID_LOCALES = new Set(['en', 'zh', 'ar', 'fa', 'ru', 'tr', 'vi', 'es']);
 
 // ---------------------------------------------------------------------------
 // Two-Phase Pipeline (batch-level signing)
@@ -237,7 +237,7 @@ export async function finalizeBatch(
       merkleProof: encodeMerkleProof(proof),
       merkleRoot: root, // discriminator: batch-signed card
       variant,
-      locale: variant === 'robust' ? locale : undefined,
+      locale: locale || undefined,
       autoFollow: autoFollow?.length ? autoFollow : undefined,
       communities: communities?.length ? communities : undefined,
       referrer: referrer || undefined,
@@ -245,7 +245,8 @@ export async function finalizeBatch(
     };
 
     const encryptedBlob = encryptPayload(payload, tokenRow.pin);
-    const qrUrl = `${bootstrapUrl}/invite/#${encryptedBlob}`;
+    const localePath = locale && locale !== 'en' ? `/${locale}` : '';
+    const qrUrl = `${bootstrapUrl}/invite${localePath}/#${encryptedBlob}`;
 
     const qrPngBuffer = await QRCode.toBuffer(qrUrl, {
       errorCorrectionLevel: 'H',
@@ -261,7 +262,7 @@ export async function finalizeBatch(
       locale,
       variant,
       design: resolvedDesign,
-      restoreUrl: `${bootstrapUrl}/restore/`,
+      restoreUrl: `${bootstrapUrl}/restore${localePath}/`,
     });
 
     individualPdfs.push(pdfBytes);
@@ -441,7 +442,7 @@ export async function generateBatch(
       promiseParams,
       merkleProof: encodeMerkleProof(proof),
       variant,
-      locale: variant === 'robust' ? locale : undefined,
+      locale: locale || undefined,
       autoFollow: autoFollow?.length ? autoFollow : undefined,
       communities: communities?.length ? communities : undefined,
       referrer: referrer || undefined,
@@ -449,7 +450,8 @@ export async function generateBatch(
     };
 
     const encryptedBlob = encryptPayload(payload, card.pin);
-    const qrUrl = `${bootstrapUrl}/invite/#${encryptedBlob}`;
+    const localePath = locale && locale !== 'en' ? `/${locale}` : '';
+    const qrUrl = `${bootstrapUrl}/invite${localePath}/#${encryptedBlob}`;
 
     // Generate QR code PNG
     const qrPngBuffer = await QRCode.toBuffer(qrUrl, {
@@ -467,7 +469,7 @@ export async function generateBatch(
       locale,
       variant,
       design: resolvedDesign,
-      restoreUrl: `${bootstrapUrl}/restore/`,
+      restoreUrl: `${bootstrapUrl}/restore${localePath}/`,
     });
 
     individualPdfs.push(pdfBytes);

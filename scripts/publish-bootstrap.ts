@@ -18,7 +18,7 @@ import { resolve } from 'node:path';
 
 // -- Config --
 
-const SUPPORTED_LOCALES = ['en', 'zh', 'ar', 'fa', 'ru', 'tr', 'vi'];
+const SUPPORTED_LOCALES = ['en', 'zh', 'ar', 'fa', 'ru', 'tr', 'vi', 'es'];
 const INTER_LOCALE_DELAY_MS = 5 * 60 * 1000 + 10_000; // 5 min 10s between root posts
 
 // -- Parse args --
@@ -217,6 +217,28 @@ const POST_STRINGS: Record<string, PostStrings> = {
     ],
     bootstrapHeading: '## HTML Khởi Động',
     footer: (account) => `*Xuất bản bởi @${account} — [Giấy phép MIT](https://github.com/nicholidev/HiveAccessibleAnywhere/blob/develop/LICENSE)*`,
+  },
+  es: {
+    title: 'Monedero Propolis — Cargador de Arranque (ES)',
+    heading: '# Monedero Propolis — Cargador de Arranque',
+    intro: 'Esta publicación contiene un cargador HTML auto-ejecutable para el **Monedero Propolis**.',
+    howToUseHeading: '## Cómo usar',
+    steps: [
+      '1. Copia el código HTML de abajo',
+      '2. Guárdalo como un archivo `.html` (por ejemplo, `propolis.html`)',
+      '3. Abre el archivo en cualquier navegador moderno (Chrome, Firefox, Safari)',
+      '4. El cargador obtendrá el monedero completo desde la blockchain de Hive, verificará su integridad mediante SHA-256 y lo cargará automáticamente',
+    ],
+    whatThisDoesHeading: '## Qué hace esto',
+    bullets: (account, version, locale) => [
+      `- Obtiene la aplicación del Monedero Propolis desde [@${account}/propolis-wallet-v${version}-${locale}](https://hive.blog/@${account}/propolis-wallet-v${version}-${locale}) y sus comentarios`,
+      `- Verifica cada fragmento contra su hash SHA-256 antes de ejecutar cualquier cosa`,
+      `- Solo carga código publicado por \`@${account}\` — los comentarios de otras cuentas se ignoran`,
+      `- Almacena el monedero localmente (mediante IndexedDB) para cargas posteriores más rápidas`,
+      `- El monedero completo se ejecuta localmente en tu navegador — tus claves nunca salen de tu dispositivo`,
+    ],
+    bootstrapHeading: '## HTML de Arranque',
+    footer: (account) => `*Publicado por @${account} — [Licencia MIT](https://github.com/nicholidev/HiveAccessibleAnywhere/blob/develop/LICENSE)*`,
   },
 };
 

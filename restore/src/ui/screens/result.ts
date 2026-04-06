@@ -8,12 +8,19 @@
 
 import type { ScreenFn } from '../../types';
 import QRCode from 'qrcode';
+import { t, fmt } from '../locale';
 
 export const ResultScreen: ScreenFn = async (container, state) => {
   const { backupData, keys } = state;
   if (!backupData || !keys) return;
 
   const roles = ['owner', 'active', 'posting', 'memo'] as const;
+  const roleLabels: Record<string, string> = {
+    owner: t.key_owner,
+    active: t.key_active,
+    posting: t.key_posting,
+    memo: t.key_memo,
+  };
 
   // Build Hive Keychain QR payload
   // Format: keychain://add_account=<JSON>
@@ -28,37 +35,37 @@ export const ResultScreen: ScreenFn = async (container, state) => {
   })}`;
 
   container.innerHTML = `<div class="ct">
-    <h1>\u2705 Backup Restored</h1>
-    <p class="sm mb">Your keys have been decrypted successfully.</p>
+    <h1>${t.result_title}</h1>
+    <p class="sm mb">${t.result_desc}</p>
 
     <div class="card">
-      <label>Account</label>
+      <label>${t.result_account}</label>
       <div class="copy-row">
         <div class="mono-box" id="username">@${backupData.username}</div>
-        <button class="copy-btn btn-s" data-copy-value="${backupData.username}">Copy</button>
+        <button class="copy-btn btn-s" data-copy-value="${backupData.username}">${t.result_copy}</button>
       </div>
     </div>
 
     <div class="card">
-      <label>Master Password</label>
-      <button class="copy-btn btn-s copy-standalone" data-copy-value="${backupData.masterPassword}">Copy Master Password</button>
+      <label>${t.result_master_label}</label>
+      <button class="copy-btn btn-s copy-standalone" data-copy-value="${backupData.masterPassword}">${t.result_master_copy}</button>
       <div class="reveal-container">
-        <button class="btn-reveal" id="show-master">Press to show master password</button>
+        <button class="btn-reveal" id="show-master">${t.result_master_show}</button>
         <div class="reveal-content hidden" id="master-content">
           <div class="mono-box">${backupData.masterPassword}</div>
-          <p class="xs mt">This password derives all four keys below. Store it securely.</p>
+          <p class="xs mt">${t.result_master_info}</p>
         </div>
       </div>
     </div>
 
     <div class="card">
-      <label>Private Keys (WIF)</label>
+      <label>${t.result_keys_label}</label>
       ${roles.map((role) => `
         <div class="key-row">
-          <div class="key-role">${role} key</div>
-          <button class="copy-btn btn-s copy-standalone" data-copy-value="${keys[role].wif}">Copy ${role} key</button>
+          <div class="key-role">${roleLabels[role]} key</div>
+          <button class="copy-btn btn-s copy-standalone" data-copy-value="${keys[role].wif}">${fmt(t.result_key_copy, roleLabels[role])}</button>
           <div class="reveal-container">
-            <button class="btn-reveal btn-reveal-sm" id="show-${role}">Press to show</button>
+            <button class="btn-reveal btn-reveal-sm" id="show-${role}">${t.result_key_show}</button>
             <div class="reveal-content hidden" id="${role}-content">
               <div class="key-wif">${keys[role].wif}</div>
             </div>
@@ -68,23 +75,23 @@ export const ResultScreen: ScreenFn = async (container, state) => {
     </div>
 
     <div class="card">
-      <label>Import to Hive Keychain</label>
+      <label>${t.result_keychain_label}</label>
       <div class="reveal-container">
-        <button class="btn-reveal" id="show-keychain">Press to show Keychain import QR</button>
+        <button class="btn-reveal" id="show-keychain">${t.result_keychain_show}</button>
         <div class="reveal-content hidden" id="keychain-content">
           <div class="qr-keychain center">
             <img id="keychain-qr" alt="Hive Keychain import QR" style="display:none">
-            <p class="xs mt">Scan with the Hive Keychain mobile app to import this account.</p>
+            <p class="xs mt">${t.result_keychain_info}</p>
           </div>
         </div>
       </div>
     </div>
 
     <div class="card wrn-card">
-      <p class="sm wrn">\u26A0\uFE0F Keep these keys private. Anyone with your keys controls your account.</p>
+      <p class="sm wrn">${t.result_warning}</p>
     </div>
 
-    <button class="btn-s" id="start-over">Restore Another Backup</button>
+    <button class="btn-s" id="start-over">${t.result_start_over}</button>
   </div>`;
 
   // Reveal buttons — show content while held, hide on release
@@ -132,7 +139,7 @@ export const ResultScreen: ScreenFn = async (container, state) => {
     keychainQrImg.style.display = 'block';
   } catch {
     keychainQrImg.insertAdjacentHTML('afterend',
-      `<p class="err">Could not generate QR code.</p>`);
+      `<p class="err">${t.result_keychain_error}</p>`);
   }
 
   // Copy buttons — copy from data-copy-value attribute (no need to read DOM text)
@@ -142,7 +149,7 @@ export const ResultScreen: ScreenFn = async (container, state) => {
       try {
         await navigator.clipboard.writeText(value);
         const original = btn.textContent;
-        btn.textContent = 'Copied!';
+        btn.textContent = t.result_copied;
         setTimeout(() => { btn.textContent = original; }, 2000);
       } catch {
         // Fallback: create temporary textarea for selection
@@ -155,7 +162,7 @@ export const ResultScreen: ScreenFn = async (container, state) => {
         document.execCommand('copy');
         document.body.removeChild(ta);
         const original = btn.textContent;
-        btn.textContent = 'Copied!';
+        btn.textContent = t.result_copied;
         setTimeout(() => { btn.textContent = original; }, 2000);
       }
     });

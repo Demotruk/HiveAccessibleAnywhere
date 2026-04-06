@@ -41,7 +41,7 @@ interface PropolisMetadata {
 // -- Config --
 
 const CHUNK_SIZE = 55_000; // 55KB per comment body (safe margin under 65KB limit)
-const SUPPORTED_LOCALES = ['en', 'zh', 'ar', 'fa', 'ru', 'tr', 'vi'];
+const SUPPORTED_LOCALES = ['en', 'zh', 'ar', 'fa', 'ru', 'tr', 'vi', 'es'];
 const POST_DELAY_MS = 4000; // delay between broadcasts to avoid rate limiting
 const DIST_DIR = resolve(import.meta.dirname, '..', 'wallet', 'dist');
 

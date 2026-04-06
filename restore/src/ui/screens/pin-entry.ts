@@ -6,6 +6,7 @@ import type { ScreenFn } from '../../types';
 import { decryptWithPin } from '../../crypto/decrypt';
 import { PrivateKey } from 'hive-tx';
 import type { BackupData, DerivedKeys } from '../../types';
+import { t } from '../locale';
 
 type KeyRole = 'owner' | 'active' | 'posting' | 'memo';
 
@@ -24,10 +25,10 @@ function deriveKeys(username: string, password: string): DerivedKeys {
 
 export const PinEntryScreen: ScreenFn = (container, state, advance) => {
   container.innerHTML = `<div class="ct center" style="padding-top:15vh">
-    <h1>Enter PIN</h1>
-    <p class="sm mt mb">Enter the 6-character PIN from your gift card to decrypt the backup.</p>
+    <h1>${t.pin_title}</h1>
+    <p class="sm mt mb">${t.pin_desc}</p>
     <input type="text" id="pin" class="pin-input" maxlength="6"
-           placeholder="------" autocomplete="off"
+           placeholder="${t.pin_placeholder}" autocomplete="off"
            autocapitalize="characters" spellcheck="false">
     <p class="err hidden" id="err"></p>
     <div class="spinner hidden" id="spinner"></div>
@@ -59,7 +60,7 @@ export const PinEntryScreen: ScreenFn = (container, state, advance) => {
 
     try {
       if (!crypto?.subtle) {
-        errEl.textContent = 'Web Crypto not available \u2014 HTTPS required.';
+        errEl.textContent = t.pin_crypto_error;
         errEl.classList.remove('hidden');
         spinnerEl.classList.add('hidden');
         submitting = false;
@@ -77,7 +78,7 @@ export const PinEntryScreen: ScreenFn = (container, state, advance) => {
       state.keys = deriveKeys(backupData.username, backupData.masterPassword);
       advance('result');
     } catch {
-      errEl.textContent = 'Wrong PIN or invalid backup data. Check your PIN and try again.';
+      errEl.textContent = t.pin_wrong;
       errEl.classList.remove('hidden');
       spinnerEl.classList.add('hidden');
       submitting = false;

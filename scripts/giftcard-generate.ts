@@ -94,7 +94,7 @@ function parseArgs() {
   return { parsed, flags };
 }
 
-const VALID_LOCALES = ['en', 'zh', 'ar', 'fa', 'ru', 'tr', 'vi'];
+const VALID_LOCALES = ['en', 'zh', 'ar', 'fa', 'ru', 'tr', 'vi', 'es'];
 
 // -- Endpoint Liveness --
 
@@ -463,7 +463,8 @@ async function main() {
     const encryptedBlob = encryptPayload(payload, card.pin);
 
     // QR URL: invite app with encrypted blob in fragment
-    const qrUrl = `${bootstrapUrl}/invite/#${encryptedBlob}`;
+    const localePath = locale && locale !== 'en' ? `/${locale}` : '';
+    const qrUrl = `${bootstrapUrl}/invite${localePath}/#${encryptedBlob}`;
 
     // Generate QR codes
     const svg = await QRCode.toString(qrUrl, { ...QR_OPTIONS, type: 'svg' });
@@ -484,6 +485,7 @@ async function main() {
     writeFileSync(resolve(cardsDir, `${prefix}-card.txt`), cardTxt);
 
     // Printable invite postcard PDF
+    const restoreLocalePath = locale && locale !== 'en' ? `/${locale}` : '';
     const pdfBytes = await generateInvitePdf({
       qrPngBytes: new Uint8Array(png),
       pin: card.pin,
@@ -493,6 +495,7 @@ async function main() {
       variant,
       signalContact: variant === 'robust' ? (parsed['signal-contact'] || undefined) : undefined,
       design,
+      restoreUrl: `${bootstrapUrl}/restore${restoreLocalePath}/`,
     });
     const pdfPath = resolve(cardsDir, `${prefix}-invite.pdf`);
     writeFileSync(pdfPath, pdfBytes);

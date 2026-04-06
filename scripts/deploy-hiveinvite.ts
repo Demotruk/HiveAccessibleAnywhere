@@ -16,7 +16,7 @@
  *   restore/index.html — backup restore app (from restore/ build)
  */
 
-import { copyFileSync, cpSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { copyFileSync, cpSync, mkdirSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '..');
@@ -61,13 +61,47 @@ if (inviteSrc) {
   console.warn('Warning: invite app build not found — run "cd invite && npm run build" first');
 }
 
-// 4. Restore app
-const restoreSrc = resolve(RESTORE_DIST, 'index.html');
-if (existsSync(restoreSrc)) {
+// 3b. Locale-specific invite builds (e.g., dist/standard/index-es.html → invite/es/index.html)
+const standardDir = resolve(INVITE_DIST, 'standard');
+if (existsSync(standardDir)) {
+  for (const file of readdirSync(standardDir)) {
+    const match = file.match(/^index-([a-z]{2})\.html$/);
+    if (match) {
+      const locale = match[1];
+      const localeDir = resolve(OUTPUT, 'invite', locale);
+      mkdirSync(localeDir, { recursive: true });
+      copyFileSync(resolve(standardDir, file), resolve(localeDir, 'index.html'));
+      console.log(`Copied: invite/${locale}/index.html (from ./invite/dist/standard/${file})`);
+    }
+  }
+}
+
+// 4. Restore app — default (English) build
+const restoreEnLocale = resolve(RESTORE_DIST, 'restore-en.html');
+const restoreDefault = resolve(RESTORE_DIST, 'index.html');
+const restoreSrc = existsSync(restoreEnLocale) ? restoreEnLocale
+  : existsSync(restoreDefault) ? restoreDefault
+  : null;
+
+if (restoreSrc) {
   copyFileSync(restoreSrc, resolve(OUTPUT, 'restore', 'index.html'));
-  console.log('Copied: restore/index.html');
+  console.log(`Copied: restore/index.html (from ${restoreSrc.replace(ROOT, '.')})`);
 } else {
   console.warn('Warning: restore app build not found — run "cd restore && npm run build" first');
+}
+
+// 4b. Locale-specific restore builds (e.g., dist/restore-es.html → restore/es/index.html)
+if (existsSync(RESTORE_DIST)) {
+  for (const file of readdirSync(RESTORE_DIST)) {
+    const match = file.match(/^restore-([a-z]{2})\.html$/);
+    if (match && match[1] !== 'en') {
+      const locale = match[1];
+      const localeDir = resolve(OUTPUT, 'restore', locale);
+      mkdirSync(localeDir, { recursive: true });
+      copyFileSync(resolve(RESTORE_DIST, file), resolve(localeDir, 'index.html'));
+      console.log(`Copied: restore/${locale}/index.html (from ./restore/dist/${file})`);
+    }
+  }
 }
 
 // 5. Dashboard app (multi-file Vite build — copy entire dist directory)
