@@ -125,7 +125,39 @@ if (existsSync(logoSrc)) {
   console.log('⚠ Hive logo not found — PDFs will use text fallback');
 }
 
-// -- 5. TLS certs --
+// -- 5. Root tsconfig.json (dashboard extends it) --
+cpSync(join(repoRoot, 'tsconfig.json'), join(target, 'tsconfig.json'));
+console.log('✓ Copied root tsconfig.json');
+
+// -- 5b. HiveInvite.com landing page --
+const landingSrc = join(repoRoot, 'hiveinvite-site', 'index.html');
+if (existsSync(landingSrc)) {
+  mkdirSync(join(target, 'hiveinvite-site'), { recursive: true });
+  cpSync(landingSrc, join(target, 'hiveinvite-site', 'index.html'));
+  console.log('✓ Copied hiveinvite-site/index.html (landing page)');
+} else {
+  console.log('⚠ hiveinvite-site/index.html not found — deploy-dashboard will fail without it');
+}
+
+// -- 5c. Built invite app (for HiveInvite.com assembly) --
+const inviteDistSrc = join(repoRoot, 'invite', 'dist');
+if (existsSync(inviteDistSrc)) {
+  cpSync(inviteDistSrc, join(target, 'invite', 'dist'), { recursive: true });
+  console.log('✓ Copied invite/dist/ (built invite app)');
+} else {
+  console.log('⚠ invite/dist/ not found — run "npm run build:invite" first');
+}
+
+// -- 5d. Built restore app (for HiveInvite.com assembly) --
+const restoreDistSrc = join(repoRoot, 'restore', 'dist');
+if (existsSync(restoreDistSrc)) {
+  cpSync(restoreDistSrc, join(target, 'restore', 'dist'), { recursive: true });
+  console.log('✓ Copied restore/dist/ (built restore app)');
+} else {
+  console.log('⚠ restore/dist/ not found — run "npm run build:restore" first');
+}
+
+// -- 6. TLS certs --
 const certsDir = join(target, 'certs');
 mkdirSync(certsDir, { recursive: true });
 const srcCerts = join(repoRoot, '.claude', 'certs');
