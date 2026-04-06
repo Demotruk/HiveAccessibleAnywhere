@@ -47,6 +47,12 @@ startTransferMonitor(notifiers, db, config);
 // Start issuer application monitor (notifies operator via Telegram)
 startApplicationMonitor(bot, db, config);
 
+// Handle transient errors (network hiccups, API timeouts) without crashing
+bot.catch((err) => {
+  const msg = err.error instanceof Error ? err.error.message : String(err.error);
+  console.error(`Grammy error in update ${err.ctx?.update?.update_id}:`, msg);
+});
+
 // Start Telegram polling (catch errors so they don't crash Discord)
 bot.start({
   onStart: (botInfo) => {
