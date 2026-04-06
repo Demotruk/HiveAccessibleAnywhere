@@ -11,6 +11,7 @@ akdx
 akipponn
 akumagai
 albertocova
+aliento
 alpha
 amirl
 ammonite
@@ -32,11 +33,13 @@ bil.prag
 bitphoto
 blanchy
 blocktrades
+bluemist
 bluerobo
 brianoflondon
 buggedout
 calebmarvel24
 captainobviou3
+cervantes
 chinito
 chocolatescorpi
 chorock
@@ -104,6 +107,7 @@ fabio
 feanorgu
 felixmarranz
 felixxx
+fermionico
 fernwehninja
 flquin
 forever-crypto
@@ -137,11 +141,13 @@ hazem91
 hermaryrc
 hiro-hive
 hirohurl
+hispapro
 hivebuzz
 hivecreators
 hivecuba
 hivefest
 hivelist
+hivemexico
 hivetrending
 hjrrodriguez
 holoz0r
@@ -178,6 +184,7 @@ kobusu
 kriptux
 kristal24
 ksam
+la-colmena
 lichtblick
 liketu
 limonta
@@ -301,6 +308,7 @@ rosanna-brava
 rosmiapure
 russellstockley
 russia-btc
+rutablockchain
 ryosai
 rzc24-nftbbg
 sacra97
@@ -401,6 +409,7 @@ ydavgonzalez
 yecier
 yeouido.park
 yeral-diaz
+ylich
 yogeshbhatt
 yousafharoonkhan
 yunnie
