@@ -1,0 +1,325 @@
+# CheckinWithXYZ Integration — Requirements
+
+## Context
+
+[CheckinWithXYZ](https://github.com/sag333ar/checkinwithxyz) is a Hive onboarding verification app with an existing network of **onboarders** — trusted community members who bring new users to Hive. New users go through a wizard (selfie, introduction, community selection) to publish a verified intro post on-chain, which the onboarder then approves.
+
+The app has an active history of successful onboarding: leaderboards tracking onboards by country, user, and community; a newbie task checklist for retention; a shared feed via `@pioneersupporter` where all new users' posts are aggregated for community support. The onboarder network and this infrastructure are the primary value.
+
+### How account creation worked previously
+
+Account creation used Hive Keychain's QR code method:
+
+1. New user installs Hive Keychain (browser extension or mobile app)
+2. Keychain generates keys locally — private keys never leave the device
+3. Keychain displays a QR code representing a `create_account` transaction containing the username and 4 public keys
+4. The onboarder scans the QR with their own Keychain and signs the transaction, paying ~3 HIVE
+5. The account is created on-chain
+
+This required two apps (Keychain + CheckinWithXYZ) and the onboarder paid the account creation cost out of pocket. The goal of this integration is to bring account creation into CheckinWithXYZ itself, funded by gift cards instead of the onboarder's HIVE.
+
+### Why integrate?
+
+Gift cards close two gaps:
+
+1. **Cost** — account creation shifts from the onboarder (3 HIVE per account) to issuer-funded gift card tokens
+2. **Workflow** — the onboarder does everything from CheckinWithXYZ instead of switching between two apps
+
+The app will **not be rebranded** — keeping the CheckinWithXYZ name is important for bringing back the existing onboarder community.
+
+### Relationship to existing roles
+
+| Existing role (section 2.9) | CheckinWithXYZ equivalent | Notes |
+|-----|-----|-----|
+| Issuer | Not present in CheckinWithXYZ | Issuers generate batches externally and load cards into CheckinWithXYZ for distribution |
+| Distributor | Onboarder | CheckinWithXYZ onboarders are distributors — they hand out cards but do not generate them |
+| Operator | CheckinWithXYZ admin | Manages the onboarder whitelist; in this integration, also loads cards from issuers |
+
+CheckinWithXYZ becomes a **web-based distribution platform** — an alternative to the Telegram/Discord bot distribution channels described in section 2.9.5. The onboarder's Hive account maps to the distributor role. Authorization can follow the existing `propolis_distributor_authorize` on-chain model (section 2.9.5), with `"platforms": { "checkinwithxyz": true }` as the platform mapping.
+
+### Existing CheckinWithXYZ infrastructure to preserve
+
+The following infrastructure already exists and should be preserved or integrated with:
+
+- **Leaderboards** — onboards tracked by country, user, and community
+- **`@pioneersupporter`** — all new users follow this account and join a shared community, creating an aggregated feed at `ecency.com/@pioneersupporter/feed` for community support and retention measurement
+- **Newbie task checklist** — post-onboarding tasks that guide new users and drive engagement
+- **Approval flow** — onboarders review and approve check-ins, triggering rewards
+
+Gift card batches should include `@pioneersupporter` in `autoFollow` and the appropriate community in `communities` by default, so new accounts automatically join this existing ecosystem.
+
+---
+
+## Integration Design
+
+### Three account creation paths
+
+The onboarder chooses whichever path fits the situation. All three consume one gift card from the onboarder's pool.
+
+#### Path 1: Keychain QR scan (in-person, new user already has Keychain)
+
+The new user already has Hive Keychain installed. This is the fastest in-person path.
+
+1. New user opens Keychain, which generates keys locally and displays a QR code representing a `create_account` transaction
+2. Onboarder opens CheckinWithXYZ and taps "Scan Keychain QR"
+3. CheckinWithXYZ scans the QR, parses the `create_account` transaction, extracts:
+   - `username` — the desired account name
+   - `keys` — the 4 public keys (owner, active, posting, memo)
+4. CheckinWithXYZ calls the gift card service's `/claim` endpoint with the extracted username and keys, plus a token from the onboarder's card pool
+5. The gift card service creates the account using the issuer-funded account creation token
+6. The onboarder's card is marked as claimed; the new user proceeds to the check-in wizard (selfie, intro, publish) within CheckinWithXYZ — they already have Keychain, so they can sign the intro post via Keychain
+
+**Why this works:** The `/claim` endpoint accepts externally-provided public keys (see `PublicKeys` interface in `giftcard/src/hive/account.ts`). It does not require that keys were generated by the invite app — any valid Hive public keys are accepted. The token, signature, Merkle proof, and other cryptographic fields are supplied by CheckinWithXYZ from the card metadata it holds.
+
+**Key difference from the old flow:** The onboarder no longer pays 3 HIVE. The gift card token covers account creation. The onboarder just scans and confirms.
+
+#### Path 2: Show gift card QR + PIN (in-person, new user does NOT have Keychain)
+
+The onboarder and new user are together, but the new user hasn't installed Keychain yet.
+
+1. Onboarder opens CheckinWithXYZ, goes to "My Cards", selects an available card
+2. Onboarder shows the QR code on their screen to the new user
+3. New user scans the QR with their phone camera, opening the invite app URL
+4. Onboarder tells the new user the PIN (displayed alongside the QR in CheckinWithXYZ)
+5. New user completes the invite flow: PIN → username → key backup → claim → selfie → intro → publish
+6. The intro post is published from the invite app using the posting key in memory (no Keychain needed)
+7. New user is directed to install Keychain on the success screen
+8. Onboarder sees the check-in in their pending approvals → approves
+
+**When to use:** The new user is physically present but hasn't set up Keychain. This is the most accessible in-person path — the new user only needs a phone with a camera.
+
+#### Path 3: Share invite link (remote/async)
+
+The onboarder and new user are not in the same place.
+
+1. Onboarder opens CheckinWithXYZ, goes to "My Cards", selects an available card
+2. Onboarder taps "Copy link" and sends the invite URL to the new user via any messaging app
+3. Onboarder separately communicates the PIN (same message, separate message, or in person later)
+4. New user opens the link and completes the invite flow (same as Path 2, step 5 onwards)
+5. Onboarder sees the check-in when it appears → approves
+
+**When to use:** Remote onboarding — the new user is not physically present. The onboarder can distribute cards to anyone, anywhere.
+
+### Onboarder card management
+
+Onboarders see a "My Cards" section in CheckinWithXYZ with three actions per card:
+
+| Action | Icon/Button | What happens |
+|--------|-------------|--------------|
+| **Scan Keychain QR** | Camera/scan icon | Opens QR scanner, parses create_account tx, calls `/claim` with extracted keys (Path 1) |
+| **Show QR + PIN** | QR icon | Displays the gift card QR code and PIN on screen for the new user to scan (Path 2) |
+| **Copy link** | Link/share icon | Copies invite URL to clipboard for remote sharing (Path 3) |
+
+Each card also displays:
+- Status badge (available / claimed)
+- Claimed username (once redeemed)
+- Expiry date
+
+The onboarder does not need to understand the technical differences between these paths — they just pick what fits: "Are they here with Keychain? Scan. Are they here without Keychain? Show QR. Are they remote? Share link."
+
+### Card loading
+
+Issuers generate batches externally using existing tooling (`giftcard-generate.ts` CLI or the dashboard at HiveInvite.com). Each batch is created with the onboarder's username as `referrer` and includes `@pioneersupporter` in `autoFollow` and the appropriate community:
+
+```bash
+npx tsx giftcard-generate.ts \
+  --count 20 \
+  --referrer onboarder-alice \
+  --auto-follow onboarder-alice,pioneersupporter \
+  --post-claim-flow checkin \
+  --communities hive-123456
+```
+
+The issuer (or CheckinWithXYZ admin acting on the issuer's behalf) loads the cards into CheckinWithXYZ, tagged to the target onboarder. Loading can be done via:
+
+- **Admin UI** — paste or upload a manifest file, select the target onboarder
+- **API endpoint** — `POST /cards/load` with manifest data and onboarder username (for automation)
+
+CheckinWithXYZ stores the invite URLs, PINs (needed for Path 2 display), and metadata for display and tracking (card ID, onboarder assignment, status). For Path 1 (Keychain QR scan), CheckinWithXYZ also needs the raw token and cryptographic fields (signature, batchId, expires, promiseType, merkleProof, merkleRoot) to call `/claim` directly — these are loaded from the manifest.
+
+### Claim status tracking
+
+CheckinWithXYZ needs to know when a card has been claimed. Options, in order of preference:
+
+1. **On-chain referrer lookup** — when a new account is created with `referrer` matching the onboarder, the account appears on-chain. CheckinWithXYZ can periodically scan for new accounts referencing its onboarders. This is fully decoupled — no API integration with the gift card service needed.
+2. **Gift card service polling** — CheckinWithXYZ polls `/validate` for each active card to check if it has been spent. Requires the gift card service to accept validation requests without the full encrypted payload (e.g. by card ID or token hash).
+3. **Webhook callback** — the gift card service calls a CheckinWithXYZ endpoint when a card is claimed. Tightest coupling but most responsive.
+4. **Direct knowledge** — for Path 1 (Keychain QR scan), CheckinWithXYZ calls `/claim` itself and knows immediately when the account is created.
+
+Option 1 is recommended for Paths 2 and 3. Path 1 gets immediate feedback from the `/claim` response.
+
+---
+
+## Post-Claim Verification Flow (Invite App)
+
+### Motivation
+
+After the invite flow creates a Hive account, the user's posting key is still in memory (derived during the "Key Backup" step from the master password via `PrivateKey.fromLogin(username, password, 'posting')`). This is the only moment where the user can publish a Hive post without Keychain — the key exists in the browser but has not yet been persisted anywhere except the backup QR.
+
+By extending the invite flow with a selfie and introduction step, the user publishes their verification post immediately after account creation. This serves the CheckinWithXYZ community-building purpose (a public introduction post that the onboarder approves) without requiring the user to install Keychain first.
+
+This flow applies to **Paths 2 and 3** (gift card QR / invite link). Path 1 (Keychain QR scan) does not use the invite app — the user already has Keychain and completes the check-in wizard within CheckinWithXYZ itself.
+
+### New giftcard payload fields
+
+The encrypted gift card payload (section 2.4) gains two optional fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `postClaimFlow` | `string` | Identifies the post-claim flow to activate after account creation. `"checkin"` triggers the selfie + intro flow. Omitted for standard cards (PeakD redirect). |
+| `onboarder` | `string` | Hive username of the onboarder who distributed this card. Pre-fills the "onboarded by" field in the intro post. Also used as the `referrer` for account creation (redundant with existing `referrer` field but semantically distinct — `referrer` is for on-chain recording, `onboarder` is for post content). |
+
+These fields are added to the `GiftcardPayload` type in the invite app and to the generation script's payload construction. They are optional — existing cards without these fields continue to work unchanged (standard PeakD redirect on success).
+
+### Extended invite flow
+
+When `postClaimFlow === "checkin"` is present in the decrypted payload, the invite app's success screen is replaced with a multi-step verification flow:
+
+```
+Standard flow:
+  PIN → Username → Key Backup → Claim → ✅ Redirect to PeakD
+
+CheckIn flow:
+  PIN → Username → Key Backup → Claim → Selfie → Introduction → Publish → ✅ Install Keychain
+```
+
+**Step 5 — Selfie:**
+- Camera capture or photo upload (same UX as CheckinWithXYZ's existing selfie step)
+- Image resized client-side to max 800px width (matching CheckinWithXYZ's current behaviour)
+- Image uploaded to an image hosting service (see "Image hosting" below)
+- Skip button available — the selfie is encouraged but not mandatory
+
+**Step 6 — Introduction:**
+- Text input, up to 1000 characters
+- Prompt: "Introduce yourself to the Hive community"
+- Pre-filled metadata (not editable): onboarder username, community (from giftcard `communities` field)
+- Skip button available
+
+**Step 7 — Publish:**
+- Constructs a Hive blog post with:
+  - Title: "Introducing [username] — Onboarded by @[onboarder]" (or localised equivalent)
+  - Body: selfie image (if provided) + introduction text + standard footer with onboarder credit
+  - `json_metadata`: tags (`introduceyourself`, `checkinwithxyz`), community ID, app name, image URLs
+  - Community: from giftcard `communities` field (first entry), or a default CheckinWithXYZ community
+- Signs and broadcasts using the posting key in memory via `dhive` (`client.broadcast.comment`)
+- Shows progress indicator during broadcast
+- On failure: shows error with retry button. The posting key is still in memory — retry is safe.
+
+**Step 8 — Success:**
+- Confirmation that the intro post was published
+- Link to view the post on Peakd/Ecency
+- Prominent call-to-action: "Install Hive Keychain to manage your account"
+  - Links to Keychain for the user's platform (Chrome Web Store, Firefox Add-ons, iOS App Store, Google Play)
+- Reminder to save their key backup if they haven't already
+- Link to the CheckinWithXYZ newbie task checklist for next steps
+
+### Post discovery by CheckinWithXYZ
+
+After the intro post is published from the invite app, CheckinWithXYZ needs to discover it so the onboarder can approve it. The post includes specific tags and metadata that CheckinWithXYZ can index:
+
+- **Tag-based discovery**: The post includes the `checkinwithxyz` tag. CheckinWithXYZ's backend can watch for new posts with this tag via `bridge.get_ranked_posts` or `bridge.get_account_posts`.
+- **Onboarder mention**: The post body and `json_metadata` include the onboarder's username, allowing CheckinWithXYZ to route the post to the correct onboarder's pending approvals queue.
+- **App field**: `json_metadata.app` is set to `"checkinwithxyz"` (or a variant), enabling filtered queries.
+
+No webhook or direct API integration between the invite app and CheckinWithXYZ is required — the blockchain is the shared data layer.
+
+### Image hosting
+
+The selfie image needs to be hosted somewhere accessible via URL for inclusion in the Hive post body. Options:
+
+1. **Hive image hosting** — upload to an existing Hive image service (e.g. `images.hive.blog` via the Peakd/Ecency upload API). These services are free for Hive users and images persist indefinitely. This is the simplest option and keeps everything within the Hive ecosystem.
+2. **IPFS** — upload to IPFS via a pinning service. Decentralised and permanent, but adds a dependency on a pinning service.
+3. **CheckinWithXYZ backend** — upload to CheckinWithXYZ's existing image upload endpoint. Couples the invite app to CheckinWithXYZ's infrastructure.
+
+Option 1 is recommended — it requires no additional infrastructure and the images are natively compatible with Hive front-ends (Peakd, Ecency, Hive.blog).
+
+---
+
+## What Changes Where
+
+### Invite app (`invite/`)
+
+- Add `postClaimFlow` and `onboarder` fields to the `GiftcardPayload` type
+- Add three new screens after the claim success step: Selfie, Introduction, Publish
+- These screens are conditionally rendered only when `postClaimFlow === "checkin"`
+- Add `dhive` post broadcasting using the posting key already in memory
+- Add image upload to Hive image hosting
+- Add Keychain installation links on the final success screen
+- Add link to CheckinWithXYZ newbie checklist on success screen
+- Standard cards (without `postClaimFlow`) continue to redirect to PeakD as before
+
+### Gift card generation (`scripts/giftcard-generate.ts`)
+
+- Add `--post-claim-flow` CLI flag (string, optional)
+- Add `--onboarder` CLI flag (string, optional — defaults to `--referrer` value if set)
+- Include `postClaimFlow` and `onboarder` in the encrypted payload when specified
+- No changes to the encryption, signing, or Merkle proof logic
+
+### Gift card service (`giftcard/`)
+
+- No changes required for Paths 2 and 3. The service validates and redeems tokens — it is agnostic to post-claim flows.
+- Path 1 (Keychain QR scan) uses the existing `/claim` endpoint with externally-provided public keys — this already works, no changes needed.
+
+### CheckinWithXYZ (separate repo)
+
+- **New: Card inventory system** — database table for cards assigned to onboarders, storing invite URLs, PINs, raw tokens, and cryptographic fields (for Path 1 `/claim` calls). Status tracking: available → claimed.
+- **New: Admin card loading UI** — upload manifest or paste card data, assign to onboarder
+- **New: Onboarder "My Cards" page** — three-action card UI (Scan Keychain QR / Show QR + PIN / Copy link)
+- **New: Keychain QR scanner** — camera-based QR scanner that parses `create_account` transactions and calls `/claim` with extracted keys (Path 1)
+- **New: Claim status updates** — immediate for Path 1 (from `/claim` response); periodic on-chain scan for Paths 2 and 3 (referrer lookup or tag-based post discovery)
+- **Existing approval flow unchanged** — intro posts published from the invite app (Paths 2/3) or CheckinWithXYZ (Path 1) appear in the onboarder's pending approvals
+- **Existing leaderboards, tracking, checklist, and `@pioneersupporter` integration preserved**
+
+---
+
+## Open Questions
+
+1. **Reward mechanism** — CheckinWithXYZ currently sends HBD rewards from `@threespeakselfie` when an onboarder approves a check-in. Would this integration use the same reward account, a different one, or skip rewards entirely (since the gift card itself is the value provided to the new user)?
+
+2. **Onboarder authorization model** — Should CheckinWithXYZ onboarders be formally authorized as distributors on-chain (via `propolis_distributor_authorize`), or is the CheckinWithXYZ whitelist sufficient? On-chain authorization provides auditability and interoperability with other distribution channels; the whitelist is simpler but siloed.
+
+3. **Community selection** — The current design pre-fills the community from the giftcard's `communities` field (set by the issuer at batch generation time). Should the user be able to override this and pick a different community during the intro flow? The onboarder may have a preferred community that differs from what the issuer set.
+
+4. **Localisation** — The invite app currently supports 8 locales (en, zh, ar, fa, ru, tr, vi, es). The selfie/intro screens should be localised to match. CheckinWithXYZ appears to be English-only — is localisation of the CheckinWithXYZ distribution UI a concern?
+
+5. **CheckinWithXYZ backend access** — The CheckinWithXYZ backend (API server) is not open source and is controlled by `sag333ar`. Adding the card inventory system and Keychain QR scanning requires backend changes. Is this something you'd implement in their existing backend, or would you add a separate lightweight service for card management?
+
+6. **Manifest security for Path 1** — Path 1 requires CheckinWithXYZ to store raw tokens and cryptographic fields (not just invite URLs) so it can call `/claim` directly. This is more sensitive than Paths 2/3 where the secrets are embedded in the encrypted invite URL. The CheckinWithXYZ backend becomes a custodian of unspent tokens — how is this secured?
+
+7. **Keychain QR format** — The exact format of Keychain's `create_account` QR code needs to be verified. It likely contains a serialized Hive transaction with the operation type, username, and public keys. The QR parser in CheckinWithXYZ must handle this format correctly.
+
+---
+
+## Implementation Priorities
+
+**Phase 1 — Invite app post-claim flow (this repo):**
+The smallest useful increment. Cards generated with `--post-claim-flow checkin` trigger the selfie + intro flow after account creation. No CheckinWithXYZ changes needed — the onboarder distributes cards manually (as QR printouts or links) and discovers intro posts on-chain. This delivers value even without the distribution UI.
+
+- Add `postClaimFlow` and `onboarder` to giftcard payload
+- Add selfie, introduction, and publish screens to invite app
+- Add `dhive` post broadcasting with in-memory posting key
+- Add image upload to Hive image hosting
+- Add Keychain installation links and checklist link on success screen
+
+**Phase 2 — CheckinWithXYZ distribution UI (separate repo):**
+The onboarder-facing card management with all three paths. Depends on CheckinWithXYZ backend access.
+
+- Card inventory system (backend)
+- Admin card loading from manifests (backend + frontend)
+- Onboarder "My Cards" page with three-action UI (frontend)
+- Path 2: QR + PIN display for in-person sharing
+- Path 3: Copy link for remote sharing
+- Claim status tracking via on-chain referrer lookup (backend)
+
+**Phase 3 — Keychain QR integration (separate repo):**
+Path 1 — the Keychain QR scanner. This is the most complex path (QR parsing, direct `/claim` calls, token custody) and can be delivered after Paths 2 and 3 are working.
+
+- Keychain QR scanner and `create_account` transaction parser
+- Direct `/claim` calls from CheckinWithXYZ with extracted public keys
+- Secure token storage for Path 1 card consumption
+
+**Phase 4 — Full integration:**
+- On-chain distributor authorization for onboarders
+- Automated card loading from issuer batches
+- Cross-platform distributor management (same onboarder authorized across CheckinWithXYZ, Telegram bot, Discord bot)
+- Integration with existing leaderboard and tracking systems
