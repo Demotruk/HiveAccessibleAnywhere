@@ -28,6 +28,10 @@ export interface GiftCardPayload {
   referrer?: string;
   /** Account whose memo key signed this card (multi-tenant: service account) */
   signer?: string;
+  /** Enable extended onboarding (profile setup + intro post) after account creation */
+  extendedOnboarding?: boolean;
+  /** Community for introduction post (default: hive-174578 / OCD) */
+  introPostCommunity?: string;
 }
 
 /**
@@ -55,6 +59,15 @@ export interface InviteState {
   bootstrapSaved: boolean;
   /** Background warm-up interval ID (cleared when claiming screen starts) */
   _warmupInterval?: ReturnType<typeof setInterval>;
+  /** URL of uploaded profile image (set during profile-setup screen) */
+  imageUrl?: string | null;
+  /** Profile data entered during profile-setup screen */
+  profileData?: {
+    displayName: string;
+    about: string;
+    location: string;
+    website: string;
+  } | null;
 }
 
 export type ScreenName =
@@ -64,6 +77,8 @@ export type ScreenName =
   | 'username'
   | 'backup'
   | 'claiming'
+  | 'profile'
+  | 'intro'
   | 'success';
 
 export type ScreenFn = (

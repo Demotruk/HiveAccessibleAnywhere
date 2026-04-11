@@ -29,6 +29,10 @@ interface CachedState {
   encryptedKeys?: string;
   /** Claim result (if account created) */
   claimResult?: { account: string; tx_id: string };
+  /** URL of uploaded profile image */
+  imageUrl?: string;
+  /** Profile data from profile setup */
+  profileData?: { displayName: string; about: string; location: string; website: string };
   /** Screen to resume from */
   resumeScreen: string;
 }
@@ -61,6 +65,14 @@ export async function saveCheckpoint(
 
   if (state.claimResult) {
     cached.claimResult = state.claimResult;
+  }
+
+  if (state.imageUrl) {
+    cached.imageUrl = state.imageUrl;
+  }
+
+  if (state.profileData) {
+    cached.profileData = state.profileData;
   }
 
   try {
@@ -109,6 +121,14 @@ export async function loadCheckpoint(): Promise<{
 
     if (cached.claimResult) {
       partial.claimResult = cached.claimResult;
+    }
+
+    if (cached.imageUrl) {
+      partial.imageUrl = cached.imageUrl;
+    }
+
+    if (cached.profileData) {
+      partial.profileData = cached.profileData;
     }
 
     return { state: partial, resumeScreen: cached.resumeScreen };

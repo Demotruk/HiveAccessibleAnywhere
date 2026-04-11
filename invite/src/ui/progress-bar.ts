@@ -17,9 +17,11 @@ import type { ScreenName } from '../types';
 /** Ordered steps in the onboarding flow. */
 const STEPS = ['pin', 'verifying', 'username', 'backup', 'claiming'] as const;
 
-/** Screen-to-step mapping (success maps to the claiming step). */
+/** Screen-to-step mapping. Profile/intro/success all map to the claiming step. */
 function stepIndex(screen: ScreenName): number {
-  if (screen === 'success') return STEPS.indexOf('claiming');
+  if (screen === 'success' || screen === 'profile' || screen === 'intro') {
+    return STEPS.indexOf('claiming');
+  }
   return STEPS.indexOf(screen as (typeof STEPS)[number]);
 }
 
