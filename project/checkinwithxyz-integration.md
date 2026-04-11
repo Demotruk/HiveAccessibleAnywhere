@@ -146,7 +146,10 @@ Each card consumption:
 5. Confirmation screen: "Create account @username?" with the onboarder's remaining card count
 6. On confirm: calls onboarder API `POST /onboarder/create-account` with username + keys
 7. Onboarder API picks a token, calls `/claim` server-side → account created
-8. Success: "Account @username created! They can now log into CheckinWithXYZ."
+8. CheckinWithXYZ immediately presents a HiveAuth QR for the newly created account — the newbie scans it with Keychain on their phone to log in
+9. Once authenticated, the selfie/intro wizard starts automatically on the onboarder's device
+
+This gives a seamless two-QR-scan experience for in-person onboarding: first scan creates the account, second scan logs in. Everything happens on the onboarder's device (laptop or tablet), with the newbie just scanning QR codes on their phone. The onboarder can guide the newbie through the selfie and intro steps on a big screen.
 
 ---
 
