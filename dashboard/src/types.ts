@@ -8,6 +8,8 @@ export interface Batch {
   declarationTx: string | null;
   merkleRoot: string | null;
   note: string | null;
+  allocatable?: boolean;
+  allocated?: number;
   status: { active: number; spent: number; revoked: number };
 }
 
@@ -17,11 +19,40 @@ export interface Card {
   status: 'active' | 'spent' | 'revoked';
   claimedBy: string | null;
   claimedAt: string | null;
+  allocatedTo?: string | null;
 }
 
 /** Full batch detail from GET /api/batches/:id */
 export interface BatchDetail extends Omit<Batch, 'status'> {
+  allocatable?: boolean;
   cards: Card[];
+}
+
+/** Allocation summary returned by GET /api/allocations/me (per source batch). */
+export interface AllocationBatchSummary {
+  batchId: string;
+  batchProvider: string;
+  batchExpiresAt: string;
+  total: number;
+  active: number;
+  spent: number;
+}
+
+/** A single allocated card from GET /api/allocations/me. */
+export interface AllocatedCard {
+  tokenPrefix: string;
+  batchId: string;
+  batchProvider: string;
+  status: 'active' | 'spent' | 'revoked';
+  claimedBy: string | null;
+  claimedAt: string | null;
+  expiresAt: string;
+}
+
+/** GET /api/allocations/me response. */
+export interface MyAllocationsResponse {
+  batches: AllocationBatchSummary[];
+  cards: AllocatedCard[];
 }
 
 /** POST /api/batches request body */
@@ -38,6 +69,8 @@ export interface BatchCreateRequest {
   communities?: string[];
   /** Hive username to record as account referrer */
   referrer?: string;
+  /** Mark this batch as an allocation pool (admin only). */
+  allocatable?: boolean;
 }
 
 /** POST /api/batches/prepare response */

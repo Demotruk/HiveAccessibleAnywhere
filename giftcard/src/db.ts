@@ -27,6 +27,7 @@ export interface BatchRow {
   status: 'pending' | 'active';
   signature: string | null;
   options_json: string | null;
+  allocatable: number;
 }
 
 export interface IssuerRow {
@@ -62,6 +63,7 @@ export interface TokenRow {
   claimed_at: string | null;
   claimed_ip: string | null;
   tx_id: string | null;
+  allocated_to: string | null;
 }
 
 // -- Initialization --
@@ -128,8 +130,27 @@ export function initDatabase(dbPath: string): Database.Database {
   migrateIssuersTable(db);
   migrateIssuersRevoke(db);
   migrateBatchSigning(db);
+  migrateAllocation(db);
 
   return db;
+}
+
+/**
+ * Add allocation columns: tokens.allocated_to (recipient issuer username)
+ * and batches.allocatable (flag identifying allocation-pool batches).
+ */
+function migrateAllocation(db: Database.Database): void {
+  const tokenCols = db.pragma('table_info(tokens)') as Array<{ name: string }>;
+  if (!tokenCols.some(c => c.name === 'allocated_to')) {
+    db.exec('ALTER TABLE tokens ADD COLUMN allocated_to TEXT');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_tokens_allocated_to ON tokens(allocated_to)');
+    console.log('[DB] Migrated tokens: added allocated_to column');
+  }
+  const batchCols = db.pragma('table_info(batches)') as Array<{ name: string }>;
+  if (!batchCols.some(c => c.name === 'allocatable')) {
+    db.exec('ALTER TABLE batches ADD COLUMN allocatable INTEGER NOT NULL DEFAULT 0');
+    console.log('[DB] Migrated batches: added allocatable column');
+  }
 }
 
 /**
@@ -642,15 +663,16 @@ export function createBatchWithProvider(
   note?: string,
   promiseType: string = 'account-creation',
   promiseParams?: Record<string, unknown>,
+  allocatable: boolean = false,
 ): void {
   db.prepare(`
-    INSERT INTO batches (id, expires_at, count, merkle_root, declaration_tx, note, promise_type, promise_params, provider)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO batches (id, expires_at, count, merkle_root, declaration_tx, note, promise_type, promise_params, provider, allocatable)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id, expiresAt, count,
     merkleRoot ?? null, declarationTx ?? null, note ?? null,
     promiseType, promiseParams ? JSON.stringify(promiseParams) : null,
-    provider,
+    provider, allocatable ? 1 : 0,
   );
 }
 
@@ -737,14 +759,15 @@ export function createPendingBatch(
   note?: string,
   promiseType: string = 'account-creation',
   promiseParams?: Record<string, unknown>,
+  allocatable: boolean = false,
 ): void {
   db.prepare(`
-    INSERT INTO batches (id, expires_at, count, merkle_root, note, promise_type, promise_params, provider, status, options_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+    INSERT INTO batches (id, expires_at, count, merkle_root, note, promise_type, promise_params, provider, status, options_json, allocatable)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
   `).run(
     id, expiresAt, count, merkleRoot, note ?? null,
     promiseType, promiseParams ? JSON.stringify(promiseParams) : null,
-    provider, optionsJson,
+    provider, optionsJson, allocatable ? 1 : 0,
   );
 }
 
@@ -803,4 +826,194 @@ export function cleanupPendingBatches(db: Database.Database, maxAgeMinutes: numb
  */
 export function listTokensForBatch(db: Database.Database, batchId: string): TokenRow[] {
   return db.prepare('SELECT * FROM tokens WHERE batch_id = ? ORDER BY created_at ASC').all(batchId) as TokenRow[];
+}
+
+// -- Allocation operations --
+
+/**
+ * Default number of starter cards auto-allocated to newly approved issuers.
+ */
+export const DEFAULT_AUTO_ALLOCATE_COUNT = 10;
+
+export interface AllocationSummary {
+  batchId: string;
+  batchProvider: string;
+  batchExpiresAt: string;
+  total: number;
+  active: number;
+  spent: number;
+}
+
+export interface AllocatedCardRow extends TokenRow {
+  batch_provider: string;
+  batch_expires_at: string;
+}
+
+/**
+ * List allocatable batches owned by `provider`, newest first, with counts of
+ * unallocated, unclaimed, active tokens available for assignment.
+ */
+export function listAllocatableBatches(
+  db: Database.Database,
+  provider: string,
+): Array<BatchRow & { available: number }> {
+  return db.prepare(`
+    SELECT b.*, COALESCE(SUM(CASE WHEN t.allocated_to IS NULL AND t.status = 'active' THEN 1 ELSE 0 END), 0) AS available
+    FROM batches b
+    LEFT JOIN tokens t ON t.batch_id = b.id
+    WHERE b.provider = ? AND b.allocatable = 1 AND b.status = 'active'
+    GROUP BY b.id
+    ORDER BY b.created_at DESC
+  `).all(provider) as Array<BatchRow & { available: number }>;
+}
+
+/**
+ * Allocate `count` unallocated, active tokens from `batchId` to `recipient`.
+ * Returns the number of tokens actually allocated.
+ */
+export function allocateFromBatch(
+  db: Database.Database,
+  batchId: string,
+  recipient: string,
+  count: number,
+): number {
+  const tx = db.transaction((bId: string, rec: string, n: number) => {
+    const candidates = db.prepare(`
+      SELECT token FROM tokens
+      WHERE batch_id = ? AND allocated_to IS NULL AND status = 'active'
+      ORDER BY created_at ASC
+      LIMIT ?
+    `).all(bId, n) as Array<{ token: string }>;
+    const update = db.prepare("UPDATE tokens SET allocated_to = ? WHERE token = ? AND allocated_to IS NULL AND status = 'active'");
+    let allocated = 0;
+    for (const c of candidates) {
+      const r = update.run(rec, c.token);
+      if (r.changes > 0) allocated++;
+    }
+    return allocated;
+  });
+  return tx(batchId, recipient, count);
+}
+
+/**
+ * Allocate up to `count` tokens to `recipient` from any of the operator's
+ * allocatable batches, preferring newest batches first. Returns the number
+ * actually allocated, plus a per-batch breakdown.
+ */
+export function autoAllocateFromPool(
+  db: Database.Database,
+  operatorProvider: string,
+  recipient: string,
+  count: number,
+): { allocated: number; perBatch: Array<{ batchId: string; allocated: number }> } {
+  if (count <= 0) return { allocated: 0, perBatch: [] };
+  const batches = listAllocatableBatches(db, operatorProvider);
+  let remaining = count;
+  const perBatch: Array<{ batchId: string; allocated: number }> = [];
+  for (const batch of batches) {
+    if (remaining <= 0) break;
+    if (batch.available <= 0) continue;
+    const take = Math.min(remaining, batch.available);
+    const got = allocateFromBatch(db, batch.id, recipient, take);
+    if (got > 0) {
+      perBatch.push({ batchId: batch.id, allocated: got });
+      remaining -= got;
+    }
+  }
+  return { allocated: count - remaining, perBatch };
+}
+
+/**
+ * Summarize cards allocated to a recipient, grouped by source batch.
+ */
+export function listAllocationSummariesForRecipient(
+  db: Database.Database,
+  recipient: string,
+): AllocationSummary[] {
+  return db.prepare(`
+    SELECT
+      b.id AS batchId,
+      b.provider AS batchProvider,
+      b.expires_at AS batchExpiresAt,
+      COUNT(t.token) AS total,
+      SUM(CASE WHEN t.status = 'active' THEN 1 ELSE 0 END) AS active,
+      SUM(CASE WHEN t.status = 'spent' THEN 1 ELSE 0 END) AS spent
+    FROM tokens t
+    JOIN batches b ON b.id = t.batch_id
+    WHERE t.allocated_to = ?
+    GROUP BY b.id, b.provider, b.expires_at
+    ORDER BY b.created_at DESC
+  `).all(recipient) as AllocationSummary[];
+}
+
+/**
+ * List individual allocated cards for a recipient, optionally scoped to a batch.
+ * Ordered by token creation order to match PDF page order.
+ */
+export function listAllocatedCardsForRecipient(
+  db: Database.Database,
+  recipient: string,
+  batchId?: string,
+): AllocatedCardRow[] {
+  if (batchId) {
+    return db.prepare(`
+      SELECT t.*, b.provider AS batch_provider, b.expires_at AS batch_expires_at
+      FROM tokens t JOIN batches b ON b.id = t.batch_id
+      WHERE t.allocated_to = ? AND t.batch_id = ?
+      ORDER BY t.created_at ASC
+    `).all(recipient, batchId) as AllocatedCardRow[];
+  }
+  return db.prepare(`
+    SELECT t.*, b.provider AS batch_provider, b.expires_at AS batch_expires_at
+    FROM tokens t JOIN batches b ON b.id = t.batch_id
+    WHERE t.allocated_to = ?
+    ORDER BY b.created_at DESC, t.created_at ASC
+  `).all(recipient) as AllocatedCardRow[];
+}
+
+/**
+ * Return the zero-based positions of `recipient`'s allocated tokens in the
+ * source batch's creation order. Used to slice the pre-rendered combined PDF
+ * (each card occupies 2 pages: positions 2N and 2N+1).
+ */
+export function getAllocatedTokenIndicesInBatch(
+  db: Database.Database,
+  recipient: string,
+  batchId: string,
+  options: { unclaimedOnly?: boolean } = {},
+): number[] {
+  const allTokens = db.prepare(
+    'SELECT token, status, allocated_to FROM tokens WHERE batch_id = ? ORDER BY created_at ASC',
+  ).all(batchId) as Array<{ token: string; status: string; allocated_to: string | null }>;
+  const indices: number[] = [];
+  for (let i = 0; i < allTokens.length; i++) {
+    const t = allTokens[i];
+    if (t.allocated_to !== recipient) continue;
+    if (options.unclaimedOnly && t.status !== 'active') continue;
+    indices.push(i);
+  }
+  return indices;
+}
+
+/**
+ * Look up a single allocatable batch owned by `provider` (used by the admin
+ * allocate endpoint to validate the source batch).
+ */
+export function getAllocatableBatchByIdForProvider(
+  db: Database.Database,
+  batchId: string,
+  provider: string,
+): BatchRow | null {
+  return (db.prepare(
+    "SELECT * FROM batches WHERE id = ? AND provider = ? AND allocatable = 1 AND status = 'active'",
+  ).get(batchId, provider) as BatchRow | undefined) ?? null;
+}
+
+/**
+ * Retrieve a batch's stored combined PDF without the provider scope check.
+ * Used to serve PDF subsets to recipients of allocated cards.
+ */
+export function getBatchPdfRaw(db: Database.Database, batchId: string): Buffer | null {
+  const row = db.prepare('SELECT pdf_data FROM batches WHERE id = ?').get(batchId) as { pdf_data: Buffer | null } | undefined;
+  return row?.pdf_data ?? null;
 }

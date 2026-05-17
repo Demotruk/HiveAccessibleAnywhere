@@ -37,6 +37,9 @@ import {
 import {
   applyHandler, meHandler, setServiceUrlHandler, listIssuersHandler, approveHandler, revokeHandler, banHandler,
 } from './routes/issuers.js';
+import {
+  allocateBatchHandler, listMyAllocationsHandler, downloadMyAllocationPdfHandler,
+} from './routes/allocations.js';
 import { loadConfig, isMultiTenant } from './config.js';
 import { initDatabase, cleanupPendingBatches } from './db.js';
 import { warmBatchCache } from './hive/batch-lookup.js';
@@ -137,6 +140,11 @@ app.get('/api/admin/issuers', apiLimiter, admin, listIssuersHandler(db));
 app.post('/api/admin/issuers/:username/approve', apiLimiter, admin, approveHandler(db, config));
 app.post('/api/admin/issuers/:username/revoke', apiLimiter, admin, revokeHandler(db, config));
 app.post('/api/admin/issuers/:username/ban', apiLimiter, admin, banHandler(db));
+app.post('/api/admin/batches/:id/allocate', apiLimiter, admin, allocateBatchHandler(db));
+
+// Allocation routes (any authenticated user — recipients view their own allocations)
+app.get('/api/allocations/me', apiLimiter, auth, listMyAllocationsHandler(db));
+app.get('/api/allocations/me/pdf', apiLimiter, auth, downloadMyAllocationPdfHandler(db));
 
 // Batch routes (active issuers + admins)
 const issuer = requireIssuer(config, db);

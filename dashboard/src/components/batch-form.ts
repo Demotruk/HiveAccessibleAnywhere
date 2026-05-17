@@ -19,6 +19,7 @@ function navigate(hash: string, e: Event) {
 export function BatchForm() {
   const externalDown = !!(state.externalServiceUrl && !state.externalConnected);
 
+  const isAdmin = state.role === 'admin';
   const [count, setCount] = useState(10);
   const [locale, setLocale] = useState('en');
   const [expiryDays, setExpiryDays] = useState(365);
@@ -27,6 +28,7 @@ export function BatchForm() {
   const [communitiesStr, setCommunitiesStr] = useState('');
   const [referrer, setReferrer] = useState('');
   const [note, setNote] = useState('');
+  const [allocatable, setAllocatable] = useState(false);
   const [phase, setPhase] = useState<'form' | 'preparing' | 'signing' | 'finalizing' | 'done'>('form');
   const [error, setError] = useState('');
   const [result, setResult] = useState<BatchCreateResponse | null>(null);
@@ -69,6 +71,7 @@ export function BatchForm() {
       ...(autoFollow?.length && { autoFollow }),
       ...(communities?.length && { communities }),
       ...(refUser && { referrer: refUser }),
+      ...(isAdmin && allocatable && { allocatable: true }),
     };
 
     try {
@@ -195,6 +198,19 @@ export function BatchForm() {
             onInput=${(e: Event) => setNote((e.target as HTMLTextAreaElement).value)}
             disabled=${generating} />
         </div>
+
+        ${isAdmin && html`
+          <div class="form-row">
+            <label>
+              <input type="checkbox"
+                checked=${allocatable}
+                onChange=${(e: Event) => setAllocatable((e.target as HTMLInputElement).checked)}
+                disabled=${generating} />
+              Allocation pool
+            </label>
+            <p class="form-hint">Mark this batch as a starter pool. Newly approved issuers will be auto-allocated cards from it, and you can manually allocate more from the batch detail page.</p>
+          </div>
+        `}
 
         <p class="sm mt mb" style="color:var(--tm)">Design: Hive Community (default)</p>
 

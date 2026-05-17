@@ -1,7 +1,7 @@
 import { state, setState } from './state.js';
 import type {
   Batch, BatchCreateRequest, BatchCreateResponse, PrepareResponse, BatchDetail,
-  IssuerRecord, IssuerWithStats, SetupStatus, UserRole,
+  IssuerRecord, IssuerWithStats, SetupStatus, UserRole, MyAllocationsResponse,
 } from './types.js';
 
 declare const __API_BASE__: string;
@@ -183,7 +183,15 @@ export async function getBatchDetail(id: string): Promise<BatchDetail> {
 
 export async function downloadFile(path: string, filename: string): Promise<void> {
   const res = await apiFetch(path, {}, batchTarget());
-  const blob = await res.blob();
+  triggerDownload(await res.blob(), filename);
+}
+
+async function downloadFileFromOperator(path: string, filename: string): Promise<void> {
+  const res = await apiFetch(path, {}, 'operator');
+  triggerDownload(await res.blob(), filename);
+}
+
+function triggerDownload(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -265,6 +273,39 @@ export async function banIssuer(username: string): Promise<IssuerRecord> {
   });
   const data = await res.json();
   return data.issuer;
+}
+
+// ---------------------------------------------------------------------------
+// Allocations API — always operator service
+// ---------------------------------------------------------------------------
+
+export async function allocateBatch(
+  batchId: string,
+  to: string,
+  count: number,
+): Promise<{ allocated: number; requested: number; batchId: string; recipient: string }> {
+  const res = await apiFetch(`/api/admin/batches/${encodeURIComponent(batchId)}/allocate`, {
+    method: 'POST',
+    body: JSON.stringify({ to, count }),
+  });
+  return res.json();
+}
+
+export async function getMyAllocations(): Promise<MyAllocationsResponse> {
+  const res = await apiFetch('/api/allocations/me');
+  return res.json();
+}
+
+export async function downloadAllocationPdf(
+  batchId: string,
+  filename: string,
+  options: { include?: 'all' | 'unclaimed' } = {},
+): Promise<void> {
+  const include = options.include ?? 'unclaimed';
+  await downloadFileFromOperator(
+    `/api/allocations/me/pdf?batch=${encodeURIComponent(batchId)}&include=${include}`,
+    filename,
+  );
 }
 
 // ---------------------------------------------------------------------------

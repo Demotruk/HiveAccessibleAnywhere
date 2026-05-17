@@ -57,6 +57,8 @@ export interface BatchGenerateOptions {
   referrer?: string;
   /** Skip on-chain declaration (for testing) */
   skipOnChain?: boolean;
+  /** Mark this batch as an allocation pool — admin-only, draws from it when allocating to other issuers */
+  allocatable?: boolean;
 }
 
 export interface BatchResult {
@@ -136,7 +138,7 @@ export async function prepareBatch(
   const optionsJson = JSON.stringify(options);
 
   // -- Step 5: Write to database as pending --
-  createPendingBatch(db, batchId, expiresAt, count, issuer, root, optionsJson, note, promiseType, promiseParams);
+  createPendingBatch(db, batchId, expiresAt, count, issuer, root, optionsJson, note, promiseType, promiseParams, !!options.allocatable);
   for (const card of cards) {
     // Store with empty signature — the batch-level signature goes on the batch row
     insertToken(db, card.token, batchId, card.pin, '', expiresAt);
@@ -392,7 +394,7 @@ export async function generateBatch(
   console.log(`[BATCH] Merkle root: ${root}`);
 
   // -- Step 3: Write to database --
-  createBatchWithProvider(db, batchId, expiresAt, count, issuer, root, undefined, note, promiseType, promiseParams);
+  createBatchWithProvider(db, batchId, expiresAt, count, issuer, root, undefined, note, promiseType, promiseParams, !!options.allocatable);
   for (const card of cards) {
     insertToken(db, card.token, batchId, card.pin, card.signature, expiresAt);
   }

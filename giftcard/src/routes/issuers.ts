@@ -20,8 +20,49 @@ import {
   updateIssuerServiceUrl,
   revokeIssuer,
   banIssuer,
+  autoAllocateFromPool,
+  DEFAULT_AUTO_ALLOCATE_COUNT,
 } from '../db.js';
 import { getIssuerAccountInfo, sendApprovalNotification } from '../hive/issuer-ops.js';
+
+/**
+ * Resolve which account's allocation pool to draw from when auto-allocating
+ * starter cards. In single-tenant mode this is the provider account; in
+ * multi-tenant mode it's still the provider account that owns the operator's
+ * own batches in the database.
+ */
+function poolOperator(config: GiftcardConfig): string {
+  return config.providerAccount;
+}
+
+/**
+ * Auto-allocate starter cards from the operator's pool to a newly approved
+ * issuer. Best-effort — logs but never throws.
+ */
+function autoAllocateStarterCards(
+  db: Database.Database,
+  config: GiftcardConfig,
+  recipient: string,
+  context: string,
+): void {
+  try {
+    const operator = poolOperator(config);
+    if (!operator) {
+      console.warn(`[ALLOC] Auto-allocation skipped (${context}): no operator/pool account configured`);
+      return;
+    }
+    const result = autoAllocateFromPool(db, operator, recipient, DEFAULT_AUTO_ALLOCATE_COUNT);
+    if (result.allocated === 0) {
+      console.warn(`[ALLOC] No starter cards available in @${operator}'s pool for @${recipient} (${context})`);
+    } else if (result.allocated < DEFAULT_AUTO_ALLOCATE_COUNT) {
+      console.warn(`[ALLOC] Allocated only ${result.allocated}/${DEFAULT_AUTO_ALLOCATE_COUNT} starter cards to @${recipient} from @${operator} (${context})`);
+    } else {
+      console.log(`[ALLOC] Auto-allocated ${result.allocated} starter cards to @${recipient} from @${operator} (${context})`);
+    }
+  } catch (err) {
+    console.warn(`[ALLOC] Auto-allocation failed for @${recipient} (${context}):`, err instanceof Error ? err.message : String(err));
+  }
+}
 
 // -- Application routes (any authenticated user) --
 
@@ -97,6 +138,7 @@ export function meHandler(db: Database.Database, config: GiftcardConfig) {
       issuer = getIssuer(db, username);
       preApproved = true;
       console.log(`[ISSUER] @${username} auto-approved (pre-approved list)`);
+      autoAllocateStarterCards(db, config, username, 'pre-approved first login');
     }
 
     // Derive service public key for delegation check
@@ -256,6 +298,8 @@ export function approveHandler(db: Database.Database, config: GiftcardConfig) {
     });
 
     console.log(`[ISSUER] @${normalized} approved by @${req.issuer}`);
+
+    autoAllocateStarterCards(db, config, normalized, `approved by @${req.issuer}`);
 
     // Send notification transfer (best-effort, from dedicated notify account)
     if (!config.notifyAccount || !config.notifyActiveKey) {

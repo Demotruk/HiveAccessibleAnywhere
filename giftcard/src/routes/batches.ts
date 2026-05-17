@@ -36,6 +36,7 @@ export function createBatchHandler(db: Database.Database, config: GiftcardConfig
       autoFollow?: string[];
       communities?: string[];
       referrer?: string;
+      allocatable?: boolean;
     };
 
     // Validate count
@@ -91,6 +92,7 @@ export function createBatchHandler(db: Database.Database, config: GiftcardConfig
       autoFollow: body.autoFollow,
       communities: body.communities,
       referrer: body.referrer,
+      allocatable: req.role === 'admin' ? !!body.allocatable : false,
     };
 
     try {
@@ -126,6 +128,7 @@ export function prepareBatchHandler(db: Database.Database, config: GiftcardConfi
       autoFollow?: string[];
       communities?: string[];
       referrer?: string;
+      allocatable?: boolean;
     };
 
     // Validate count
@@ -181,6 +184,7 @@ export function prepareBatchHandler(db: Database.Database, config: GiftcardConfi
       autoFollow: body.autoFollow,
       communities: body.communities,
       referrer: body.referrer,
+      allocatable: req.role === 'admin' ? !!body.allocatable : false,
     };
 
     try {
@@ -243,6 +247,7 @@ export function listBatchesHandler(db: Database.Database) {
       const spent = tokens.filter(t => t.status === 'spent').length;
       const revoked = tokens.filter(t => t.status === 'revoked').length;
 
+      const allocated = tokens.filter(t => t.allocated_to !== null).length;
       return {
         batchId: batch.id,
         createdAt: batch.created_at,
@@ -252,6 +257,8 @@ export function listBatchesHandler(db: Database.Database) {
         declarationTx: batch.declaration_tx,
         merkleRoot: batch.merkle_root,
         note: batch.note,
+        allocatable: !!batch.allocatable,
+        allocated,
         status: { active, spent, revoked },
       };
     });
@@ -280,6 +287,7 @@ export function getBatchDetailHandler(db: Database.Database) {
       status: t.status,
       claimedBy: t.claimed_by,
       claimedAt: t.claimed_at,
+      allocatedTo: t.allocated_to,
     }));
 
     res.json({
@@ -291,6 +299,7 @@ export function getBatchDetailHandler(db: Database.Database) {
       declarationTx: batch.declaration_tx,
       merkleRoot: batch.merkle_root,
       note: batch.note,
+      allocatable: !!batch.allocatable,
       cards,
     });
   };

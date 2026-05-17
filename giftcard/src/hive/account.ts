@@ -374,29 +374,50 @@ export async function broadcastFollowAndSubscribe(
 
   hiveTxConfig.nodes = config.hiveNodes;
 
-  const tx = new Transaction();
+  // Hive limits accounts to 5 custom_json operations per block.
+  // Batch operations into groups of 5, waiting one block (3s) between batches.
+  const MAX_OPS_PER_BLOCK = 5;
+
+  type Op = { id: string; json: string };
+  const allOps: Op[] = [];
 
   for (const target of follows) {
-    await tx.addOperation('custom_json' as any, {
-      required_auths: [],
-      required_posting_auths: [username],
+    allOps.push({
       id: 'follow',
       json: JSON.stringify(['follow', { follower: username, following: target, what: ['blog'] }]),
-    } as any);
+    });
   }
 
   for (const community of subs) {
-    await tx.addOperation('custom_json' as any, {
-      required_auths: [],
-      required_posting_auths: [username],
+    allOps.push({
       id: 'community',
       json: JSON.stringify(['subscribe', { community }]),
-    } as any);
+    });
   }
 
   const key = PrivateKey.from(config.postingKey);
-  tx.sign(key);
-  await tx.broadcast(true);
+
+  for (let i = 0; i < allOps.length; i += MAX_OPS_PER_BLOCK) {
+    if (i > 0) {
+      // Wait for next block to avoid per-block custom_json limit
+      await new Promise(resolve => setTimeout(resolve, 3500));
+    }
+
+    const batch = allOps.slice(i, i + MAX_OPS_PER_BLOCK);
+    const tx = new Transaction();
+
+    for (const op of batch) {
+      await tx.addOperation('custom_json' as any, {
+        required_auths: [],
+        required_posting_auths: [username],
+        id: op.id,
+        json: op.json,
+      } as any);
+    }
+
+    tx.sign(key);
+    await tx.broadcast(true);
+  }
 }
 
 /**

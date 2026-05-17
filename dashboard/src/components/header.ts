@@ -41,6 +41,11 @@ export function Header({ route }: { route: string }) {
             class=${route === 'batch-form' ? 'active' : ''}
             onClick=${(e: Event) => navigate('#batches/generate', e)}>Generate</a>
         `}
+        ${state.username && html`
+          <a href="#allocations"
+            class=${route === 'allocations' ? 'active' : ''}
+            onClick=${(e: Event) => navigate('#allocations', e)}>Allocations</a>
+        `}
         ${needsSetup && html`
           <a href="#setup"
             class=${route === 'setup' ? 'active' : ''}
