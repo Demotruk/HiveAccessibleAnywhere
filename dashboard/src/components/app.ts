@@ -9,6 +9,7 @@ import { BatchDetail } from './batch-detail.js';
 import { Apply } from './apply.js';
 import { Setup } from './setup.js';
 import { Admin } from './admin.js';
+import { Allocations } from './allocations.js';
 
 interface Route {
   view: string;
@@ -22,6 +23,7 @@ function parseRoute(hash: string): Route {
   if (path === 'apply') return { view: 'apply', path };
   if (path === 'setup') return { view: 'setup', path };
   if (path === 'admin') return { view: 'admin', path };
+  if (path === 'allocations') return { view: 'allocations', path };
   if (path === 'batches') return { view: 'batch-list', path };
   if (path === 'batches/generate') return { view: 'batch-form', path };
   if (path.startsWith('batches/')) return { view: 'batch-detail', param: path.slice(8), path };
@@ -86,6 +88,16 @@ export function App() {
         <${Header} route=${route.view} />
       </div>
       <${Setup} />
+    `;
+  }
+
+  // Allocations — accessible to any logged-in user (recipient of allocated cards)
+  if (route.view === 'allocations') {
+    return html`
+      <div class="ct">
+        <${Header} route=${route.view} />
+      </div>
+      <${Allocations} />
     `;
   }
 

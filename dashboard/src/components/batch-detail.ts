@@ -1,6 +1,7 @@
 import { html } from 'htm/preact';
 import { useState, useEffect } from 'preact/hooks';
-import { getBatchDetail, downloadFile } from '../api.js';
+import { getBatchDetail, downloadFile, allocateBatch } from '../api.js';
+import { state } from '../state.js';
 import type { BatchDetail as BatchDetailType, Card } from '../types.js';
 
 function formatDate(iso: string | null): string {
@@ -26,8 +27,13 @@ export function BatchDetail({ batchId }: { batchId: string }) {
   const [batch, setBatch] = useState<BatchDetailType | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [allocRecipient, setAllocRecipient] = useState('');
+  const [allocCount, setAllocCount] = useState(10);
+  const [allocBusy, setAllocBusy] = useState(false);
+  const [allocMsg, setAllocMsg] = useState('');
+  const [allocErr, setAllocErr] = useState('');
 
-  useEffect(() => {
+  function reload() {
     setLoading(true);
     setError('');
     getBatchDetail(batchId)
@@ -36,7 +42,36 @@ export function BatchDetail({ batchId }: { batchId: string }) {
         setError(err instanceof Error ? err.message : String(err));
         setLoading(false);
       });
-  }, [batchId]);
+  }
+
+  useEffect(() => { reload(); }, [batchId]);
+
+  async function handleAllocate(e: Event) {
+    e.preventDefault();
+    setAllocErr('');
+    setAllocMsg('');
+    const recipient = allocRecipient.trim().toLowerCase().replace(/^@/, '');
+    if (!recipient) { setAllocErr('Recipient username required'); return; }
+    if (!Number.isInteger(allocCount) || allocCount < 1 || allocCount > 100) {
+      setAllocErr('Count must be between 1 and 100');
+      return;
+    }
+    setAllocBusy(true);
+    try {
+      const result = await allocateBatch(batchId, recipient, allocCount);
+      setAllocMsg(
+        result.allocated === result.requested
+          ? `Allocated ${result.allocated} cards to @${result.recipient}`
+          : `Allocated ${result.allocated}/${result.requested} cards to @${result.recipient} (pool exhausted)`,
+      );
+      setAllocRecipient('');
+      reload();
+    } catch (err) {
+      setAllocErr(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAllocBusy(false);
+    }
+  }
 
   if (loading) {
     return html`<div class="ct"><div class="loading"><span class="spinner" /> Loading batch...</div></div>`;
@@ -57,6 +92,9 @@ export function BatchDetail({ batchId }: { batchId: string }) {
   const spent = batch.cards.filter(c => c.status === 'spent').length;
   const revoked = batch.cards.filter(c => c.status === 'revoked').length;
   const expired = new Date(batch.expiresAt) < new Date();
+  const isAdmin = state.role === 'admin';
+  const allocatedCount = batch.cards.filter(c => !!c.allocatedTo).length;
+  const availableForAllocation = batch.cards.filter(c => !c.allocatedTo && c.status === 'active').length;
 
   return html`
     <div class="ct">
@@ -86,6 +124,10 @@ export function BatchDetail({ batchId }: { batchId: string }) {
             <dt>Note</dt>
             <dd>${batch.note}</dd>
           `}
+          ${batch.allocatable && html`
+            <dt>Pool</dt>
+            <dd><span class="badge badge-active">allocation pool</span> ${allocatedCount} allocated · ${availableForAllocation} available</dd>
+          `}
         </dl>
 
         <div class="status-row mb">
@@ -106,6 +148,35 @@ export function BatchDetail({ batchId }: { batchId: string }) {
         </div>
       </div>
 
+      ${isAdmin && batch.allocatable && html`
+        <div class="card mt1">
+          <h3 style="margin-top:0">Allocate cards</h3>
+          <p class="sm mt mb">Assign unclaimed cards from this pool to another approved issuer. They'll see them under "My Allocations" and can print a PDF of just their cards.</p>
+          <form onSubmit=${handleAllocate}>
+            <div class="form-row">
+              <label for="alloc-to">Recipient</label>
+              <input id="alloc-to" type="text" placeholder="username"
+                value=${allocRecipient}
+                onInput=${(e: Event) => setAllocRecipient((e.target as HTMLInputElement).value)}
+                disabled=${allocBusy} />
+            </div>
+            <div class="form-row">
+              <label for="alloc-count">Count</label>
+              <input id="alloc-count" type="number" min="1" max="100" step="1"
+                value=${allocCount}
+                onInput=${(e: Event) => { const v = parseInt((e.target as HTMLInputElement).value); if (!isNaN(v)) setAllocCount(v); }}
+                disabled=${allocBusy} />
+              <p class="form-hint">${availableForAllocation} cards available in this pool</p>
+            </div>
+            <button type="submit" disabled=${allocBusy || availableForAllocation === 0}>
+              ${allocBusy ? 'Allocating...' : 'Allocate'}
+            </button>
+          </form>
+          ${allocMsg && html`<p class="ok mt1">${allocMsg}</p>`}
+          ${allocErr && html`<p class="err mt1">${allocErr}</p>`}
+        </div>
+      `}
+
       <h2>Cards (${batch.cards.length})</h2>
       <div style="overflow-x:auto">
         <table class="table">
@@ -113,6 +184,7 @@ export function BatchDetail({ batchId }: { batchId: string }) {
             <tr>
               <th>Token Prefix</th>
               <th>Status</th>
+              ${batch.allocatable && html`<th>Allocated To</th>`}
               <th>Claimed By</th>
               <th>Claimed At</th>
             </tr>
@@ -122,6 +194,7 @@ export function BatchDetail({ batchId }: { batchId: string }) {
               <tr key=${card.tokenPrefix}>
                 <td class="mono">${card.tokenPrefix}...</td>
                 <td>${statusBadge(card.status)}</td>
+                ${batch.allocatable && html`<td>${card.allocatedTo ? `@${card.allocatedTo}` : '-'}</td>`}
                 <td>${card.claimedBy ? `@${card.claimedBy}` : '-'}</td>
                 <td class="sm">${formatDate(card.claimedAt)}</td>
               </tr>

@@ -38,6 +38,8 @@ const SHORT_TO_LONG: Record<string, string> = {
   cm: 'communities',
   rf: 'referrer',
   si: 'signer',
+  eo: 'extendedOnboarding',
+  ic: 'introPostCommunity',
 };
 
 function fromShortKeys(obj: Record<string, unknown>): GiftCardPayload {

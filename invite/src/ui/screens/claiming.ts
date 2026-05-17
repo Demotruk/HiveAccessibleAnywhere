@@ -125,7 +125,8 @@ export const ClaimingScreen: ScreenFn = async (container, state, advance) => {
         account: data.account,
         tx_id: data.tx_id || '',
       };
-      advance('success');
+      const extendedFlow = state.payload?.extendedOnboarding === true && __VARIANT__ === 'standard';
+      advance(extendedFlow ? 'profile' : 'success');
     } else {
       showError(data.error || t.claiming_failed);
     }

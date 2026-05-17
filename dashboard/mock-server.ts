@@ -15,6 +15,13 @@ const ADMIN_USER = 'haa-giftcard';
 let currentUser = MOCK_USER; // tracks the last-authenticated user
 
 // In-memory batch store
+interface MockCard {
+  tokenPrefix: string;
+  status: string;
+  claimedBy: string | null;
+  claimedAt: string | null;
+  allocatedTo: string | null;
+}
 interface MockBatch {
   id: string;
   createdAt: string;
@@ -25,7 +32,8 @@ interface MockBatch {
   merkleRoot: string;
   note: string | null;
   provider: string;
-  cards: { tokenPrefix: string; status: string; claimedBy: string | null; claimedAt: string | null }[];
+  allocatable: boolean;
+  cards: MockCard[];
 }
 
 const batches: MockBatch[] = [];
@@ -46,12 +54,13 @@ function seedBatches() {
     merkleRoot: randomBytes(32).toString('hex'),
     note: 'First test batch',
     provider: MOCK_USER,
+    allocatable: false,
     cards: [
-      { tokenPrefix: randomBytes(4).toString('hex'), status: 'spent', claimedBy: 'alice', claimedAt: new Date(now.getTime() - 43200000).toISOString() },
-      { tokenPrefix: randomBytes(4).toString('hex'), status: 'spent', claimedBy: 'bob', claimedAt: new Date(now.getTime() - 36000000).toISOString() },
-      { tokenPrefix: randomBytes(4).toString('hex'), status: 'active', claimedBy: null, claimedAt: null },
-      { tokenPrefix: randomBytes(4).toString('hex'), status: 'active', claimedBy: null, claimedAt: null },
-      { tokenPrefix: randomBytes(4).toString('hex'), status: 'revoked', claimedBy: null, claimedAt: null },
+      { tokenPrefix: randomBytes(4).toString('hex'), status: 'spent', claimedBy: 'alice', claimedAt: new Date(now.getTime() - 43200000).toISOString(), allocatedTo: null },
+      { tokenPrefix: randomBytes(4).toString('hex'), status: 'spent', claimedBy: 'bob', claimedAt: new Date(now.getTime() - 36000000).toISOString(), allocatedTo: null },
+      { tokenPrefix: randomBytes(4).toString('hex'), status: 'active', claimedBy: null, claimedAt: null, allocatedTo: null },
+      { tokenPrefix: randomBytes(4).toString('hex'), status: 'active', claimedBy: null, claimedAt: null, allocatedTo: null },
+      { tokenPrefix: randomBytes(4).toString('hex'), status: 'revoked', claimedBy: null, claimedAt: null, allocatedTo: null },
     ],
   });
 
@@ -65,11 +74,40 @@ function seedBatches() {
     merkleRoot: randomBytes(32).toString('hex'),
     note: null,
     provider: MOCK_USER,
+    allocatable: false,
     cards: [
-      { tokenPrefix: randomBytes(4).toString('hex'), status: 'active', claimedBy: null, claimedAt: null },
-      { tokenPrefix: randomBytes(4).toString('hex'), status: 'active', claimedBy: null, claimedAt: null },
-      { tokenPrefix: randomBytes(4).toString('hex'), status: 'active', claimedBy: null, claimedAt: null },
+      { tokenPrefix: randomBytes(4).toString('hex'), status: 'active', claimedBy: null, claimedAt: null, allocatedTo: null },
+      { tokenPrefix: randomBytes(4).toString('hex'), status: 'active', claimedBy: null, claimedAt: null, allocatedTo: null },
+      { tokenPrefix: randomBytes(4).toString('hex'), status: 'active', claimedBy: null, claimedAt: null, allocatedTo: null },
     ],
+  });
+
+  // Pre-seed an allocation pool batch owned by the operator (haa-giftcard).
+  // Some cards already allocated to setuptest so the recipient view has data.
+  const poolId = `batch-${Date.now() - 432000000}-pool01`;
+  const poolCards: MockCard[] = Array.from({ length: 30 }, (_, i) => ({
+    tokenPrefix: randomBytes(4).toString('hex'),
+    status: 'active',
+    claimedBy: null,
+    claimedAt: null,
+    allocatedTo: i < 10 ? 'setuptest' : null,
+  }));
+  // One claimed allocated card to show claim status flowing through
+  poolCards[0].status = 'spent';
+  poolCards[0].claimedBy = 'newhiveuser';
+  poolCards[0].claimedAt = new Date(now.getTime() - 7200000).toISOString();
+  batches.push({
+    id: poolId,
+    createdAt: new Date(now.getTime() - 432000000).toISOString(),
+    expiresAt: new Date(now.getTime() + 360 * 86400000).toISOString(),
+    count: poolCards.length,
+    promiseType: 'account-creation',
+    declarationTx: randomBytes(20).toString('hex'),
+    merkleRoot: randomBytes(32).toString('hex'),
+    note: 'Starter allocation pool',
+    provider: ADMIN_USER,
+    allocatable: true,
+    cards: poolCards,
   });
 }
 
@@ -232,11 +270,12 @@ const server = createServer(async (req, res) => {
       const now = new Date();
       const expiryDays = body.expiryDays || 365;
 
-      const cards = Array.from({ length: count }, () => ({
+      const cards: MockCard[] = Array.from({ length: count }, () => ({
         tokenPrefix: randomBytes(4).toString('hex'),
         status: 'active',
         claimedBy: null,
         claimedAt: null,
+        allocatedTo: null,
       }));
 
       const batch: MockBatch = {
@@ -248,8 +287,9 @@ const server = createServer(async (req, res) => {
         declarationTx: randomBytes(20).toString('hex'),
         merkleRoot: randomBytes(32).toString('hex'),
         note: body.note || null,
-        provider: MOCK_USER,
-        cards,
+        provider: currentUser,
+        allocatable: !!body.allocatable,
+        cards: cards.map(c => ({ ...c, allocatedTo: null })),
       };
       batches.unshift(batch);
 
@@ -274,7 +314,9 @@ const server = createServer(async (req, res) => {
     // GET /api/batches — list
     if (method === 'GET' && path === '/api/batches') {
       if (!checkAuth(req)) return json(res, { error: 'Unauthorized' }, 401);
-      const result = batches.map(b => ({
+      const role = getRole(currentUser);
+      const visible = role === 'admin' ? batches : batches.filter(b => b.provider === currentUser);
+      const result = visible.map(b => ({
         batchId: b.id,
         createdAt: b.createdAt,
         expiresAt: b.expiresAt,
@@ -283,6 +325,8 @@ const server = createServer(async (req, res) => {
         declarationTx: b.declarationTx,
         merkleRoot: b.merkleRoot,
         note: b.note,
+        allocatable: b.allocatable,
+        allocated: b.cards.filter(c => c.allocatedTo !== null).length,
         status: {
           active: b.cards.filter(c => c.status === 'active').length,
           spent: b.cards.filter(c => c.status === 'spent').length,
@@ -307,8 +351,95 @@ const server = createServer(async (req, res) => {
         declarationTx: batch.declarationTx,
         merkleRoot: batch.merkleRoot,
         note: batch.note,
+        allocatable: batch.allocatable,
         cards: batch.cards,
       });
+    }
+
+    // POST /api/admin/batches/:id/allocate
+    const allocateMatch = path.match(/^\/api\/admin\/batches\/([^/]+)\/allocate$/);
+    if (method === 'POST' && allocateMatch) {
+      if (!checkAuth(req)) return json(res, { error: 'Unauthorized' }, 401);
+      if (getRole(currentUser) !== 'admin') return json(res, { error: 'Admin access required' }, 403);
+      const body = JSON.parse(await readBody(req));
+      const recipient = (body.to || '').toLowerCase().trim().replace(/^@/, '');
+      const requested = body.count;
+      if (!recipient) return json(res, { error: 'Missing recipient' }, 400);
+      if (!Number.isInteger(requested) || requested < 1 || requested > 100) {
+        return json(res, { error: 'count must be 1-100' }, 400);
+      }
+      const batch = batches.find(b => b.id === allocateMatch[1]);
+      if (!batch) return json(res, { error: 'Batch not found' }, 404);
+      if (!batch.allocatable) return json(res, { error: 'Allocatable batch not found' }, 404);
+      if (batch.provider !== currentUser) return json(res, { error: 'Allocatable batch not found' }, 404);
+      if (recipient === currentUser) return json(res, { error: 'Cannot allocate to yourself' }, 400);
+      const recipientRow = issuers.find(i => i.username === recipient);
+      if (!recipientRow) return json(res, { error: `No issuer record for @${recipient}` }, 404);
+      if (recipientRow.status === 'banned') return json(res, { error: `@${recipient} is banned` }, 400);
+      let allocated = 0;
+      for (const c of batch.cards) {
+        if (allocated >= requested) break;
+        if (c.allocatedTo === null && c.status === 'active') {
+          c.allocatedTo = recipient;
+          allocated++;
+        }
+      }
+      console.log(`[ALLOC] @${currentUser} allocated ${allocated}/${requested} cards from ${batch.id} to @${recipient}`);
+      return json(res, { allocated, requested, batchId: batch.id, recipient });
+    }
+
+    // GET /api/allocations/me
+    if (method === 'GET' && path === '/api/allocations/me') {
+      if (!checkAuth(req)) return json(res, { error: 'Unauthorized' }, 401);
+      const me = currentUser;
+      const summaries: Array<{ batchId: string; batchProvider: string; batchExpiresAt: string; total: number; active: number; spent: number }> = [];
+      const cardsOut: Array<{ tokenPrefix: string; batchId: string; batchProvider: string; status: string; claimedBy: string | null; claimedAt: string | null; expiresAt: string }> = [];
+      for (const b of batches) {
+        const mine = b.cards.filter(c => c.allocatedTo === me);
+        if (mine.length === 0) continue;
+        summaries.push({
+          batchId: b.id,
+          batchProvider: b.provider,
+          batchExpiresAt: b.expiresAt,
+          total: mine.length,
+          active: mine.filter(c => c.status === 'active').length,
+          spent: mine.filter(c => c.status === 'spent').length,
+        });
+        for (const c of mine) {
+          cardsOut.push({
+            tokenPrefix: c.tokenPrefix,
+            batchId: b.id,
+            batchProvider: b.provider,
+            status: c.status,
+            claimedBy: c.claimedBy,
+            claimedAt: c.claimedAt,
+            expiresAt: b.expiresAt,
+          });
+        }
+      }
+      return json(res, { batches: summaries, cards: cardsOut });
+    }
+
+    // GET /api/allocations/me/pdf?batch=:id
+    if (method === 'GET' && path === '/api/allocations/me/pdf') {
+      if (!checkAuth(req)) return json(res, { error: 'Unauthorized' }, 401);
+      const batchId = url.searchParams.get('batch');
+      const include = url.searchParams.get('include') ?? 'unclaimed';
+      if (!batchId) return json(res, { error: 'Missing batch query parameter' }, 400);
+      const batch = batches.find(b => b.id === batchId);
+      if (!batch) return json(res, { error: 'Source batch PDF not found' }, 404);
+      const matching = batch.cards.filter(c =>
+        c.allocatedTo === currentUser && (include === 'all' || c.status === 'active'));
+      if (matching.length === 0) return json(res, { error: 'No allocated cards to print' }, 404);
+      const content = `Mock allocation PDF for batch ${batch.id}\nRecipient: @${currentUser}\nCards: ${matching.length}\nInclude: ${include}\n`;
+      res.writeHead(200, {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="${batch.id}-allocated-${currentUser}.pdf"`,
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      });
+      res.end(content);
+      return;
     }
 
     // GET /api/batches/:id/pdf — fake PDF

@@ -19,6 +19,10 @@ docs/drafts/
 .claude/scheduled_tasks.lock
 .claude/scheduled-tasks/
 
+# Claude Code local settings
+.claude/settings.local.json
+**/.claude/settings.local.json
+
 # OS
 .DS_Store
 Thumbs.db
